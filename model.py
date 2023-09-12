@@ -1,3 +1,4 @@
+import math
 import torch as th
 from torch import nn
 import torch.cuda.amp
@@ -7,7 +8,7 @@ from pathlib import Path
 from typing import Union
 
 
-class Recognizer(nn.Module):
+class Racoonizer(nn.Module):
 	
 	def __init__(
 		self,
@@ -24,17 +25,24 @@ class Recognizer(nn.Module):
 		self.action_dim = action_dim
 		self.reward_dim = reward_dim
 		
+		self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_width)
+		self.gelu = clip_model.QuickGELU()
+		
 		self.model = clip_model.Transformer(
 			width = xfrmr_width, 
 			layers = 4, 
 			heads = 4, 
 			attn_mask = None)
 		
-		model_to_action = nn.Linear(xfrmr_width, action_dim)
-		model_to_reward = nn.Linear(xfrmr_width, 2) # immedate and infinite-horizon
+		self.model_to_action = nn.Linear(xfrmr_width, action_dim)
+		self.softmax = nn.Softmax(dim = 0)
+		self.model_to_reward = nn.Linear(xfrmr_width, 2) 
+			# reward: immediate and infinite-horizon
+		self.latent_slow = nn.Parameter(
+			th.randn(latent_cnt, world_dim // 2) / (world_dim ** 0.5))
 		
 		
-	def encodePos(i, j): 
+	def encodePos(self, i, j): 
 		p = th.zeros(6)
 		scl = 2 * math.pi / 9.0
 		p[0] = math.sin(i*scl)
@@ -48,98 +56,49 @@ class Recognizer(nn.Module):
 
 
 	def encodeBoard(self, cursPos, board, guess, notes): 
-		x = th.zeros(1 + 81, world_dim)
+		x = th.zeros(1 + 81, self.world_dim)
 		
 		# encode the cursor token
 		x[0, 0] = 1
-		x[0, 1+9*3:] = encodePos(cursPos[0], cursPos[1])
+		x[0, 1+9*3:] = self.encodePos(cursPos[0], cursPos[1])
 
 		#encode the board state
 		for i in range(9): 
 			for j in range(9): 
-				k = 1 + i*9 + j
-				m = board[i][j] 
+				k = 1 + i*9 + j # token number
+				m = math.floor(board[i][j]) # works b/c 1 indexed.
 				if m > 0: 
 					x[k, m] = 1.0
-				m = guess[i][j]
+				m = math.floor(guess[i][j]) # also ok: 1-indexed.
 				if m > 0: 
 					x[k, m+9] = 1.0
 				x[k, 1+9*2:1+9*3] = notes[i,j,:]
-				x[k,1+9*3:] = encodePos(i, j)
+				x[k,1+9*3:] = self.encodePos(i, j)
 		return x
-		
 	
 	def forward(self, board_enc, latents): 
+		latents = th.cat((self.latent_slow, latents), 1)
 		x = th.cat((board_enc, latents), 0)
+		x = self.gelu(self.world_to_xfrmr(x))
+		y = self.model(x)
+		action = self.model_to_action(y[0,:])
+		# softmax over numbers and actions
+		action = th.cat( 
+			(self.softmax(action[0:10]), self.softmax(action[10:])), 0)
+		reward = self.model_to_reward(y[0,:])
+		return action, reward
 		
-		y = model(x)
-		action = model_to_action(y[0,:])
-		reward = model_to_reward(y[0,:])
-		
-		
-		# encode the image (we should only need to do this once??)
-		q = th.zeros(6) # ! this will be parallelized !
-		vx = self.vit(batch_a) # x is size [bs, v_ctx, 256] 
-		q[0] = th.std(vx)
-		vx = self.vit_to_prt(vx)
-		q[1] = th.std(vx)
-		# vx = gelu(vx) # ? needed ? 
-
-		px = self.encoder(batch_p)
-		q[2] = th.std(px)
-		vxpx = th.cat((vx, px), dim = 1)
-		q[3] = th.std(vxpx)
-		# x = vxpx * mask
-		x = self.prt(vxpx) # bs, v_ctx + p_ctx, prog_width
-		q[4] = th.std(x)
-		x = th.reshape(x, (-1,(self.v_ctx + self.p_ctx)*self.prog_width))
-		# batch size will vary with dataparallel
-		x = self.prt_to_edit(x)
-		q[5] = th.std(x)
-		# x = self.ln_post(x) # scale the inputs to softmax
-		# x = self.gelu(x)
-		# x = th.cat((self.tok_softmax(x[:,0:4]),
-		# 		  self.tok_softmax(x[:,4:4+toklen]), 
-		# 		  x[:,4+toklen:]), dim=1) -- this is for fourier position enc. 
-		return x,q
-
-	@staticmethod
-	def build_attention_mask(v_ctx, p_ctx):
-		# allow the model to attend to everything when predicting an edit
-		# causalty is enforced by the editing process.
-		# see ec31.py for a causal mask.
-		ctx = v_ctx + p_ctx
-		mask = th.ones(ctx, ctx)
-		return mask
-	
-	def load_checkpoint(self, path: Union[Path, str]=None):
-		if path is None:
-			path = self.CHECKPOINT_SAVEPATH
-			self.load_state_dict(th.load(path))
-   
-	def save_checkpoint(self, path: Union[Path, str]=None):
-		if path is None:
-			path = self.CHECKPOINT_SAVEPATH
-		torch.save(self.state_dict(), path)
-		print(f"saved checkpoint to {path}")
-   
-	
-	def print_model_params(self): 
-		print(self.prt_to_tok.weight[0,:])
-		print(self.prt.resblocks[0].mlp[0].weight[0,:])
-		print(self.vit_to_prt.weight[0,1:20])
-		print(self.vit.transformer.resblocks[0].mlp[0].weight[0,1:20])
-		print(self.vit.conv1.weight[0,:])
-		# it would seem that all the model parameters are changing.
-  
-	def std_model_params(self): 
-		q = th.zeros(5)
-		q[0] = th.std(self.vit.conv1.weight)
-		q[1] = th.std(self.vit.transformer.resblocks[0].mlp[0].weight)
-		q[2] = th.std(self.vit_to_prt.weight)
-		q[3] = th.std(self.prt.resblocks[0].mlp[0].weight)
-		q[4] = th.std(self.prt_to_tok.weight)
-		return q
+	def backLatent(self, board_enc, action, reward): 
+		# in supervised learning need to derive latent based on 
+		# action, reward, and board state. 
+		latents = torch.zeros(latent_cnt, world_dim // 2, requires_grad = True)
+		ap, rp = self.forward(board_enc, latents)
+		err = th.sum((action - ap)**2, (reward - rp)**2)
+		err.backward()
+		print(latents.grad())
+		pdb.set_trace()
+		latents += latents.grad() * 0.1 # ??
+		return latents
 
 	def print_n_params(self):
 		trainable_params = sum(

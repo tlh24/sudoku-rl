@@ -1,5 +1,6 @@
 import random
 import math
+import numpy as np
 from termcolor import colored
 
 class Sudoku:
@@ -10,7 +11,7 @@ class Sudoku:
 		# Compute square root of N
 		SRNd = math.sqrt(N)
 		self.SRN = int(SRNd)
-		self.mat = [[0 for _ in range(N)] for _ in range(N)]
+		self.mat = np.zeros((N, N), dtype=np.float32)
 	
 	def fillValues(self):
 		# Fill the diagonal of SRN x SRN matrices
@@ -29,7 +30,7 @@ class Sudoku:
 	def unUsedInBox(self, rowStart, colStart, num):
 		for i in range(self.SRN):
 			for j in range(self.SRN):
-				if self.mat[rowStart + i][colStart + j] == num:
+				if self.mat[rowStart + i, colStart + j] == num:
 					return False
 		return True
 		
@@ -40,7 +41,7 @@ class Sudoku:
 		for i in range(self.SRN): 
 			for j in range(self.SRN): 
 				num = nums[i*self.SRN + j]
-				self.mat[row + i][col + j] = num
+				self.mat[row + i, col + j] = num
 	
 	def fillBox(self, row, col):
 		num = 0
@@ -50,7 +51,7 @@ class Sudoku:
 					num = self.randomGenerator(self.N)
 					if self.unUsedInBox(row, col, num):
 						break
-				self.mat[row + i][col + j] = num
+				self.mat[row + i, col + j] = num
 	
 	def randomGenerator(self, num):
 		return math.floor(random.random() * num + 1)
@@ -62,16 +63,15 @@ class Sudoku:
 	
 	def unUsedInRow(self, i, num):
 		for j in range(self.N):
-			if self.mat[i][j] == num:
+			if self.mat[i,j] == num:
 				return False
 		return True
 	
 	def unUsedInCol(self, j, num):
 		for i in range(self.N):
-			if self.mat[i][j] == num:
+			if self.mat[i,j] == num:
 				return False
 		return True
-	
 	
 	def fillRemaining(self, i, j):
 		# Check if we have reached the end of the matrix
@@ -84,7 +84,7 @@ class Sudoku:
 			j = 0
 	
 		# Skip cells that are already filled
-		if self.mat[i][j] != 0:
+		if self.mat[i,j] != 0:
 			return self.fillRemaining(i, j + 1)
 	
 		# Try filling the current cell with a valid value
@@ -92,11 +92,11 @@ class Sudoku:
 		random.shuffle(nums)
 		for num in nums:
 			if self.checkIfSafe(i, j, num):
-				self.mat[i][j] = num
+				self.mat[i,j] = num
 				# recursive -- allows for backtracking
 				if self.fillRemaining(i, j + 1):
 					return True
-				self.mat[i][j] = 0
+				self.mat[i,j] = 0
 		
 		# No valid value was found, so backtrack
 		return False
@@ -107,18 +107,22 @@ class Sudoku:
 		while (count != 0):
 			i = self.randomGenerator(self.N) - 1
 			j = self.randomGenerator(self.N) - 1
-			if (self.mat[i][j] != 0):
+			if (self.mat[i,j] != 0):
 				count -= 1
-				self.mat[i][j] = 0
+				self.mat[i,j] = 0
 	
 		return
+		
+	def setMat(self, mat): 
+		self.mat = mat
 
 	def printSudoku(self):
 		for i in range(self.N):
 			for j in range(self.N):
 				k = i // 3 + j // 3
 				color = "black" if k % 2 == 0 else "red"
-				print(colored(self.mat[i][j], color), end=" ")
+				p = math.floor(self.mat[i,j])
+				print(colored(p, color), end=" ")
 			print()
 
 # Driver code
