@@ -1,11 +1,17 @@
 import math
+import mmap
 import torch as th
 from torch import nn, optim
 import numpy as np
-from sudoku_gen import Sudoku
+import argparse
 import matplotlib.pyplot as plt
-import model
 import pdb
+from ctypes import * # for io
+
+import model
+from sudoku_gen import Sudoku
+from plot_mmap import make_mmf, write_mmap
+from constants import *
  
 # input encoding: 
 # one token for the cursor position. 
@@ -23,14 +29,6 @@ import pdb
 
 sudoku = Sudoku(9, 25)
 
-xfrmr_width = 128
-world_dim = 1 + 9*3 + 6 # must be even!
-action_dim = 10 + 9 
-	# digits 0-9 (0=nothing); move, set/unset, note/unnote, nop
-reward_dim = 2 # immediate and infinte-horizon
-latent_cnt = 96 - 81 - 1 # 14
-
-
 # before we decode multiple actions per episode, 
 # test with one action; no architectural change required. 
 model = model.Racoonizer(
@@ -44,14 +42,14 @@ model = model.Racoonizer(
 
 class ReplayData: 
 	def __init__(self, mat, curs_pos, board_enc, new_board,
-				  guess, notes, num, act, reward): 
+				  guess, notes, hotnum, hotact, reward): 
 		self.mat = mat
 		self.curs_pos = curs_pos
 		self.board_enc = board_enc
 		self.new_board = new_board
 		self.guess = guess
-		self.num = num # discrete: what was chosen
-		self.act = act
+		self.hotnum = hotnum # discrete: what was chosen
+		self.hotact = hotact
 		self.reward = reward # instant reward
 		self.previous = -1
 	def setPrev(self, previous): 
@@ -143,7 +141,11 @@ def runAction(action, sudoku, cursPos, guess, notes):
 			sact = 'nop'
 		print(f'runAction @ {cursPos[0]},{cursPos[1]}: {sact}; {num}')
 	
-	return num, act, reward
+	hotnum = th.zeros_like(action[i,0:10])
+	hotnum[num] = 1.0
+	hotact = th.zeros_like(action[i,10:])
+	hotact[act] = 1.0
+	return hotnum, hotact, reward
 	
 def runStep(sudoku, cursPos, guess, notes): 
 	board_enc = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
@@ -161,12 +163,12 @@ def runStep(sudoku, cursPos, guess, notes):
 	ltrew,action,latents = selec[0]
 	print(f'selected long term reward {ltrew}')
 	
-	num,act,reward = runAction(action, sudoku, cursPos, guess, notes)
+	hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
 	# runAction updates the cursor, notes, guess.
 	new_board = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
 	
 	d = ReplayData(sudoku.mat, cursPos, board_enc, new_board,
-					guess, notes, num, act, reward)
+					guess, notes, hotnum, hotact, reward)
 	return d
 
 
@@ -191,6 +193,13 @@ def updateTotalRew():
 		r = update(e)
 		if r > e.treward:
 			e.setTotalRew(r)
+			
+fd_world = make_mmf("world.mmap", [batch_size, 82, world_dim])
+fd_worldp = make_mmf("worldp.mmap", [batch_size, 82, world_dim])
+fd_action = make_mmf("action.mmap", [batch_size, latent_cnt, action_dim])
+fd_actionp = make_mmf("actionp.mmap", [batch_size, latent_cnt, action_dim])
+fd_reward = make_mmf("reward.mmap", [batch_size, latent_cnt, reward_dim])
+fd_rewardp = make_mmf("rewardp.mmap", [batch_size, latent_cnt, reward_dim])
 		
 for p in range(100): 
 	for u in range(100):
@@ -223,17 +232,19 @@ for p in range(100):
 	optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 	# TODO: 
+	# -- check the board predictions etc .. need a test harness.
+	# -- verify that it's actually converging 
+	# -- can memorize the training dataset
 	# -- make this batched & run it on the GPU
 	# -- select longer runs for prediction-training
-	# -- verify that it's actually converging
-	# -- check the board predictions etc .. need a test harness.
-	# -- prune away useless rollouts
+	# -- prune away useless rollouts?
 	for u in range(100): 
 		i = np.random.randint(len(replay_buffer))
 		d = replay_buffer[i]
 		# NOTE: need to sample a variable number of output actions
 		actions = th.zeros(latent_cnt, action_dim)
-		actions[0, :] = d.act
+		actions[0, 0:10] = d.hotnum
+		actions[0, 10:] = d.hotact
 		rewards = th.zeros(latent_cnt, reward_dim)
 		rewards[0,0] = d.reward
 		rewards[0,1] = d.treward
@@ -249,3 +260,11 @@ for p in range(100):
 		
 		loss.detach()
 		print(loss.item())
+
+		if u % 10 == 9: 
+			write_mmap(fd_world, d.new_board)
+			write_mmap(fd_worldp, wp.detach())
+			write_mmap(fd_action, actions)
+			write_mmap(fd_actionp, ap.detach())
+			write_mmap(fd_reward, rewards)
+			write_mmap(fd_rewardp, rp.detach())
