@@ -32,7 +32,7 @@ class Racoonizer(nn.Module):
 		
 		self.xfrmr_to_world = nn.Linear(xfrmr_width, world_dim)
 		self.xfrmr_to_action = nn.Linear(xfrmr_width, action_dim)
-		self.softmax = nn.Softmax(dim = 1)
+		self.softmax = nn.Softmax(dim = 2)
 		self.xfrmr_to_reward = nn.Linear(xfrmr_width, 2) 
 			# reward: immediate and infinite-horizon
 		self.latent_slow = nn.Parameter(
@@ -77,27 +77,30 @@ class Racoonizer(nn.Module):
 	
 	def forward(self, board_enc, latents): 
 		# note: spatially, the number of latents = number of actions
-		latents = th.cat((self.latent_slow, latents), 1)
-		x = th.cat((board_enc, latents), 0)
+		batch_size = board_enc.shape[0]
+		lslow = self.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
+		latents = th.cat((lslow, latents), 2)
+		x = th.cat((board_enc, latents), 1)
 		x = self.gelu(self.world_to_xfrmr(x))
 		y = self.xfrmr(x)
-		new_board = self.xfrmr_to_world(y[0:82, :]) # including cursor
-		action = self.xfrmr_to_action(y[82:,:])
+		new_board = self.xfrmr_to_world(y[:,0:82, :]) # including cursor
+		action = self.xfrmr_to_action(y[:,82:,:])
 		# for softmax, have to allow for "no action"=[0] and "no number"=[-1]
 		action = th.cat( 
-			(self.softmax(action[:,0:10]), self.softmax(action[:,10:])), 1)
-		reward = self.xfrmr_to_reward(y[82:,:])
+			(self.softmax(action[:,:,0:10]), self.softmax(action[:,:,10:])), 2)
+		reward = self.xfrmr_to_reward(y[:,82:,:])
 		return new_board, action, reward
 		
 	def backLatent(self, board_enc, new_board, actions, rewards): 
 		# in supervised learning need to derive latent based on 
 		# action, reward, and board state. 
 		# yes, this is rather circular... 
-		latents = th.zeros(self.latent_cnt, self.world_dim // 2, requires_grad = True)
+		batch_size = board_enc.shape[0]
+		latents = th.zeros(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True)
 		for i in range(5):
 			self.zero_grad()
 			wp, ap, rp = self.forward(board_enc, latents)
-			err = th.sum((new_board - wp)**2) + \
+			err = th.sum((new_board - wp)**2)*0.05 + \
 					th.sum((actions - ap)**2) + \
 					th.sum((rewards - rp)**2) 
 			err.backward()

@@ -40,15 +40,16 @@ def write_mmap(mmf, data):
 	return n
 
 if __name__ == "__main__":
-	parser = argparse.ArgumentParser(description='image mmaped files')
-	parser.add_argument("-b", "--batch_size", help="Set the batch size", type=int)
-
-	args = parser.parse_args()
-	batch_size = args.batch_size
-
+	# parser = argparse.ArgumentParser(description='image mmaped files')
+	# parser.add_argument("-b", "--batch_size", help="Set the batch size", type=int)
+ # 
+	# args = parser.parse_args()
+	# batch_size = args.batch_size
+ # 
 	print(f"batch_size:{batch_size}")
 
-	fd_world = make_mmf("world.mmap", [batch_size, 82, world_dim])
+	fd_board = make_mmf("board.mmap", [batch_size, 82, world_dim])
+	fd_new_board = make_mmf("new_board.mmap", [batch_size, 82, world_dim])
 	fd_worldp = make_mmf("worldp.mmap", [batch_size, 82, world_dim])
 	fd_action = make_mmf("action.mmap", [batch_size, latent_cnt, action_dim])
 	fd_actionp = make_mmf("actionp.mmap", [batch_size, latent_cnt, action_dim])
@@ -57,7 +58,7 @@ if __name__ == "__main__":
 
 
 	plot_rows = 2
-	plot_cols = 3
+	plot_cols = 4
 	figsize = (16, 8)
 	plt.ion()
 	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
@@ -85,19 +86,24 @@ if __name__ == "__main__":
 		bs = 32
 
 	while True:
-		world = read_mmap(fd_world, [batch_size, 82, world_dim])
+		board = read_mmap(fd_board, [batch_size, 82, world_dim])
+		new_board = read_mmap(fd_new_board, [batch_size, 82, world_dim])
 		worldp = read_mmap(fd_worldp, [batch_size, 82, world_dim])
 		action = read_mmap(fd_action, [batch_size, latent_cnt, action_dim])
 		actionp = read_mmap(fd_actionp, [batch_size, latent_cnt, action_dim])
 		reward = read_mmap(fd_reward, [batch_size, latent_cnt, reward_dim])
 		rewardp = read_mmap(fd_rewardp, [batch_size, latent_cnt, reward_dim])
 
-		plot_tensor(0, 0, world[0,:,:], "world[0,:,:]", -2.0, 2.0)
-		plot_tensor(1, 0, worldp[0,:,:], "worldp[0,:,:]", -2.0, 2.0)
-		plot_tensor(0, 1, action[0,:,:], "action[0,:,:]", -2.0, 2.0)
-		plot_tensor(1, 1, actionp[0,:,:], "actionp[0,:,:]", -2.0, 2.0)
-		plot_tensor(0, 2, reward[0,:,:], "reward[0,:,:]", -2.0, 2.0)
-		plot_tensor(1, 2, rewardp[0,:,:], "rewardp[0,:,:]", -2.0, 2.0)
+		i = np.random.randint(batch_size)
+		i = 0
+		plot_tensor(0, 0, new_board[i,:,:], f"new_board[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 0, worldp[i,:,:], f"worldp[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 1, new_board[i,:,:] - board[i,:,:], f"(new_board -  board)[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 1, worldp[i,:,:] - new_board[i,:,:], f"(worldp - new_board)[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 2, action[i,:,:], f"action[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 2, actionp[i,:,:], f"actionp[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 3, reward[i,:,:], f"reward[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 3, rewardp[i,:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
 		
 		fig.tight_layout()
 		fig.canvas.draw()

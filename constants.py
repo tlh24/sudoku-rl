@@ -5,4 +5,4 @@ action_dim = 10 + 9
 reward_dim = 2 # immediate and infinte-horizon
 latent_cnt = 96 - 81 - 1 # 14
 
-batch_size = 1
+batch_size = 8

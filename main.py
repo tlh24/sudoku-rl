@@ -149,19 +149,18 @@ def runAction(action, sudoku, cursPos, guess, notes):
 	
 def runStep(sudoku, cursPos, guess, notes): 
 	board_enc = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
-	if False: 
-		plt.imshow(board_enc.numpy())
-		plt.colorbar()
-		plt.show()
+	board_enc = th.unsqueeze(board_enc, 0)
 
 	selec = []
 	for i in range(6):
-		latents = th.randn(latent_cnt, world_dim // 2)
+		latents = th.randn(1, latent_cnt, world_dim // 2)
 		_, action, pred_rew = model.forward(board_enc, latents)
-		selec.append(( pred_rew[0,1], action.detach(), latents.detach() ))
+		selec.append(( pred_rew[0,0,1], action.detach(), latents.detach() ))
 	selec = sorted(selec, key=lambda s: -1*s[0])
 	ltrew,action,latents = selec[0]
 	print(f'selected long term reward {ltrew}')
+	action = th.squeeze(action)
+	# discard latents -- re-estimate later (depends on model)
 	
 	hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
 	# runAction updates the cursor, notes, guess.
@@ -194,12 +193,14 @@ def updateTotalRew():
 		if r > e.treward:
 			e.setTotalRew(r)
 			
-fd_world = make_mmf("world.mmap", [batch_size, 82, world_dim])
+fd_board = make_mmf("board.mmap", [batch_size, 82, world_dim])
+fd_new_board = make_mmf("new_board.mmap", [batch_size, 82, world_dim])
 fd_worldp = make_mmf("worldp.mmap", [batch_size, 82, world_dim])
 fd_action = make_mmf("action.mmap", [batch_size, latent_cnt, action_dim])
 fd_actionp = make_mmf("actionp.mmap", [batch_size, latent_cnt, action_dim])
 fd_reward = make_mmf("reward.mmap", [batch_size, latent_cnt, reward_dim])
 fd_rewardp = make_mmf("rewardp.mmap", [batch_size, latent_cnt, reward_dim])
+
 		
 for p in range(100): 
 	for u in range(100):
@@ -232,26 +233,38 @@ for p in range(100):
 	optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 	# TODO: 
-	# -- check the board predictions etc .. need a test harness.
+	# -- prune rollouts by total reward: ignore actions that just cost time.
+	#    need to avoid degeneracy: sampling the same option over and over
+	# -- add in option to sample multipe actions?? if they are predictable?
+	# -- continue to check the board predictions etc.  
 	# -- verify that it's actually converging 
 	# -- can memorize the training dataset
-	# -- make this batched & run it on the GPU
+	# -- run it on the GPU
 	# -- select longer runs for prediction-training
 	# -- prune away useless rollouts?
 	for u in range(100): 
-		i = np.random.randint(len(replay_buffer))
-		d = replay_buffer[i]
-		# NOTE: need to sample a variable number of output actions
-		actions = th.zeros(latent_cnt, action_dim)
-		actions[0, 0:10] = d.hotnum
-		actions[0, 10:] = d.hotact
-		rewards = th.zeros(latent_cnt, reward_dim)
-		rewards[0,0] = d.reward
-		rewards[0,1] = d.treward
-		latents = model.backLatent(d.board_enc, d.new_board, actions, rewards)
+		board = th.zeros(batch_size, 82, world_dim)
+		new_board = th.zeros(batch_size, 82, world_dim)
+		actions = th.zeros(batch_size, latent_cnt, action_dim)
+		rewards = th.zeros(batch_size, latent_cnt, reward_dim)
+		latents = th.zeros(batch_size, latent_cnt, world_dim//2)
 		
-		wp, ap, rp = model.forward(d.board_enc, latents)
-		loss = th.sum((d.new_board - wp)**2) + \
+		for b in range(batch_size): 
+			i = np.random.randint(len(replay_buffer))
+			d = replay_buffer[i]
+			board[b,:,:] = d.board_enc
+			new_board[b,:,:] = d.new_board
+			# NOTE: need to sample a variable number of output actions
+			actions[b, 0, 0:10] = d.hotnum
+			actions[b, 0, 10:] = d.hotact
+			rewards[b, 0,0] = d.reward
+			rewards[b, 0,1] = d.treward
+			
+
+		latents = model.backLatent(board, new_board, actions, rewards)
+		
+		wp, ap, rp = model.forward(board, latents)
+		loss = th.sum((new_board - wp)**2)*0.05 + \
 					th.sum((actions - ap)**2) + \
 					th.sum((rewards - rp)**2) 
 		loss.backward()
@@ -262,7 +275,8 @@ for p in range(100):
 		print(loss.item())
 
 		if u % 10 == 9: 
-			write_mmap(fd_world, d.new_board)
+			write_mmap(fd_board, board)
+			write_mmap(fd_new_board, new_board)
 			write_mmap(fd_worldp, wp.detach())
 			write_mmap(fd_action, actions)
 			write_mmap(fd_actionp, ap.detach())
