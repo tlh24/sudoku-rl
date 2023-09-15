@@ -1,12 +1,8 @@
 import math
 import torch as th
 from torch import nn
-import torch.cuda.amp
-from ctypes import *
 import clip_model
-from pathlib import Path
-from typing import Union
-
+import pdb
 
 class Racoonizer(nn.Module):
 	
@@ -28,15 +24,16 @@ class Racoonizer(nn.Module):
 		self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_width)
 		self.gelu = clip_model.QuickGELU()
 		
-		self.model = clip_model.Transformer(
+		self.xfrmr = clip_model.Transformer(
 			width = xfrmr_width, 
-			layers = 4, 
+			layers = 6, 
 			heads = 4, 
 			attn_mask = None)
 		
-		self.model_to_action = nn.Linear(xfrmr_width, action_dim)
-		self.softmax = nn.Softmax(dim = 0)
-		self.model_to_reward = nn.Linear(xfrmr_width, 2) 
+		self.xfrmr_to_world = nn.Linear(xfrmr_width, world_dim)
+		self.xfrmr_to_action = nn.Linear(xfrmr_width, action_dim)
+		self.softmax = nn.Softmax(dim = 1)
+		self.xfrmr_to_reward = nn.Linear(xfrmr_width, 2) 
 			# reward: immediate and infinite-horizon
 		self.latent_slow = nn.Parameter(
 			th.randn(latent_cnt, world_dim // 2) / (world_dim ** 0.5))
@@ -58,14 +55,16 @@ class Racoonizer(nn.Module):
 	def encodeBoard(self, cursPos, board, guess, notes): 
 		x = th.zeros(1 + 81, self.world_dim)
 		
-		# encode the cursor token
-		x[0, 0] = 1
+		# first token is the cursor (redundant -- might not be needed?)
+		x[0, 0] = 1 # indicate this is the cursor token
 		x[0, 1+9*3:] = self.encodePos(cursPos[0], cursPos[1])
 
 		#encode the board state
 		for i in range(9): 
 			for j in range(9): 
 				k = 1 + i*9 + j # token number
+				if i == cursPos[0] and j == cursPos[1]: 
+					x[k,0] = -1.0 # cursor on this square
 				m = math.floor(board[i][j]) # works b/c 1 indexed.
 				if m > 0: 
 					x[k, m] = 1.0
@@ -77,27 +76,38 @@ class Racoonizer(nn.Module):
 		return x
 	
 	def forward(self, board_enc, latents): 
+		# note: spatially, the number of latents = number of actions
 		latents = th.cat((self.latent_slow, latents), 1)
 		x = th.cat((board_enc, latents), 0)
 		x = self.gelu(self.world_to_xfrmr(x))
-		y = self.model(x)
-		action = self.model_to_action(y[0,:])
-		# softmax over numbers and actions
+		y = self.xfrmr(x)
+		new_board = self.xfrmr_to_world(y[0:82, :]) # including cursor
+		action = self.xfrmr_to_action(y[82:,:])
+		# for softmax, have to allow for "no action"=[0] and "no number"=[-1]
 		action = th.cat( 
-			(self.softmax(action[0:10]), self.softmax(action[10:])), 0)
-		reward = self.model_to_reward(y[0,:])
-		return action, reward
+			(self.softmax(action[:,0:10]), self.softmax(action[:,10:])), 1)
+		reward = self.xfrmr_to_reward(y[82:,:])
+		return new_board, action, reward
 		
-	def backLatent(self, board_enc, action, reward): 
+	def backLatent(self, board_enc, new_board, actions, rewards): 
 		# in supervised learning need to derive latent based on 
 		# action, reward, and board state. 
-		latents = torch.zeros(latent_cnt, world_dim // 2, requires_grad = True)
-		ap, rp = self.forward(board_enc, latents)
-		err = th.sum((action - ap)**2, (reward - rp)**2)
-		err.backward()
-		print(latents.grad())
-		pdb.set_trace()
-		latents += latents.grad() * 0.1 # ??
+		# yes, this is rather circular... 
+		latents = th.zeros(self.latent_cnt, self.world_dim // 2, requires_grad = True)
+		for i in range(5):
+			self.zero_grad()
+			wp, ap, rp = self.forward(board_enc, latents)
+			err = th.sum((new_board - wp)**2) + \
+					th.sum((actions - ap)**2) + \
+					th.sum((rewards - rp)**2) 
+			err.backward()
+			with th.no_grad():
+				latents -= latents.grad * 0.15 # ??
+			if i == 4: 
+				print("backLatent std,err:", th.std(latents).detach().cpu().item(), err.detach().cpu().item())
+		# z-score the latents so we can draw from the same distro at opt time.  
+		s = th.clip(th.std(latents), 1.0, 1e6)
+		latents = latents / s
 		return latents
 
 	def print_n_params(self):
