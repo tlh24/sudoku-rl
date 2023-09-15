@@ -192,7 +192,7 @@ def updateTotalRew():
 		if r > e.treward:
 			e.setTotalRew(r)
 		
-for p in range(10): 
+for p in range(100): 
 	for u in range(100):
 		i = np.random.randint(puzzles.shape[0])
 		puzzl = puzzles[i, :, :]
@@ -222,7 +222,12 @@ for p in range(10):
 	# TODO: need to start some games from the middle .. 
 	optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-	# next: training! 
+	# TODO: 
+	# -- make this batched & run it on the GPU
+	# -- select longer runs for prediction-training
+	# -- verify that it's actually converging
+	# -- check the board predictions etc .. need a test harness.
+	# -- prune away useless rollouts
 	for u in range(100): 
 		i = np.random.randint(len(replay_buffer))
 		d = replay_buffer[i]
