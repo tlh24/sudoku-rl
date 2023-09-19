@@ -96,7 +96,7 @@ class Racoonizer(nn.Module):
 		# action, reward, and board state. 
 		# yes, this is rather circular... 
 		batch_size = board_enc.shape[0]
-		latents = th.zeros(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True)
+		latents = th.zeros(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True, device = board_enc.device)
 		for i in range(5):
 			self.zero_grad()
 			wp, ap, rp = self.forward(board_enc, latents)
