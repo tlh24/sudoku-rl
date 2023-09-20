@@ -7,7 +7,8 @@ import argparse
 import matplotlib.pyplot as plt
 import pdb
 from ctypes import * # for io
-from multiprocessing import Pool
+# from multiprocessing import Pool
+from functools import partial
 
 import model
 from sudoku_gen import Sudoku
@@ -39,7 +40,7 @@ def actionName(act):
 
 class ReplayData: 
 	def __init__(self, mat, curs_pos, board_enc, new_board,
-				  guess, notes, hotnum, hotact, reward): 
+				  guess, notes, hotnum, hotact, reward, predreward): 
 		self.mat = mat # immutable, ref ok.
 		self.curs_pos = curs_pos.copy() # otherwise, you store a ref.
 		self.board_enc = board_enc.clone()
@@ -48,13 +49,14 @@ class ReplayData:
 		self.hotnum = hotnum.clone() # discrete: what was chosen
 		self.hotact = hotact.clone()
 		self.reward = reward # instant reward
+		self.predreward = predreward # what we expected the lt reward to be..
 		self.previous = -1
 	def setPrev(self, previous): 
 		self.previous = previous
 	def setTotalRew(self, treward): 
 		self.treward = treward
 	def print(self, fd, indx): 
-		fd.write(f'[{indx}] cursor {self.curs_pos[0]},{self.curs_pos[1]} prev:{self.previous}\n')
+		fd.write(f'[{indx}] cursor {self.curs_pos[0]},{self.curs_pos[1]} prev:{self.previous} ltrew:{self.treward}\n')
 		sact = actionName(np.argmax(self.hotact))
 		num = np.argmax(self.hotnum)
 		fd.write(f'\t num:{num} act:{sact} rew:{self.reward}\n')
@@ -136,51 +138,63 @@ def runStep(sudoku, cursPos, guess, notes):
 	board_enc = th.unsqueeze(board_enc, 0)
 
 	selec = []
-	for i in range(6):
-		latents = th.randn(1, latent_cnt, world_dim // 2).cuda()
-		_, action, pred_rew = model.forward(board_enc.cuda(), latents)
-		selec.append(( pred_rew[0,0,1].cpu(), action.cpu().detach(), latents.cpu().detach() ))
-	selec = sorted(selec, key=lambda s: -1*s[0])
-	ltrew,action,latents = selec[0]
-	print(f'selected long term reward {ltrew}')
-	action = th.squeeze(action)
-	# discard latents -- re-estimate later (depends on model)
+	n = 64
+	latents = th.randn(n, latent_cnt, world_dim // 2).cuda()
+	board_encp = board_enc.cuda()
+	board_encp = board_encp.expand(n,-1,-1)
+	_, action, pred_rew = model.forward(board_encp, latents)
+	best = th.argmax(pred_rew[:,-1,1].detach())
+	predreward = pred_rew[best,0,0].cpu().detach()
+	ltrew = pred_rew[best,-1,1].cpu().detach()
+	action = action[best,:,:].cpu().detach() 
+	# discard latents? -- re-estimate later (depends on model)
 	
 	hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
+	print(f'selected long term reward {ltrew}; got {reward}')
 	# runAction updates the cursor, notes, guess.
 	new_board = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
 	
 	d = ReplayData(sudoku.mat, cursPos, board_enc, new_board,
-					guess, notes, hotnum, hotact, reward)
+					guess, notes, hotnum, hotact, reward, predreward)
 	return d
 
-def updateTotalRew(): 
+def updateTotalRew(replay_buffer): 
 	# for each element in the replay buffer, 
-	# update the total reward with the maximum reward  
-	# for any path eminating from a given node.
+	# update the total reward for the path leading there..
 	for e in replay_buffer: 
-		e.setTotalRew(0.0)
+		e.setTotalRew(-100.0)
 	def update(e):
 		p = e.previous
-		r = 0.0
 		if p >= 0:
 			r = e.reward + update(replay_buffer[p])
 		else:
 			r = e.reward
 		return r
+	s = 0.0
 	for e in replay_buffer: 
 		r = update(e)
-		if r > e.treward:
-			e.setTotalRew(r)
+		e.setTotalRew(r)
+		s += r
+	s /= len(replay_buffer)
+	return s
 			
-def printReplayBuffer():
+def saveReplayBuffer(replay_buffer):
 	fd = open('replay_buffer.txt', 'w')
 	for i,e in enumerate(replay_buffer): 
 		e.print(fd, i)
 	fd.close()
+	
+	fd = open('rewardlog.txt', 'w')
+	for e in replay_buffer: 
+		fd.write(f'{e.reward}\t{e.predreward}\n')
+	fd.close()
 
-def makeBatch(b):
-	i = np.random.randint(len(replay_buffer))
+def makeBatch(b, replay_buffer, meanrew):
+	r = -1.0
+	while(r < meanrew):
+		i = np.random.randint(len(replay_buffer))
+		d = replay_buffer[i]
+		r = d.treward
 	j = np.random.randint(5) 
 	d = replay_buffer[i]
 	k = 0
@@ -197,7 +211,7 @@ def makeBatch(b):
 		actions_batch[k, 0:10] = d.hotnum
 		actions_batch[k, 10:] = d.hotact
 		rewards_batch[k, 0] = d.reward
-		rewards_batch[k, 1] = d.treward
+	rewards_batch[:,1] = th.cumsum(rewards_batch[:,0], dim=0)
 	d = lst[0]
 	board_batch = d.board_enc
 	d = lst[-1]
@@ -216,8 +230,8 @@ if __name__ == '__main__':
 		action_dim = action_dim, 
 		reward_dim = reward_dim).cuda()
 
-	pool = Pool() #defaults to number of available CPU's
-	chunksize = 1
+	# pool = Pool() #defaults to number of available CPU's
+	# chunksize = 1
 	
 	replay_buffer = [] # this needs to be a tree. 
 	puzzles = th.load('puzzles_100000.pt')
@@ -246,8 +260,9 @@ if __name__ == '__main__':
 				for j in range(9):
 					if puzzl[i,j] > 0.0:
 						notes[i,j,:] = 0.0 # clear all clue squares
-			
-			d = runStep(sudoku, cursPos, guess, notes)
+		
+			# !! only takes one action .. should be multiple?
+			d = runStep(sudoku, cursPos, guess, notes) 
 			replay_buffer.append(d)
 			
 			v = 0
@@ -258,11 +273,11 @@ if __name__ == '__main__':
 				d = dp
 				v += 1
 
-		updateTotalRew()
-		printReplayBuffer()
+		meanrew = updateTotalRew(replay_buffer)
+		print(f'mean reward {meanrew}')
+		saveReplayBuffer(replay_buffer)
 			
-		# TODO: need to start some games from the middle .. 
-		optimizer = optim.Adam(model.parameters(), lr=1e-3)
+		# TODO: need to start some games from the middle
 
 		# TODO: 
 		# -- prune rollouts by total reward: ignore actions that just cost time.
@@ -277,6 +292,9 @@ if __name__ == '__main__':
 		# -- run it on the GPU
 		# -- select longer runs for prediction-training
 		# -- prune away useless rollouts?
+		
+		optimizer = optim.AdamW(model.parameters(), lr=5e-4)
+		
 		for u in range(400): 
 			
 			board = th.zeros(batch_size, 82, world_dim)
@@ -284,7 +302,9 @@ if __name__ == '__main__':
 			actions = th.zeros(batch_size, latent_cnt, action_dim)
 			rewards = th.zeros(batch_size, latent_cnt, reward_dim)
 			
-			results = pool.map(makeBatch, range(batch_size))
+			makeBatchPartial = partial(makeBatch, replay_buffer=replay_buffer, meanrew=meanrew)
+			# results = pool.map(makeBatchPartial, range(batch_size))
+			results = map(makeBatchPartial, range(batch_size))
 
 			for b, result in enumerate(results):
 				board[b, :, :], new_board[b, :, :], actions[b, :, :], rewards[b, :, :] = result

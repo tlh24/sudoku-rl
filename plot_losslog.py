@@ -3,6 +3,7 @@ import csv
 import pdb
 import matplotlib.pyplot as plt
 import time
+# import sklearn
 
 # remove menubar buttons
 plt.rcParams['toolbar'] = 'None'
@@ -14,10 +15,22 @@ plt.ion()
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 initialized = False
 
+def slidingWindowR2(x, y, window_size, stride):
+	n = len(x)
+	r2_values = []
+
+	for i in range(0, n - window_size + 1, stride):
+		x_window = x[i : i + window_size]
+		y_window = y[i : i + window_size]
+		r2 = np.corrcoef(x_window, y_window)
+		r2_values.append(np.clip(r2[0,1], -1, 1))
+
+	return r2_values
+
+
 while True: 
 	with open("losslog.txt", 'r') as x:
 		data = list(csv.reader(x, delimiter="\t"))
-
 	data = np.array(data)
 	data = data.astype(float)
 
@@ -25,18 +38,23 @@ while True:
 	ax[0,0].plot(data[:,0], np.log(data[:, 1]), 'b')
 	ax[0,0].set(xlabel='iteration')
 	ax[0,0].set_title('log loss')
+	
+	with open("rewardlog.txt", 'r') as x:
+		data = list(csv.reader(x, delimiter="\t"))
+	data = np.array(data)
+	data = data.astype(float)
+	
+	ax[0,1].cla()
+	ax[0,1].scatter(data[:,0], data[:, 1], c=range(data.shape[0]), cmap='viridis', s=100)
+	ax[0,1].set(xlabel='actual reward')
+	ax[0,1].set(ylabel='predicted reward')
+	ax[0,1].set_title('reward')
 
-	# labels = ["vit","vit_to_prt","encoder","vxpx","prt","prt_to_edit"]
-	# for i in range(7): 
-	# 	r = (i+1) // 4
-	# 	c = (i+1) % 4
-	# 	ax[r,c].cla()
-	# 	ax[r,c].plot(data[:,0], data[:,i+2], 'b')
-	# 	if i < 6: 
-	# 		lab = labels[i]
-	# 		ax[r,c].set_title(f'st.dev {lab} output')
-	# 	else: 
-	# 		ax[r,c].set_title(f'number of replacements')
+	ax[1,1].cla()
+	r2 = slidingWindowR2(data[:,0], data[:,1], 100, 10)
+	ax[1,1].plot(r2)
+	ax[1,1].set(xlabel='time')
+	ax[1,1].set_title('r^2 of actual vs predicted')
 
 	fig.tight_layout()
 	fig.canvas.draw()
