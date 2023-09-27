@@ -38,25 +38,29 @@ def actionName(act):
 		sact = 'nop'
 	return sact
 
+'''
+replay_buffer is a list of lists
+each sub-list = an episode. 
+Eventually need to replace this with a tree for even longer planning ..
+'''
+
 class ReplayData: 
-	def __init__(self, mat, curs_pos, board_enc, new_board,
+	def __init__(self, mat, cursPos, board_enc, new_board,
 				  guess, notes, hotnum, hotact, reward, predreward): 
 		self.mat = mat # immutable, ref ok.
-		self.curs_pos = curs_pos.copy() # otherwise, you store a ref.
+		self.cursPos = cursPos.copy() # otherwise, you store a ref.
 		self.board_enc = board_enc.clone()
 		self.new_board = new_board.clone()
 		self.guess = guess.clone()
+		self.notes = notes.clone()
 		self.hotnum = hotnum.clone() # discrete: what was chosen
 		self.hotact = hotact.clone()
 		self.reward = reward # instant reward
 		self.predreward = predreward # what we expected the lt reward to be..
-		self.previous = -1
-	def setPrev(self, previous): 
-		self.previous = previous
 	def setTotalRew(self, treward): 
 		self.treward = treward
-	def print(self, fd, indx): 
-		fd.write(f'[{indx}] cursor {self.curs_pos[0]},{self.curs_pos[1]} prev:{self.previous} ltrew:{self.treward}\n')
+	def print(self, fd, i,j): 
+		fd.write(f'[{i},{j}] cursor {self.cursPos[0]},{self.cursPos[1]}\n')
 		sact = actionName(np.argmax(self.hotact))
 		num = np.argmax(self.hotnum)
 		fd.write(f'\t num:{num} act:{sact} rew:{self.reward}\n')
@@ -138,11 +142,12 @@ def runStep(sudoku, cursPos, guess, notes):
 	board_enc = th.unsqueeze(board_enc, 0)
 
 	selec = []
-	n = 64
-	latents = th.randn(n, latent_cnt, world_dim // 2).cuda()
+	n = 8
 	board_encp = board_enc.cuda()
 	board_encp = board_encp.expand(n,-1,-1)
-	_, action, pred_rew = model.forward(board_encp, latents)
+	
+	latents, action, pred_rew = model.backLatentReward(board_encp)
+	
 	best = th.argmax(pred_rew[:,-1,1].detach())
 	predreward = pred_rew[best,0,0].cpu().detach()
 	ltrew = pred_rew[best,-1,1].cpu().detach()
@@ -157,54 +162,70 @@ def runStep(sudoku, cursPos, guess, notes):
 	d = ReplayData(sudoku.mat, cursPos, board_enc, new_board,
 					guess, notes, hotnum, hotact, reward, predreward)
 	return d
-
-def updateTotalRew(replay_buffer): 
-	# for each element in the replay buffer, 
-	# update the total reward for the path leading there..
-	for e in replay_buffer: 
-		e.setTotalRew(-100.0)
-	def update(e):
-		p = e.previous
-		if p >= 0:
-			r = e.reward + update(replay_buffer[p])
-		else:
-			r = e.reward
-		return r
-	s = 0.0
-	for e in replay_buffer: 
-		r = update(e)
-		e.setTotalRew(r)
-		s += r
-	s /= len(replay_buffer)
-	return s
 			
 def saveReplayBuffer(replay_buffer):
 	fd = open('replay_buffer.txt', 'w')
-	for i,e in enumerate(replay_buffer): 
-		e.print(fd, i)
+	for i,episode in enumerate(replay_buffer): 
+		for j,e in enumerate(episode):
+			e.print(fd, i, j)
 	fd.close()
 	
-	fd = open('rewardlog.txt', 'w')
-	for e in replay_buffer: 
-		fd.write(f'{e.reward}\t{e.predreward}\n')
-	fd.close()
+	# fd = open('rewardlog.txt', 'w')
+	# for e in replay_buffer: 
+	# 	fd.write(f'{e.reward}\t{e.predreward}\n')
+	# fd.close()
+	
+def compressReplayBuffer(model, sudoku, replay_buffer): 
+	# given input and output, infer latents to produce actions. 
+	# see if this action has the same effect as the original
+	# if so, replace it. 
+	pdb.set_trace()
+	to_add = []
+	to_remove = []
+	for episode in replay_buffer: 
+		board_enc = episode[0].board_enc # includes everything! cursPos etc
+		new_board = episode[-1].new_board
+		
+		latents,ap,rp = model.backLatentBoard(board_enc.cuda(), new_board.cuda())
+		# check by running.
+		p = episode[0]
+		cursPos[0] = p.cursPos[0] # deep copy
+		cursPos[1] = p.cursPos[1]
+		guess = p.guess.clone() # throw away other.
+		notes = p.notes.clone()
+		replays = []
+		for i in range(14): 
+			act = ap[0, i, 10:].detach().cpu().numpy()
+			if np.max(act) > 0.75: 
+				board_encp = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
+				board_encp = th.unsqueeze(board_enc, 0)
+				
+				hotnum, hotact,reward = runAction(ap[i, :], sudoku, cursPos, guess, notes)
+				new_boardp = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
+				
+				d = ReplayData(sudoku.mat, cursPos, board_encp, new_boardp,
+					guess, notes, hotnum, hotact, reward, rp[i,0])
+				replays.append(d)
+				
+		if np.sum(np.abs(new_board - new_boardp)) < 0.1: 
+			print("!! found a replacement / simplification! !!" )
+			for d in replays: 
+				to_add.append(replays)
+				to_remove.append(episode)
+	
+	for rem in to_remove: 
+		replay_buffer.remove(rem)
+	for add in to_add: 
+		replay_buffer.append(add)
 
-def makeBatch(b, replay_buffer, meanrew):
-	r = -1.0
-	while(r < meanrew):
-		i = np.random.randint(len(replay_buffer))
-		d = replay_buffer[i]
-		r = d.treward
-	j = np.random.randint(5) 
-	d = replay_buffer[i]
-	k = 0
-	lst = []
-	lst.append(d)
-	while k < j and d.previous > 0: # walk backwards
-		prev = d.previous
-		d = replay_buffer[prev]
-		lst.insert(0, d) # chronological order
-		k += 1
+
+def makeBatch(b, replay_buffer):
+	r = np.random.randint(len(replay_buffer))
+	episode = replay_buffer[r]
+	
+	j = np.random.randint(len(episode)) 
+	lst = episode[j:]
+	
 	actions_batch = th.zeros(latent_cnt, action_dim)
 	rewards_batch = th.zeros(latent_cnt, reward_dim)
 	for k, d in enumerate(lst):
@@ -233,7 +254,8 @@ if __name__ == '__main__':
 	# pool = Pool() #defaults to number of available CPU's
 	# chunksize = 1
 	
-	replay_buffer = [] # this needs to be a tree. 
+	replay_buffer = [] # this ought to be a tree. 
+	terminal_buffer = [] # indexes replay_buffer
 	puzzles = th.load('puzzles_100000.pt')
 	
 	fd_board = make_mmf("board.mmap", [batch_size, 82, world_dim])
@@ -261,25 +283,31 @@ if __name__ == '__main__':
 					if puzzl[i,j] > 0.0:
 						notes[i,j,:] = 0.0 # clear all clue squares
 		
-			# !! only takes one action .. should be multiple?
+			episode = []
 			d = runStep(sudoku, cursPos, guess, notes) 
-			replay_buffer.append(d)
+			episode.append(d)
 			
 			v = 0
-			while d.reward >= -0.5 and v < 14:
-				dp = runStep(sudoku, cursPos, guess, notes)
-				dp.setPrev(len(replay_buffer)-1)
-				replay_buffer.append(dp)
-				d = dp
+			while d.reward >= -0.5 and d.reward <= 0.5 and v < 13:
+				d = runStep(sudoku, cursPos, guess, notes)
+				episode.append(d)
 				v += 1
+			replay_buffer.append(episode)
 
-		meanrew = updateTotalRew(replay_buffer)
-		print(f'mean reward {meanrew}')
 		saveReplayBuffer(replay_buffer)
-			
-		# TODO: need to start some games from the middle
+		
+		oldlen = len(replay_buffer)
+		compressReplayBuffer(model, sudoku, replay_buffer)
+		newlen = len(replay_buffer)
+		print(f'replay buffer old {oldlen} to {newlen}')
 
 		# TODO: 
+		# -- Start some games from the middle
+		# -- Select actions for **more than just reward** 
+		#    maybe predictability, estimated information gain, 
+		#    some other internal metrics?  
+		#    some sort of internally generated progress, 
+		#    inclusive of information gain?  
 		# -- prune rollouts by total reward: ignore actions that just cost time.
 		#    need to avoid degeneracy: sampling the same option over and over
 		#    internal novelty reward? 
@@ -302,34 +330,12 @@ if __name__ == '__main__':
 			actions = th.zeros(batch_size, latent_cnt, action_dim)
 			rewards = th.zeros(batch_size, latent_cnt, reward_dim)
 			
-			makeBatchPartial = partial(makeBatch, replay_buffer=replay_buffer, meanrew=meanrew)
+			makeBatchPartial = partial(makeBatch, replay_buffer=replay_buffer)
 			# results = pool.map(makeBatchPartial, range(batch_size))
 			results = map(makeBatchPartial, range(batch_size))
 
 			for b, result in enumerate(results):
 				board[b, :, :], new_board[b, :, :], actions[b, :, :], rewards[b, :, :] = result
-			
-			# for b in range(batch_size): 
-			# 	i = np.random.randint(len(replay_buffer))
-			# 	j = np.random.randint(5) # step back maximally j actions. 
-			# 	d = replay_buffer[i]
-			# 	k = 0
-			# 	lst = []
-			# 	lst.append(d)
-			# 	while k < j and d.previous > 0: # walk backwards
-			# 		prev = d.previous
-			# 		d = replay_buffer[prev]
-			# 		lst.insert(0,d) # chronological order
-			# 		k += 1
-			# 	for k,d in enumerate(lst):
-			# 		actions[b, k, 0:10] = d.hotnum
-			# 		actions[b, k, 10:] = d.hotact
-			# 		rewards[b, k, 0] = d.reward
-			# 		rewards[b, k, 1] = d.treward
-			# 	d = lst[0]
-			# 	board[b,:,:] = d.board_enc
-			# 	d = lst[-1]
-			# 	new_board[b,:,:] = d.new_board
 				
 			board = board.cuda()
 			new_board = new_board.cuda()

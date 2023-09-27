@@ -96,22 +96,68 @@ class Racoonizer(nn.Module):
 		# action, reward, and board state. 
 		# yes, this is rather circular... 
 		batch_size = board_enc.shape[0]
-		latents = th.zeros(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True, device = board_enc.device)
+		latents = th.randn(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True, device = board_enc.device) 
 		for i in range(5):
 			self.zero_grad()
-			wp, ap, rp = self.forward(board_enc, latents)
+			wp, ap, rp = self.forward(board_enc, latents / 10.0)
 			err = th.sum((new_board - wp)**2)*0.05 + \
 					th.sum((actions - ap)**2) + \
 					th.sum((rewards - rp)**2) 
 			err.backward()
 			with th.no_grad():
 				latents -= latents.grad * 0.15 # ??
+				latents -= latents * 0.03 # weight decay
 			if i == 4: 
 				print("backLatent std,err:", th.std(latents).detach().cpu().item(), err.detach().cpu().item())
 		# z-score the latents so we can draw from the same distro at opt time.  
+		latents = latents.detach() / 10.0
 		s = th.clip(th.std(latents), 1.0, 1e6)
 		latents = latents / s
 		return latents
+		
+	def backLatentBoard(self, board_enc, new_board): 
+		# infer the latents (and hence the actions and rewards) from beginning state and end state. 
+		batch_size = board_enc.shape[0]
+		latents = th.randn(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True, device = board_enc.device)
+		for i in range(5):
+			self.zero_grad()
+			wp, ap, rp = self.forward(board_enc, latents/10.0)
+			err = th.sum((new_board - wp)**2)*0.05
+			err.backward()
+			with th.no_grad():
+				latents -= latents.grad * 0.15 # ??
+				latents -= latents * 0.03 # weight decay
+			if True: 
+				print("backLatentBoard std,err:", th.std(latents).detach().cpu().item(), err.detach().cpu().item())
+		# z-score the latents so we can draw from the same distro at opt time.  
+		latents = latents.detach() / 10.0
+		s = th.clip(th.std(latents), 1.0, 1e6)
+		latents = latents / s
+		return latents, ap, rp
+		
+	def backLatentReward(self, board_enc): 
+		# infer the latents (and hence the actions and rewards) from only beginning state.
+		# assumes targeting a +1 reward.  FIXME
+		batch_size = board_enc.shape[0]
+		latents = th.randn(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True, device = board_enc.device) 
+		# latents.retain_grad()
+		rewards = th.ones(batch_size, self.latent_cnt, 2, device=board_enc.device)
+		for i in range(20):
+			self.zero_grad()
+			wp, ap, rp = self.forward(board_enc, latents/10.0)
+			err = th.sum((rewards[:,:,1] - rp[:,:,1])**2)
+			err.backward()
+			with th.no_grad():
+				latents -= latents.grad * 1.0 # might bounce around a bit: only 1-bit supervision.
+				latents -= latents * 0.02 # weight decay
+			if False: 
+				print("backLatentReward std,err:", th.std(latents).detach().cpu().item(), err.detach().cpu().item())
+			del err # remove the computational graph..
+		# z-score the latents so we can draw from the same distro at opt time.
+		latents = latents.detach() / 10.0
+		s = th.clip(th.std(latents), 1.0, 1e6)
+		latents = latents / s
+		return latents, ap, rp
 
 	def print_n_params(self):
 		trainable_params = sum(
