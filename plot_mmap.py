@@ -80,6 +80,7 @@ if __name__ == "__main__":
 		im[r][c].set_data(v.numpy())
 		#cbar[r][c].update_normal(im[r][c]) # probably does nothing
 		axs[r,c].set_title(name)
+		axs[r,c].tick_params(bottom=True, top=True, left=True, right=True)
 
 	bs = batch_size
 	if batch_size > 32: 
@@ -94,7 +95,7 @@ if __name__ == "__main__":
 		reward = read_mmap(fd_reward, [batch_size, latent_cnt, reward_dim])
 		rewardp = read_mmap(fd_rewardp, [batch_size, latent_cnt, reward_dim])
 
-		i = np.random.randint(batch_size)
+		# i = np.random.randint(batch_size) # checking
 		i = 0
 		plot_tensor(0, 0, new_board[i,:,:], f"new_board[{i},:,:]", -2.0, 2.0)
 		plot_tensor(1, 0, worldp[i,:,:], f"worldp[{i},:,:]", -2.0, 2.0)
@@ -109,6 +110,6 @@ if __name__ == "__main__":
 		fig.canvas.draw()
 		fig.canvas.flush_events()
 		# time.sleep(2)
-		print("tick")
+		print("tock")
 		initialized=True
 

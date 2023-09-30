@@ -55,10 +55,11 @@ while True:
 	ax[1,1].plot(r2)
 	ax[1,1].set(xlabel='time')
 	ax[1,1].set_title('r^2 of actual vs predicted')
+	ax[1,1].tick_params(bottom=True, top=True, left=True, right=True)
 
 	fig.tight_layout()
 	fig.canvas.draw()
 	fig.canvas.flush_events()
 	time.sleep(0.2)
-	print("tick")
+	print("tock")
 	#plt.show()
