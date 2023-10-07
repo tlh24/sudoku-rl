@@ -55,10 +55,11 @@ if __name__ == "__main__":
 	fd_actionp = make_mmf("actionp.mmap", [batch_size, latent_cnt, action_dim])
 	fd_reward = make_mmf("reward.mmap", [batch_size, latent_cnt, reward_dim])
 	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, latent_cnt, reward_dim])
+	fd_latent = make_mmf("latent.mmap", [batch_size, latent_cnt, world_dim])
 
 
 	plot_rows = 2
-	plot_cols = 4
+	plot_cols = 5
 	figsize = (16, 8)
 	plt.ion()
 	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
@@ -94,17 +95,20 @@ if __name__ == "__main__":
 		actionp = read_mmap(fd_actionp, [batch_size, latent_cnt, action_dim])
 		reward = read_mmap(fd_reward, [batch_size, latent_cnt, reward_dim])
 		rewardp = read_mmap(fd_rewardp, [batch_size, latent_cnt, reward_dim])
+		latent = read_mmap(fd_latent, [batch_size, latent_cnt, world_dim])
 
 		# i = np.random.randint(batch_size) # checking
 		i = 0
 		plot_tensor(0, 0, new_board[i,:,:], f"new_board[{i},:,:]", -2.0, 2.0)
 		plot_tensor(1, 0, worldp[i,:,:], f"worldp[{i},:,:]", -2.0, 2.0)
 		plot_tensor(0, 1, new_board[i,:,:] - board[i,:,:], f"(new_board -  board)[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 1, worldp[i,:,:] - new_board[i,:,:], f"(worldp - new_board)[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 1, worldp[i,:,:] - board[i,:,:], f"(worldp - board)[{i},:,:]", -2.0, 2.0)
 		plot_tensor(0, 2, action[i,:,:], f"action[{i},:,:]", -2.0, 2.0)
 		plot_tensor(1, 2, actionp[i,:,:], f"actionp[{i},:,:]", -2.0, 2.0)
-		plot_tensor(0, 3, reward[i,:,:], f"reward[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 3, rewardp[i,:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 3, np.transpose(latent[i,:,:]), f"latent (slow and fast)", -2.0, 2.0)
+		plot_tensor(1, 3, actionp[i,:,:] - action[i,:,:], f"(actionp - action)[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 4, reward[i,:,:], f"reward[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 4, rewardp[i,:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
 		
 		fig.tight_layout()
 		fig.canvas.draw()

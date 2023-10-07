@@ -11,7 +11,7 @@ class Sudoku:
 		# Compute square root of N
 		SRNd = math.sqrt(N)
 		self.SRN = int(SRNd)
-		self.mat = np.zeros((N, N), dtype=np.float32)
+		self.mat = np.zeros((N, N), dtype=np.int32)
 	
 	def fillValues(self):
 		# Fill the diagonal of SRN x SRN matrices
@@ -114,7 +114,7 @@ class Sudoku:
 		return
 		
 	def setMat(self, mat): 
-		self.mat = mat
+		self.mat = mat.astype(np.int32) # must be int!  == comparisons! 
 
 	def printSudoku(self):
 		for i in range(self.N):

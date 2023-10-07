@@ -1,4 +1,4 @@
-xfrmr_width = 64
+xfrmr_width = 128
 world_dim = 1 + 9*3 + 8 # must be even!
 action_dim = 10 + 9 
 	# digits 0-9 (0=nothing); move, set/unset, note/unnote, nop

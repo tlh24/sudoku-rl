@@ -190,6 +190,8 @@ class ResidualAttentionBlock(nn.Module):
     def forward(self, x: torch.Tensor):
         x = x + self.attention(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
+        # x = x + self.attention(x)
+        # x = x + self.mlp(x)
         return x
 
 

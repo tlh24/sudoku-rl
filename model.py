@@ -4,6 +4,7 @@ from torch import nn
 import clip_model
 import pdb
 from termcolor import colored
+import matplotlib.pyplot as plt
 
 class Racoonizer(nn.Module):
 	
@@ -28,7 +29,7 @@ class Racoonizer(nn.Module):
 		
 		self.xfrmr = clip_model.Transformer(
 			width = xfrmr_width, 
-			layers = 4, 
+			layers = 6, 
 			heads = 4, 
 			attn_mask = None)
 		
@@ -39,7 +40,7 @@ class Racoonizer(nn.Module):
 		
 		self.critic = clip_model.Transformer(
 			width = xfrmr_width, 
-			layers = 4, 
+			layers = 6, 
 			heads = 4, 
 			attn_mask = None)
 		
@@ -91,12 +92,20 @@ class Racoonizer(nn.Module):
 		return x
 		
 	def decodeBoardCursPos(self, board): 
-		i = board[0, -2]
-		j = board[0, -1]
-		return th.tensor([i,j])
+		board_pos = board[1:, 1+9*3:-2]
+		cursPos = board[0, 1+9*3:-2]
+		cursPos = cursPos.unsqueeze(0).expand(81, -1)
+		e = th.sum((cursPos - board_pos)**2, axis=1)
+		indx = th.argmin(e).item()
+		i = indx // 9
+		j = indx % 9
+		ii = board[0, -2]
+		jj = board[0, -1]
+		return th.tensor([i,j,ii,jj])
 		
-	def decodeBoard(self, board): 
-		# just the clues & cursor position.
+	def decodeBoard(self, board, num,act,rin): 
+		# first the clues & (board) cursor position.
+		clues = th.zeros(9,9)
 		for i in range(9): 
 			for j in range(9): 
 				k = 1 + i*9 + j # token number
@@ -112,11 +121,57 @@ class Racoonizer(nn.Module):
 					v = 0
 				else:
 					v = v.item()
+				clues[i,j] = v
 				if(len(attrs) > 0): 
 					print(colored(v, color, attrs=attrs), end=" ")
 				else: 
 					print(colored(v, color), end=" ")
 			print()
+		# the encoded cursor position
+		ci,cj,ii,jj = self.decodeBoardCursPos(board)
+		print(f'decoded curs pos {ci},{cj} (sincos) / {ii},{jj} (linear)')
+		print(f'decoded action {act} num {num}')
+		
+		snotes = th.zeros(9)
+		sguess = th.zeros(9)
+		# decode the notes, too. 
+		for i in range(9): 
+			for j in range(9): 
+				k = 1 + i*9 + j # token number
+				guess = board[k, 1+9*1:1+9*2]
+				notes = board[k, 1+9*2:1+9*3]
+				if i == ci and j == cj: 
+					sclue = clues[i,j]
+					snotes = notes
+					sguess = guess
+				if th.sum(notes) > 0.5: 
+					print(f'notes[{i},{j}]:', end = '')
+					for l in range(9): 
+						e = notes[l]
+						if e > 0.0: 
+							print(f'{l+1}', end=',')
+					print(' ')
+		# manually predict the reward, to make sure it's possible.
+		reward = -0.05
+		if act == 4: 
+			if snotes[num-1] > 0.5 and sclue < 1: 
+				reward = 1.0
+			else:
+				reward = -1.0
+		if act == 5: # does not depend on num.
+			if th.sum(sguess) > 0.5: 
+				reward = 0.0
+			else: 
+				reward = -0.25
+		if act == 6: 
+			if snotes[num-1] > 0.5 and sclue < 1: 
+				reward = -0.25
+		if act == 7: 
+			if snotes[num-1] < 0.5: 
+				reward = -0.25
+		if abs(reward - rin) > 0.001:
+			pdb.set_trace()
+		return reward
 	
 	def forward(self, board_enc, latents): 
 		# note: spatially, the number of latents = number of actions
@@ -136,34 +191,45 @@ class Racoonizer(nn.Module):
 		# given the board and suggested action, predict the reward. 
 		aslow = self.action_slow.unsqueeze(0).expand(batch_size, -1, -1)
 		action_l = th.cat((aslow, action), 2)
-		x = th.cat((new_board, action_l), 1) # token dim
-		x = self.gelu(self.world_to_critic(x))
-		y = self.critic(x)
-		reward = self.critic_to_reward(y[:,nt:,:]) # one reward for each action
+		# w = self.gelu(self.world_to_xfrmr(board_enc))
+		# x = th.cat((w, y[:,nt:,:]), 1) # token dim
+		z = self.critic(x)
+		reward = self.critic_to_reward(z[:,nt:,:]) # one reward for each action
 		return new_board, action, reward
 		
-	def backLatent(self, board_enc, new_board, actions, rewards): 
+	def backLatent(self, board_enc, new_board, actions, reportFun): 
 		# in supervised learning need to derive latent based on 
 		# action, reward, and board state. 
 		# yes, this is rather circular... 
 		batch_size = board_enc.shape[0]
 		latents = th.randn(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True, device = board_enc.device) 
-		for i in range(10):
+		for i in range(5):
 			self.zero_grad()
 			wp, ap, rp = self.forward(board_enc, latents / 10.0)
-			err = th.sum((new_board - wp)**2)*0.05 + \
-					th.sum((actions - ap)**2) + \
-					th.sum((rewards - rp)**2) 
+			# err = th.sum((new_board - wp)**2)*0.05 + \
+			err = th.sum((actions - ap)**2)
+				# no reward here!  latents only predict actions -- network needs to independently evaluate reward. 
+				# otherwise we get short-circuit learning.
 			err.backward()
 			with th.no_grad():
-				latents -= latents.grad * 2.0 # ??
-				latents -= latents * 0.06 # weight decay
-				s = th.clip(th.std(latents), 1.0, 1e6)
-				latents /= s
+				latents -= latents.grad * 1.0 # ??
+				latents -= latents * 0.2 # weight decay
+				if i == 4: 
+					# pdb.set_trace()
+					st = th.std(latents.grad)
+					mn = th.mean(latents.grad)
+					gf = (latents.grad - mn) / st # assume normal, zscore
+					msk = th.abs(gf) < 0.02
+					latents += (th.randn_like(latents) * msk) * err / 400 # must be last step?
+					reportFun(board_enc, new_board, actions, wp, ap, rp, latents)
+				scl = th.clip(th.std(latents, axis=-1), 1.0, 1e6) # std world dim
+				# otherwise get interactions between tokens
+				scl = scl.unsqueeze(-1).expand_as(latents)
+				latents /= scl
 			if False: 
 				print("backLatent std,err:", th.std(latents).detach().cpu().item(), err.detach().cpu().item())
 		# z-score the latents so we can draw from the same distro at opt time.  
-		print('----')
+		# print('----')
 		latents = latents.detach() / 10.0
 		s = th.clip(th.std(latents), 1.0, 1e6)
 		latents = latents / s
@@ -199,18 +265,19 @@ class Racoonizer(nn.Module):
 		latents = th.randn(batch_size, self.latent_cnt, self.world_dim // 2, requires_grad = True, device = board_enc.device) 
 		# latents.retain_grad()
 		rewards = th.ones(batch_size, self.latent_cnt, 2, device=board_enc.device)
-		for i in range(10):
+		for i in range(20):
 			self.zero_grad()
 			wp, ap, rp = self.forward(board_enc, latents/10.0)
 			err = (1.0 - th.max(rp[:,:,0]))**2 + th.min(rp[:,:,0])**2 # target +1 cumulative reward
 			err.backward()
 			with th.no_grad():
 				if False: 
-					reportFun(board_enc, wp, ap, rp)
+					reportFun(board_enc, th.zeros_like(board_enc), th.zeros_like(ap), wp, ap, rp, latents)
 					# pdb.set_trace()
 				latents -= latents.grad * 2.0 # might bounce around a bit: limited supervision.
 				latents -= latents * 0.06 # weight decay
-				s = th.clip(th.std(latents), 1.0, 1e6)
+				scl = th.clip(th.std(latents, axis=-1), 1.0, 1e6) # std world dim
+				# otherwise get spurrious interactions between tokens
 				latents /= s
 			if False: 
 				print("backLatentReward std,err:", th.std(latents).detach().cpu().item(), err.detach().cpu().item())
