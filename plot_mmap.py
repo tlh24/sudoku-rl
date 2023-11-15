@@ -86,16 +86,19 @@ if __name__ == "__main__":
 	bs = batch_size
 	if batch_size > 32: 
 		bs = 32
+		
+	update = True
 
 	while True:
-		board = read_mmap(fd_board, [batch_size, 82, world_dim])
-		new_board = read_mmap(fd_new_board, [batch_size, 82, world_dim])
-		worldp = read_mmap(fd_worldp, [batch_size, 82, world_dim])
-		action = read_mmap(fd_action, [batch_size, latent_cnt, action_dim])
-		actionp = read_mmap(fd_actionp, [batch_size, latent_cnt, action_dim])
-		reward = read_mmap(fd_reward, [batch_size, latent_cnt, reward_dim])
-		rewardp = read_mmap(fd_rewardp, [batch_size, latent_cnt, reward_dim])
-		latent = read_mmap(fd_latent, [batch_size, latent_cnt, world_dim])
+		if update: 
+			board = read_mmap(fd_board, [batch_size, 82, world_dim])
+			new_board = read_mmap(fd_new_board, [batch_size, 82, world_dim])
+			worldp = read_mmap(fd_worldp, [batch_size, 82, world_dim])
+			action = read_mmap(fd_action, [batch_size, latent_cnt, action_dim])
+			actionp = read_mmap(fd_actionp, [batch_size, latent_cnt, action_dim])
+			reward = read_mmap(fd_reward, [batch_size, latent_cnt, reward_dim])
+			rewardp = read_mmap(fd_rewardp, [batch_size, latent_cnt, reward_dim])
+			latent = read_mmap(fd_latent, [batch_size, latent_cnt, world_dim])
 
 		# i = np.random.randint(batch_size) # checking
 		i = 0
@@ -116,4 +119,9 @@ if __name__ == "__main__":
 		# time.sleep(2)
 		print("tock")
 		initialized=True
+		
+		# if reward[i,0,-1] - rewardp[i,0,-1] > 0.9: 
+		# 	print('paused!')
+		# 	update = False
+			
 

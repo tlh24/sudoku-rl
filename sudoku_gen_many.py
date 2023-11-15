@@ -10,7 +10,7 @@ from itertools import product
 # the naive sudoku generator is slow. 
 # parallelize and save the results for fast loading later.
 
-N = 100000
+N = 500000
 
 x = torch.zeros(N, 9, 9)
 

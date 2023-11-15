@@ -1,4 +1,5 @@
 import math
+import numpy as np
 import torch as th
 from torch import nn
 import clip_model
@@ -29,8 +30,9 @@ class Racoonizer(nn.Module):
 		
 		self.xfrmr = clip_model.Transformer(
 			width = xfrmr_width, 
-			layers = 6, 
+			layers = 2, 
 			heads = 4, 
+			repeat = 3, # was 3
 			attn_mask = None)
 		
 		self.xfrmr_to_world = nn.Linear(xfrmr_width, world_dim)
@@ -40,8 +42,9 @@ class Racoonizer(nn.Module):
 		
 		self.critic = clip_model.Transformer(
 			width = xfrmr_width, 
-			layers = 6, 
+			layers = 2, 
 			heads = 4, 
+			repeat = 1, 
 			attn_mask = None)
 		
 		self.softmax = nn.Softmax(dim = 2)
@@ -55,7 +58,7 @@ class Racoonizer(nn.Module):
 		
 		
 	def encodePos(self, i, j): # row, column
-		p = th.zeros(8)
+		p = np.zeros(8)
 		scl = 2 * math.pi / 9.0
 		p[0] = math.sin(i*scl)
 		p[1] = math.cos(i*scl)
@@ -64,12 +67,12 @@ class Racoonizer(nn.Module):
 		block = (i // 3)*3 + (j // 3)
 		p[4] = math.sin(block*scl) # slightly cheating here
 		p[5] = math.cos(block*scl)
-		p[6] = i
-		p[7] = j
+		p[6] = i/9
+		p[7] = j/9
 		return p
 
 	def encodeBoard(self, cursPos, board, guess, notes): 
-		x = th.zeros(self.num_tokens, self.world_dim)
+		x = np.zeros((self.num_tokens, self.world_dim))
 		
 		# first token is the cursor (redundant -- might not be needed?)
 		x[0, 0] = 1 # indicate this is the cursor token
@@ -94,18 +97,21 @@ class Racoonizer(nn.Module):
 	def decodeBoardCursPos(self, board): 
 		board_pos = board[1:, 1+9*3:-2]
 		cursPos = board[0, 1+9*3:-2]
-		cursPos = cursPos.unsqueeze(0).expand(81, -1)
-		e = th.sum((cursPos - board_pos)**2, axis=1)
-		indx = th.argmin(e).item()
+		# cursPos = cursPos.unsqueeze(0).expand(81, -1)
+		cursPos = np.expand_dims(cursPos, axis=0)
+		cursPos = np.repeat(cursPos, 81, axis=0)
+		e = np.sum((cursPos - board_pos)**2, axis=1)
+		indx = np.argmin(e).item()
 		i = indx // 9
 		j = indx % 9
 		ii = board[0, -2]
 		jj = board[0, -1]
-		return th.tensor([i,j,ii,jj])
+		return [i,j,ii,jj]
 		
 	def decodeBoard(self, board, num,act,rin): 
+		# input must be numpy ndarray
 		# first the clues & (board) cursor position.
-		clues = th.zeros(9,9)
+		clues = np.zeros((9,9))
 		for i in range(9): 
 			for j in range(9): 
 				k = 1 + i*9 + j # token number
@@ -116,7 +122,7 @@ class Racoonizer(nn.Module):
 					attrs = ["bold"]
 				else:
 					color = "black" if block % 2 == 0 else "red"
-				v = th.argmax(board[k,:10])
+				v = np.argmax(board[k,:10])
 				if board[k,v] <= 0.5:
 					v = 0
 				else:
@@ -132,8 +138,8 @@ class Racoonizer(nn.Module):
 		print(f'decoded curs pos {ci},{cj} (sincos) / {ii},{jj} (linear)')
 		print(f'decoded action {act} num {num}')
 		
-		snotes = th.zeros(9)
-		sguess = th.zeros(9)
+		snotes = np.zeros(9)
+		sguess = np.zeros(9)
 		# decode the notes, too. 
 		for i in range(9): 
 			for j in range(9): 
@@ -144,22 +150,33 @@ class Racoonizer(nn.Module):
 					sclue = clues[i,j]
 					snotes = notes
 					sguess = guess
-				if th.sum(notes) > 0.5: 
-					print(f'notes[{i},{j}]:', end = '')
-					for l in range(9): 
-						e = notes[l]
-						if e > 0.0: 
-							print(f'{l+1}', end=',')
-					print(' ')
-		# manually predict the reward, to make sure it's possible.
+				# if np.sum(notes) > 0.5: 
+				# 	print(f'notes[{i},{j}]:', end = '')
+				# 	for l in range(9): 
+				# 		e = notes[l]
+				# 		if e > 0.0: 
+				# 			print(f'{l+1}', end=',')
+				# 	print(' ')
+		valid = True
+		for i in range(9): 
+			for j in range(9): 
+				if num == clues[i,j]: 
+					if i == ci: 
+						valid = False
+					if j == cj:
+						valid = False
+					if i // 3 == ci // 3 and j // 3 == cj // 3: 
+						valid = False
+		# DEBUG: manually predict the reward, to make sure it's possible.
 		reward = -0.05
 		if act == 4: 
-			if snotes[num-1] > 0.5 and sclue < 1: 
+			# if snotes[num-1] > 0.5 and sclue < 1: 
+			if valid and sclue < 0.5: 
 				reward = 1.0
 			else:
 				reward = -1.0
 		if act == 5: # does not depend on num.
-			if th.sum(sguess) > 0.5: 
+			if np.sum(sguess) > 0.5: 
 				reward = 0.0
 			else: 
 				reward = -0.25
@@ -189,12 +206,12 @@ class Racoonizer(nn.Module):
 			(self.softmax(action[:,:,0:10]), self.softmax(action[:,:,10:])), 2)
 		
 		# given the board and suggested action, predict the reward. 
-		aslow = self.action_slow.unsqueeze(0).expand(batch_size, -1, -1)
-		action_l = th.cat((aslow, action), 2)
+		# aslow = self.action_slow.unsqueeze(0).expand(batch_size, -1, -1)
+		# action_l = th.cat((aslow, action), 2)
 		# w = self.gelu(self.world_to_xfrmr(board_enc))
 		# x = th.cat((w, y[:,nt:,:]), 1) # token dim
-		z = self.critic(x)
-		reward = self.critic_to_reward(z[:,nt:,:]) # one reward for each action
+		# z = self.critic(x)
+		reward = self.critic_to_reward(y[:,nt:,:]) # one reward for each action
 		return new_board, action, reward
 		
 	def backLatent(self, board_enc, new_board, actions, reportFun): 

@@ -50,16 +50,27 @@ while True:
 	ax[0,1].set(xlabel='time')
 	ax[0,1].set_title('r^2 of actual vs predicted')
 	ax[0,1].tick_params(bottom=True, top=True, left=True, right=True)
+	ax[0,1].set_ylim(-0.1, 1.1)
 	
 	ax[1,1].cla()
 	ax[1,1].scatter(data[:,0], data[:, 1], c=range(data.shape[0]), cmap='viridis', s=100)
 	ax[1,1].set(xlabel='actual reward')
 	ax[1,1].set(ylabel='predicted reward')
 	ax[1,1].set_title('reward')
+	
+	try: 
+		ax[1,0].cla()
+		y = np.load('prio.npy')
+		ax[1,0].plot(y[1,:], 'b')
+		ax[1,0].plot(y[2,:], 'r')
+		ax[1,0].plot(y[0,:]/100, 'k')
+		ax[1,0].set_title('sorted priority replay loss')
+	except:
+		print('prio.npy not loaded')
 
 	fig.tight_layout()
 	fig.canvas.draw()
 	fig.canvas.flush_events()
-	time.sleep(0.2)
+	time.sleep(0.5)
 	print("tock")
 	#plt.show()

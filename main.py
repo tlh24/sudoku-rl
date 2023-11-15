@@ -52,14 +52,14 @@ Eventually need to replace this with a tree for even longer planning ..
 class ReplayData: 
 	def __init__(self, mat, cursPos, board_enc, new_board,
 				  guess, notes, hotnum, hotact, reward:float, predreward:float): 
-		self.mat = mat # immutable, ref ok.
-		self.cursPos = cursPos.clone() # otherwise, you store a ref.
-		self.board_enc = board_enc.clone()
-		self.new_board = new_board.clone()
-		self.guess = guess.clone()
-		self.notes = notes.clone()
-		self.hotnum = hotnum.clone() # discrete: what was chosen
-		self.hotact = hotact.clone()
+		self.mat = mat.astype(np.int32) # immutable, ref ok.
+		self.cursPos = cursPos.numpy().copy().astype(np.int32) # otherwise, you store a ref.
+		self.board_enc = board_enc.copy()
+		self.new_board = new_board.copy()
+		self.guess = guess.numpy().copy()
+		self.notes = notes.numpy().copy()
+		self.hotnum = hotnum.numpy().copy() # discrete: what was chosen
+		self.hotact = hotact.numpy().copy()
 		self.reward = reward # instant reward
 		self.predreward = predreward # what we expected the lt reward to be..
 	def setTotalRew(self, treward): 
@@ -91,7 +91,7 @@ def decodeAction(action):
 	pnum = th.sum(action[:10]).cpu().item()
 	pact = th.sum(action[10:]).cpu().item()
 	if abs(pnum + pact - 2.0) > 0.001: 
-		print(colored('random choice error!!', 'cyan'))
+		print(colored(f'decodeAction: random choice error! {pnum},{pact}', 'cyan'))
 		num = np.random.choice(10)
 		act = np.random.choice(9)
 	else: 
@@ -117,12 +117,13 @@ def runAction(action, sudoku, cursPos, guess, notes):
 		cursPos[0] += 1
 	if act == 3: # left
 		cursPos[1] -= 1
-	cursPos[0] = cursPos[0] % 9
-	cursPos[1] = cursPos[1] % 9
+	cursPos[0] = cursPos[0] % 9 # wrap at the edges; 
+	cursPos[1] = cursPos[1] % 9 # works for negative nums
 	
 	if act == 4: 
+		clue = sudoku.mat[cursPos[0], cursPos[1]]
 		curr = guess[cursPos[0], cursPos[1]]
-		if sudoku.checkIfSafe(cursPos[0], cursPos[1], num) and curr == 0:
+		if sudoku.checkIfSafe(cursPos[0], cursPos[1], num) and clue == 0 and curr == 0:
 			updateNotes(cursPos, num, notes)
 			reward = 1 # ultimate goal is to maximize cumulative expected reward
 			guess[cursPos[0], cursPos[1]] = num
@@ -277,7 +278,7 @@ def enumerateReplayBuffer(puzzles, model, n):
 		guess = th.zeros((9, 9))
 		notes = th.ones((9, 9, 9))
 		initPuzzl(i, puzzles, sudoku, cursPos, notes)
-		fillPuzzlNotes(sudoku, notes)
+		# fillPuzzlNotes(sudoku, notes) ## NOTE (hah)
 		
 		db = []
 		for act in ep: 
@@ -288,6 +289,9 @@ def enumerateReplayBuffer(puzzles, model, n):
 			action[10+act] = 1.0
 			hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
 			new_board = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
+			
+			# # check
+			# rd = model.decodeBoard(board_enc, num, act, reward)
 			
 			d = ReplayData(sudoku.mat, cursPos, board_enc, new_board,
 						guess, notes, hotnum, hotact, reward, 0.0)
@@ -308,9 +312,10 @@ def runStep(sudoku, cursPos, guess, notes, reportFun):
 		board_enc[b,:,:] = model.encodeBoard(cursPos[b,:], sudoku[b].mat, guess[b,:,:], notes[b,:,:,:])
 	
 	n = 16
-	wp = th.zeros(n, batch_size, model.num_tokens, model.world_dim, device=th.device(type='cuda', index=0))
-	action = th.zeros(n, batch_size, model.latent_cnt, model.action_dim, device=th.device(type='cuda', index=0))
-	rp = th.zeros(n, batch_size, model.latent_cnt, 2, device=th.device(type='cuda', index=0))
+	device = th.device(type='cuda', index=0)
+	wp = th.zeros(n, batch_size, model.num_tokens, model.world_dim, device=device)
+	action = th.zeros(n, batch_size, model.latent_cnt, model.action_dim, device=device)
+	rp = th.zeros(n, batch_size, model.latent_cnt, 2, device=device)
 
 	for i in range(n): 
 		_, wp[i], action[i], rp[i] = model.backLatentReward(board_enc.cuda(), reportFun)
@@ -354,7 +359,7 @@ def runStep(sudoku, cursPos, guess, notes, reportFun):
 		
 	return d_b
 	
-def makeBatch(b, replay_buffer):
+def makeBatch(replay_buffer):
 	r = np.random.randint(len(replay_buffer))
 	episode = replay_buffer[r]
 	
@@ -365,21 +370,25 @@ def makeBatch(b, replay_buffer):
 	actions_batch = th.zeros(latent_cnt, action_dim)
 	rewards_batch = th.zeros(latent_cnt, reward_dim)
 	for k, d in enumerate(lst):
-		actions_batch[k, 0:10] = d.hotnum
-		actions_batch[k, 10:] = d.hotact
-		rewards_batch[k, 0] = d.reward
+		actions_batch[k, 0:10] = th.tensor(d.hotnum)
+		actions_batch[k, 10:] = th.tensor(d.hotact)
+		rewards_batch[k, 0] = th.tensor(d.reward)
 	for kk in range(k+1, latent_cnt): 
 		actions_batch[kk, 0] = 1.0 # zero
 		actions_batch[kk, -1] = 1.0 # noop
 	rewards_batch[:,1] = th.cumsum(rewards_batch[:,0], dim=0)
 	d = lst[0]
-	board_batch = d.board_enc
+	board_batch = th.tensor(d.board_enc)
 	d = lst[-1]
-	new_board_batch = d.new_board
+	new_board_batch = th.tensor(d.new_board)
 
 	return board_batch, new_board_batch, actions_batch, rewards_batch
 	
 if __name__ == '__main__':
+	fd = open('rewardlog.txt', 'w') # truncate the file
+	fd.write(f'{0}\t{0}\n')
+	fd.close()
+	
 	sudoku = [Sudoku(9, 25) for _ in range(batch_size)]
 
 	model = model.Racoonizer(
@@ -390,8 +399,8 @@ if __name__ == '__main__':
 		reward_dim = reward_dim).cuda()
 	
 	mp.set_start_method('spawn')
-	puzzles = th.load('puzzles_100000.pt')
-	n = 11111
+	puzzles = th.load('puzzles_500000.pt')
+	n = 500000 # no notes. 
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
 		fid = open(fname, 'rb') 
@@ -425,18 +434,31 @@ if __name__ == '__main__':
 	notes = th.ones((batch_size, 9, 9, 9))
 	episodes = [[] for _ in range(batch_size)]
 	
-	optimizer = optim.AdamW(model.parameters(), lr=5e-4, weight_decay = 0.05)
+	optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay = 0.03)
+	# optimizer = optim.Adagrad(model.parameters(), lr=1e-2, weight_decay = 0.03)
 	
 	def reportFun(board, new_board, actions, wp, ap, rp, latents): 
 		write_mmap(fd_board, board.cpu())
 		write_mmap(fd_new_board, new_board.cpu())
 		write_mmap(fd_action, actions.cpu())
+		# write_mmap(fd_reward, rewards.cpu())
 		
 		write_mmap(fd_worldp, wp.cpu().detach())
 		write_mmap(fd_actionp, ap.cpu().detach())
 		write_mmap(fd_rewardp, rp.cpu().detach())
 		lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
 		write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu())
+		
+	epoch = 700
+	priosiz = epoch * batch_size
+	device = th.device(type='cuda', index=0)
+	prio_board = th.zeros(priosiz, 82, world_dim, device=device)
+	prio_new_board = th.zeros(priosiz, 82, world_dim, device=device)
+	prio_actions = th.zeros(priosiz, latent_cnt, action_dim, device=device)
+	prio_rewards = th.zeros(priosiz, latent_cnt, reward_dim, device=device)
+	prio_rewardp = th.zeros(priosiz, latent_cnt, reward_dim, device=device)
+	prio_loss = th.zeros(priosiz)
+	prio_valid = th.zeros(priosiz)
 		
 	for p in range(500): 
 # 		for b in range(batch_size): 
@@ -482,7 +504,7 @@ if __name__ == '__main__':
 		# -- select longer runs for prediction-training
 		# -- prune away useless rollouts?
 		
-		for u in range(1500): # 500
+		for u in range(epoch//2): 
 			
 			board = th.zeros(batch_size, 82, world_dim)
 			new_board = th.zeros(batch_size, 82, world_dim)
@@ -490,60 +512,133 @@ if __name__ == '__main__':
 			rewards = th.zeros(batch_size, latent_cnt, reward_dim)
 			
 			for b in range(batch_size): 
-				board[b,:,:], new_board[b,:,:], actions[b,:,:], rewards[b,:] = makeBatch(b, replay_buffer)
+				board[b,:,:], new_board[b,:,:], actions[b,:,:], rewards[b,:] = makeBatch(replay_buffer)
 				
 			board = board.cuda()
 			new_board = new_board.cuda()
 			actions = actions.cuda()
 			rewards = rewards.cuda()
-			if True: 
-				write_mmap(fd_reward, rewards.cpu())
-				# reportFun will write the rest. 
+			# reportFun will write the rest. 
 			
 			# latents = model.backLatent(board, new_board, actions, reportFun)
 			# pdb.set_trace()
 			latents = actions[:,:,0:-1] # "cheat" to generate structure.
+			# ignore noops
 			
 			model.zero_grad()
 			wp, ap, rp = model.forward(board, latents)
-			# need some validation to make sure we can predict reward ... 
-			# fd = open('rewardlog.txt', 'a')
-			# for b in range(2):
-			# 	fd.write(f'{rewards[b,0,0].cpu().item()}\t{rp[b,0,0].cpu().item()}\n')
-			# fd.close()
-			# yes, it looks pretty good: reward is well predicted within data.
 			
-			loss = th.sum((new_board - wp)**2)*0.15 + \
-						th.sum((actions - ap)**2) + \
-						th.sum((rewards - rp)**2) 
-			loss.backward()
+			
+			# keep the batch dim
+			loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
+						th.sum((actions - ap)**2, (1,2)) + \
+						(rewards[:,0,0] - rp[:,0,0])**2 * 4.0
+			lossall = th.sum(loss)
+			lossall.backward()
 			#th.nn.utils.clip_grad_norm_(model.parameters(), 0.025)
 			optimizer.step() 
 			
-			loss.detach()
-			print(loss.cpu().item())
-			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
+			lossall.detach()
+			print(lossall.cpu().item())
+			fd_losslog.write(f'{uu}\t{lossall.cpu().item()}\n')
 			fd_losslog.flush()
 			uu = uu + 1
 
-			# if u % 10 == 9: 
-			write_mmap(fd_board, board.cpu())
-			write_mmap(fd_new_board, new_board.cpu())
-			write_mmap(fd_worldp, wp.cpu().detach())
-			write_mmap(fd_action, actions.cpu())
-			write_mmap(fd_actionp, ap.cpu().detach())
-			write_mmap(fd_reward, rewards.cpu())
-			write_mmap(fd_rewardp, rp.cpu().detach())
+			if True: 
+				write_mmap(fd_board, board.cpu())
+				write_mmap(fd_new_board, new_board.cpu())
+				write_mmap(fd_action, actions.cpu())
+				write_mmap(fd_reward, rewards.cpu())
+				
+				write_mmap(fd_worldp, wp.cpu().detach())
+				write_mmap(fd_actionp, ap.cpu().detach())
+				write_mmap(fd_rewardp, rp.cpu().detach())
+				lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
+				write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu().detach())
+				
+				r = rewards[0,0,0].cpu().item()
+				# num,act = decodeAction(actions[0,0,:].cpu())
+				# rd = model.decodeBoard(board[0,:,:].cpu().numpy(), num,act,r) # positive control!
+				rd = rp[0,0,0].cpu().item()
+				
+				fd = open('rewardlog.txt', 'a')
+				fd.write(f'{r}\t{rd}\n')
+				fd.close()
 			
-			num,act = decodeAction(actions[0,0,:].cpu())
-			r = rewards[0,0,0].cpu().item()
-			rd = model.decodeBoard(board[0,:,:].cpu(), num,act,r) # checking!
+			# prioritized replay buffer action!
+			indx = (epoch//2 + u) * batch_size 
+				# add to the end, replace accurate examples
+			indy = indx + batch_size
+			prio_board[indx:indy, :, :] = board
+			prio_new_board[indx:indy, :, :] = new_board
+			prio_actions[indx:indy, :, :] = actions
+			prio_rewards[indx:indy, :, :] = rewards
+			prio_rewardp[indx:indy, :, :] = rp
+			prio_loss[indx:indy] = loss.detach()
+			prio_valid[indx:indy] = 1.0
 			
-			fd = open('rewardlog.txt', 'a')
-			fd.write(f'{r}\t{rd}\n')
-			fd.close()
-			if r < 0 and rd > 0: 
-				pdb.set_trace()
+		# run over the whole prioritized repaly buffer, update the loss. 
+		for q in range(3): 
+			srt = th.argsort(prio_loss*prio_valid, descending=True) # stable=True
+			prio_board = prio_board[srt, :, :]
+			prio_new_board = prio_new_board[srt, :, :]
+			prio_actions = prio_actions[srt, :, :]
+			prio_rewards = prio_rewards[srt, :, :]
+			prio_rewardp = prio_rewardp[srt, :, :]
+			prio_loss = prio_loss[srt]
+			prio_valid = prio_valid[srt]
+			
+			x1 = prio_loss.cpu()
+			x2 = prio_rewards[:,0,0].cpu().numpy()
+			x3 = prio_rewardp[:,0,0].cpu().detach().numpy()
+			y = np.stack((x1,x2,x3), axis=0)
+			np.save('prio.npy', y)
+		
+			for u in range(math.floor(epoch * 0.75)): 
+				indx = u * batch_size
+				indy = indx + batch_size
+				board = prio_board[indx:indy, :, :]
+				new_board = prio_new_board[indx:indy, :, :]
+				actions = prio_actions[indx:indy, :, :]
+				rewards = prio_rewards[indx:indy, :, :]
+				
+				latents = actions[:,:,0:-1] # "cheat" to generate structure.
+				
+				model.zero_grad()
+				wp, ap, rp = model.forward(board, latents)
+				
+				# keep the batch dim
+				loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
+							th.sum((actions - ap)**2, (1,2)) + \
+							(rewards[:,0,0] - rp[:,0,0])**2
+				lossall = th.sum(loss)
+				lossall.backward()
+				#th.nn.utils.clip_grad_norm_(model.parameters(), 0.025)
+				optimizer.step() 
+				
+				prio_loss[indx:indy] = loss.detach() # update loss. 
+				
+				if u == 0: 
+					write_mmap(fd_board, board.cpu())
+					write_mmap(fd_new_board, new_board.cpu())
+					write_mmap(fd_action, actions.cpu())
+					write_mmap(fd_reward, rewards.cpu())
+					
+					write_mmap(fd_worldp, wp.cpu().detach())
+					write_mmap(fd_actionp, ap.cpu().detach())
+					write_mmap(fd_rewardp, rp.cpu().detach())
+					lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
+					write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu().detach())
+					
+					r = rewards[0,0,0].cpu().item()
+					# num,act = decodeAction(actions[0,0,:].cpu())
+					# rd = model.decodeBoard(board[0,:,:].cpu().numpy(), num,act,r) # positive control!
+					rd = rp[0,0,0].cpu().item()
+					
+					fd = open('rewardlog.txt', 'a')
+					fd.write(f'{r}\t{rd}\n')
+					fd.close()
+		
 				
 		model.save_checkpoint()
 
