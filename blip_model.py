@@ -33,9 +33,9 @@ class ResidualAttentionBlock(nn.Module):
 		self.gelu = QuickGELU()
 		self.fanin = nn.Linear(d_model * 3, d_model)
 		if init_zeros: 
-			torch.nn.init.zeros_(self.wqkv) # bias starts at zero by default
-			torch.nn.init.zeros_(fanout.weight)
-			torch.nn.init.zeros_(fanin.weight)
+			torch.nn.init.zeros_(self.wqkv.weight) # bias starts at zero by default
+			torch.nn.init.zeros_(self.fanout.weight)
+			torch.nn.init.zeros_(self.fanin.weight)
 		
 	def attention(self, x:torch.Tensor, std:float): 
 		# x is [batch, tokens, d_model]
