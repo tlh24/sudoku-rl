@@ -2,7 +2,7 @@ import math
 import numpy as np
 import torch as th
 from torch import nn
-import clip_model
+import blip_model
 import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
@@ -26,26 +26,27 @@ class Racoonizer(nn.Module):
 		self.num_tokens = 81+1
 		
 		self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_width)
-		self.gelu = clip_model.QuickGELU()
+		self.gelu = blip_model.QuickGELU()
 		
-		self.xfrmr = clip_model.Transformer(
-			width = xfrmr_width, 
-			layers = 2, 
-			heads = 4, 
+		self.xfrmr = blip_model.Transformer(
+			d_model = xfrmr_width, 
+			layers = 2, # was 2
+			n_head = 4, 
 			repeat = 3, # was 3
-			attn_mask = None)
+			init_zeros = False
+			)
 		
 		self.xfrmr_to_world = nn.Linear(xfrmr_width, world_dim)
 		self.xfrmr_to_action = nn.Linear(xfrmr_width, action_dim)
 		
-		self.world_to_critic = nn.Linear(world_dim, xfrmr_width)
+		# self.world_to_critic = nn.Linear(world_dim, xfrmr_width)
 		
-		self.critic = clip_model.Transformer(
-			width = xfrmr_width, 
-			layers = 2, 
-			heads = 4, 
-			repeat = 1, 
-			attn_mask = None)
+		# self.critic = clip_model.Transformer(
+		# 	width = xfrmr_width, 
+		# 	layers = 2, 
+		# 	heads = 4, 
+		# 	repeat = 1, 
+		# 	attn_mask = None)
 		
 		self.softmax = nn.Softmax(dim = 2)
 		self.critic_to_reward = nn.Linear(xfrmr_width, 2) 
@@ -197,7 +198,7 @@ class Racoonizer(nn.Module):
 		latents = th.cat((lslow, latents), 2)
 		x = th.cat((board_enc, latents), 1)
 		x = self.gelu(self.world_to_xfrmr(x))
-		y = self.xfrmr(x)
+		y = self.xfrmr(x, 0.0)
 		nt = self.num_tokens
 		new_board = self.xfrmr_to_world(y[:,0:nt, :]) # including cursor
 		action = self.xfrmr_to_action(y[:,nt:,:])

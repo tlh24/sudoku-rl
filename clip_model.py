@@ -206,6 +206,9 @@ class Transformer(nn.Module):
 
     def forward(self, x: torch.Tensor):
         for i in range(self.repeat): 
+            # one-hot encode the layer position on all tokens. 
+            x[:,:,self.width-self.repeat:self.width] = 0.0
+            x[:,:,self.width - i - 1] = 1.0
             x = self.resblocks(x)
         return x
         # return self.resblocks(x)

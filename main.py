@@ -13,6 +13,7 @@ from ctypes import * # for io
 from multiprocessing import Pool
 from functools import partial
 import torch.multiprocessing as mp
+from lion_pytorch import Lion
 from termcolor import colored
 
 import model
@@ -400,7 +401,7 @@ if __name__ == '__main__':
 	
 	mp.set_start_method('spawn')
 	puzzles = th.load('puzzles_500000.pt')
-	n = 500000 # no notes. 
+	n = 12000 # no notes. 
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
 		fid = open(fname, 'rb') 
@@ -434,7 +435,8 @@ if __name__ == '__main__':
 	notes = th.ones((batch_size, 9, 9, 9))
 	episodes = [[] for _ in range(batch_size)]
 	
-	optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay = 0.03)
+	optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay = 3e-2)
+	# optimizer = Lion(model.parameters(), lr=7e-5, weight_decay = 7e-3)
 	# optimizer = optim.Adagrad(model.parameters(), lr=1e-2, weight_decay = 0.03)
 	
 	def reportFun(board, new_board, actions, wp, ap, rp, latents): 
@@ -528,14 +530,13 @@ if __name__ == '__main__':
 			model.zero_grad()
 			wp, ap, rp = model.forward(board, latents)
 			
-			
 			# keep the batch dim
 			loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
 						th.sum((actions - ap)**2, (1,2)) + \
 						(rewards[:,0,0] - rp[:,0,0])**2 * 4.0
 			lossall = th.sum(loss)
 			lossall.backward()
-			#th.nn.utils.clip_grad_norm_(model.parameters(), 0.025)
+			# th.nn.utils.clip_grad_norm_(model.parameters(), 0.01) -- doesn't work!
 			optimizer.step() 
 			
 			lossall.detach()
@@ -544,7 +545,7 @@ if __name__ == '__main__':
 			fd_losslog.flush()
 			uu = uu + 1
 
-			if True: 
+			if uu % 4 == 0: 
 				write_mmap(fd_board, board.cpu())
 				write_mmap(fd_new_board, new_board.cpu())
 				write_mmap(fd_action, actions.cpu())
@@ -556,10 +557,11 @@ if __name__ == '__main__':
 				lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
 				write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu().detach())
 				
-				r = rewards[0,0,0].cpu().item()
+				i = np.random.randint(batch_size)
+				r = rewards[i,0,0].cpu().item()
 				# num,act = decodeAction(actions[0,0,:].cpu())
 				# rd = model.decodeBoard(board[0,:,:].cpu().numpy(), num,act,r) # positive control!
-				rd = rp[0,0,0].cpu().item()
+				rd = rp[i,0,0].cpu().item()
 				
 				fd = open('rewardlog.txt', 'a')
 				fd.write(f'{r}\t{rd}\n')
@@ -578,7 +580,11 @@ if __name__ == '__main__':
 			prio_valid[indx:indy] = 1.0
 			
 		# run over the whole prioritized repaly buffer, update the loss. 
-		for q in range(3): 
+		# allow for warm-up to find the challenging examples. 
+		qrange = 1 + uu // 3500
+		qrange = min(qrange, 3)
+		print(f'q range {qrange}')
+		for q in range(qrange): 
 			srt = th.argsort(prio_loss*prio_valid, descending=True) # stable=True
 			prio_board = prio_board[srt, :, :]
 			prio_new_board = prio_new_board[srt, :, :]
