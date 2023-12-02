@@ -129,7 +129,7 @@ def main():
 							help='input batch size for training (default: 64)')
 	parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
 							help='input batch size for testing (default: 1000)')
-	parser.add_argument('--epochs', type=int, default=4, metavar='N',
+	parser.add_argument('--epochs', type=int, default=2, metavar='N',
 							help='number of epochs to train (default: 5)')
 	parser.add_argument('--lr', type=float, default=0.006, metavar='LR',
 							help='learning rate (default: 0.06)')
@@ -180,8 +180,10 @@ def main():
 	train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
 	test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
-	model = NetSimp(init_zeros = True).to(device)
+	model = NetSimp(init_zeros = False).to(device)
 	optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+	# Adagrad works well for this simple problem.
+	# AdamW has better sparsity, though. 
 
 	scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 	for epoch in range(1, args.epochs + 1):
@@ -202,7 +204,7 @@ def main():
 	pcm = axs[0,0].imshow(w1)
 	fig.colorbar(pcm, ax=axs[0,0])
 	axs[1,0].plot(np.var(w1, 1))
-	axs[1,1].hist(np.var(w1, 1), 40)
+	axs[1,1].hist(np.var(w1, 1), 140)
 	axs[1,1].set_title('histogram of variances of weight matrix 1 along output dim')
 	
 	pcm = axs[0,1].imshow(w2)

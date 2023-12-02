@@ -279,7 +279,7 @@ def enumerateReplayBuffer(puzzles, model, n):
 		guess = th.zeros((9, 9))
 		notes = th.ones((9, 9, 9))
 		initPuzzl(i, puzzles, sudoku, cursPos, notes)
-		# fillPuzzlNotes(sudoku, notes) ## NOTE (hah)
+		# fillPuzzlNotes(sudoku, notes) ## NOTE FIXME (hah)
 		
 		db = []
 		for act in ep: 
@@ -401,7 +401,7 @@ if __name__ == '__main__':
 	
 	mp.set_start_method('spawn')
 	puzzles = th.load('puzzles_500000.pt')
-	n = 12000 # no notes. 
+	n = 50000 # no notes. 
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
 		fid = open(fname, 'rb') 
