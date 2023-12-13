@@ -33,7 +33,7 @@ class Racoonizer(nn.Module):
 			layers = 2, # was 2
 			n_head = 4, 
 			repeat = 3, # was 3
-			init_zeros = False
+			init_zeros = True
 			)
 		
 		self.xfrmr_to_world = nn.Linear(xfrmr_width, world_dim)
@@ -198,7 +198,8 @@ class Racoonizer(nn.Module):
 		latents = th.cat((lslow, latents), 2)
 		x = th.cat((board_enc, latents), 1)
 		x = self.gelu(self.world_to_xfrmr(x))
-		y = self.xfrmr(x, 0.0)
+		y = self.xfrmr(x)
+		pdb.set_trace()
 		nt = self.num_tokens
 		new_board = self.xfrmr_to_world(y[:,0:nt, :]) # including cursor
 		action = self.xfrmr_to_action(y[:,nt:,:])

@@ -13,7 +13,7 @@ from ctypes import * # for io
 from multiprocessing import Pool
 from functools import partial
 import torch.multiprocessing as mp
-from lion_pytorch import Lion
+# from lion_pytorch import Lion
 from termcolor import colored
 
 import model
@@ -390,6 +390,8 @@ if __name__ == '__main__':
 	fd.write(f'{0}\t{0}\n')
 	fd.close()
 	
+	# th.cuda.memory._record_memory_history()
+	
 	sudoku = [Sudoku(9, 25) for _ in range(batch_size)]
 
 	model = model.Racoonizer(
@@ -401,7 +403,7 @@ if __name__ == '__main__':
 	
 	mp.set_start_method('spawn')
 	puzzles = th.load('puzzles_500000.pt')
-	n = 50000 # no notes. 
+	n = 300000 # no notes.
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
 		fid = open(fname, 'rb') 
@@ -451,7 +453,7 @@ if __name__ == '__main__':
 		lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
 		write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu())
 		
-	epoch = 700
+	epoch = 700 # was 700
 	priosiz = epoch * batch_size
 	device = th.device(type='cuda', index=0)
 	prio_board = th.zeros(priosiz, 82, world_dim, device=device)
@@ -462,7 +464,7 @@ if __name__ == '__main__':
 	prio_loss = th.zeros(priosiz)
 	prio_valid = th.zeros(priosiz)
 		
-	for p in range(500): 
+	for p in range(1): 
 # 		for b in range(batch_size): 
 # 			i = np.random.randint(puzzles.shape[0])
 # 			initPuzzl(i, puzzles, sudoku[b], cursPos[b], notes[b])
@@ -646,6 +648,8 @@ if __name__ == '__main__':
 					fd.close()
 		
 				
-		model.save_checkpoint()
+		# model.save_checkpoint()
 
 	fd_losslog.close()
+
+	# th.cuda.memory._dump_snapshot("my_snapshot.pickle")

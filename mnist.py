@@ -34,6 +34,10 @@ class Net(nn.Module):
         x = self.fc2(x)
         output = F.log_softmax(x, dim=1)
         return output
+
+class QuickGELU(nn.Module):
+    def forward(self, x: torch.Tensor):
+        return x * torch.sigmoid(1.702 * x)
 	  
 class STNFunction(torch.autograd.Function):
 	# see https://www.kaggle.com/code/peggy1502/learning-pytorch-2-new-autograd-functions/notebook
@@ -41,15 +45,23 @@ class STNFunction(torch.autograd.Function):
 	@staticmethod
 	def forward(ctx, input, std, activ):
 		# don't add noise to active tensors
-		x = input + torch.randn_like(input) * (std * torch.exp(-4.0*activ))
-		ctx.save_for_backward(x)
+		# r = torch.randn_like(input)
+		ac = torch.squeeze(activ)
+		ac = torch.exp(-5.0*ac)
+		s = torch.sum(ac, 1)
+		ac[:,0] = s*99 # probability of adding a new unit
+		r = torch.multinomial(ac, 1)
+		x = input
+		x[:,0,r] = x[:,0,r] + (std * (r > 0))
+		# ctx.save_for_backward(r)
 		return x
 
 	@staticmethod
 	def backward(ctx, grad_output):
-		x, = ctx.saved_tensors
-		return F.hardtanh(grad_output * x), None, None # clip gradients? 
-		# note: no need to gate the noise. 
+		# r2, = ctx.saved_tensors
+		return grad_output, None, None # grad for: input, std, activ
+		# return F.hardtanh(grad_output * x), None, None # clip gradients?
+		# note: no need to gate the noise.
 		# if the error is zero, grad_output will be zero as well.
 		
 class StraightThroughNormal(nn.Module):
@@ -60,7 +72,7 @@ class StraightThroughNormal(nn.Module):
 	def forward(self, x, std):
 		if self.activ.shape != x.shape: 
 			self.activ = torch.zeros_like(x)
-		self.activ = 0.95 * self.activ + 0.05 * torch.abs(x) # or x^2 ? 
+		self.activ = 0.97 * self.activ + 0.03 * torch.abs(x) # or x^2 ?
 		x = STNFunction.apply(x, std, self.activ.detach())
 		return x
 
@@ -68,18 +80,24 @@ class NetSimp(nn.Module):
 	# the absolute simplest network
 	def __init__(self, init_zeros:bool):
 		super(NetSimp, self).__init__()
+		self.init_zeros = init_zeros
 		self.fc1 = nn.Linear(784, 2500)
 		self.stn = StraightThroughNormal()
+		self.gelu = QuickGELU()
 		self.fc2 = nn.Linear(2500, 10)
 		if init_zeros: 
-			torch.nn.init.zeros_(self.fc1.weight) # bias starts at zero by default
+			torch.nn.init.zeros_(self.fc1.weight)
+			torch.nn.init.zeros_(self.fc1.bias)
 			torch.nn.init.zeros_(self.fc2.weight)
+			torch.nn.init.zeros_(self.fc2.bias)
 		
 	def forward(self, x): 
 		x = torch.reshape(x, (-1, 1, 784))
 		x = self.fc1(x)
-		x = self.stn(x, 0.01 / 6) # negative values don't matter because of the relu!
-		x = F.relu(x)
+		if self.init_zeros:
+			x = self.stn(x, 0.001) # algorithm is not sensitive to this parameter w/ AdaGrad
+		# x = F.relu(x)
+		x = self.gelu(x)
 		x = self.fc2(x)
 		y = torch.squeeze(x)
 		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
@@ -129,16 +147,14 @@ def main():
 							help='input batch size for training (default: 64)')
 	parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
 							help='input batch size for testing (default: 1000)')
-	parser.add_argument('--epochs', type=int, default=2, metavar='N',
+	parser.add_argument('--epochs', type=int, default=50, metavar='N',
 							help='number of epochs to train (default: 5)')
 	parser.add_argument('--lr', type=float, default=0.006, metavar='LR',
-							help='learning rate (default: 0.06)')
+							help='learning rate (default: 0.006)')
 	parser.add_argument('--gamma', type=float, default=0.95, metavar='M',
 							help='Learning rate step gamma (default: 0.95)')
 	parser.add_argument('--no-cuda', action='store_true', default=False,
 							help='disables CUDA training')
-	parser.add_argument('--no-mps', action='store_true', default=False,
-							help='disables macOS GPU training')
 	parser.add_argument('--dry-run', action='store_true', default=False,
 							help='quickly check a single pass')
 	parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -149,14 +165,11 @@ def main():
 							help='For Saving the current Model')
 	args = parser.parse_args()
 	use_cuda = not args.no_cuda and torch.cuda.is_available()
-	use_mps = not args.no_mps and torch.backends.mps.is_available()
 
 	torch.manual_seed(args.seed)
 
 	if use_cuda:
 		device = torch.device("cuda")
-	elif use_mps:
-		device = torch.device("mps")
 	else:
 		device = torch.device("cpu")
 
@@ -180,10 +193,15 @@ def main():
 	train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
 	test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
-	model = NetSimp(init_zeros = False).to(device)
-	optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+	model = NetSimp(init_zeros = True).to(device) # NOTE
+
+	# optimizer = optim.AdamW(model.parameters(), lr=0.006)
+	# optimizer = optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01)
+	# optimizer = optim.RMSprop(model.parameters(), lr=0.005, weight_decay=0.01) # really bad
+	optimizer = optim.SGD(model.parameters(), lr=0.02, weight_decay=0.01) # quite slow, but works.
 	# Adagrad works well for this simple problem.
-	# AdamW has better sparsity, though. 
+	# AdamW has (surprisingly) worse sparsity.
+	# might want to switch optimizer?
 
 	scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 	for epoch in range(1, args.epochs + 1):
