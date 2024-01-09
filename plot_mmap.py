@@ -56,14 +56,11 @@ if __name__ == "__main__":
  # 
 	print(f"batch_size:{batch_size}")
 
-	fd_board = make_mmf("board.mmap", [batch_size, 82, world_dim])
-	fd_new_board = make_mmf("new_board.mmap", [batch_size, 82, world_dim])
-	fd_worldp = make_mmf("worldp.mmap", [batch_size, 82, world_dim])
-	fd_action = make_mmf("action.mmap", [batch_size, latent_cnt, action_dim])
-	fd_actionp = make_mmf("actionp.mmap", [batch_size, latent_cnt, action_dim])
-	fd_reward = make_mmf("reward.mmap", [batch_size, latent_cnt, reward_dim])
-	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, latent_cnt, reward_dim])
-	fd_latent = make_mmf("latent.mmap", [batch_size, latent_cnt, action_dim+latent_dim])
+	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
+	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
+	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
+	fd_reward = make_mmf("reward.mmap", [batch_size, reward_dim])
+	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, reward_dim])
 	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
 	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
 
@@ -98,54 +95,51 @@ if __name__ == "__main__":
 		bs = 32
 		
 	update = True
+	u = 0
 	
 	maxattn = th.ones(6)
 	maxqkv = th.ones(6)
 
 	while True:
 		if update: 
-			board = read_mmap(fd_board, [batch_size, 82, world_dim])
-			new_board = read_mmap(fd_new_board, [batch_size, 82, world_dim])
-			worldp = read_mmap(fd_worldp, [batch_size, 82, world_dim])
-			action = read_mmap(fd_action, [batch_size, latent_cnt, action_dim])
-			actionp = read_mmap(fd_actionp, [batch_size, latent_cnt, action_dim])
-			reward = read_mmap(fd_reward, [batch_size, latent_cnt, reward_dim])
-			rewardp = read_mmap(fd_rewardp, [batch_size, latent_cnt, reward_dim])
-			latent = read_mmap(fd_latent, [batch_size, latent_cnt, action_dim+latent_dim])
+			board = read_mmap(fd_board, [batch_size, token_cnt, world_dim])
+			new_board = read_mmap(fd_new_board, [batch_size, token_cnt, world_dim])
+			boardp = read_mmap(fd_boardp, [batch_size, token_cnt, world_dim])
+			reward = read_mmap(fd_reward, [batch_size, reward_dim])
+			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			attention = read_mmap(fd_attention, [2, token_cnt, token_cnt, n_heads])
-			wqkv = read_mmap(fd_wqkv, [n_heads*2,2*xfrmr_dim,xfrmr_dim])
+			wqkv = read_mmap(fd_wqkv, [2,n_heads,2*xfrmr_dim,xfrmr_dim])
 
 		# i = np.random.randint(batch_size) # checking
 		i = 0
-		plot_tensor(0, 0, new_board[i,:,:], f"new_board[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 0, worldp[i,:,:], f"worldp[{i},:,:]", -2.0, 2.0)
-		plot_tensor(0, 1, new_board[i,:,:] - board[i,:,:], f"(new_board -  board)[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 1, worldp[i,:,:] - board[i,:,:], f"(worldp - board)[{i},:,:]", -2.0, 2.0)
-		plot_tensor(0, 2, action[i,:,:], f"action[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 2, actionp[i,:,:], f"actionp[{i},:,:]", -2.0, 2.0)
-		plot_tensor(0, 3, np.transpose(latent[i,:,:]), f"latent (slow and fast)", -2.0, 2.0)
-		plot_tensor(1, 3, actionp[i,:,:] - action[i,:,:], f"(actionp - action)[{i},:,:]", -2.0, 2.0)
-		plot_tensor(0, 4, reward[i,:,:], f"reward[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 4, rewardp[i,:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
+		cl = 40
+		plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 0, boardp[i,:cl,:].T, f"worldp[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(worldp - board)[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
+		plot_tensor(1, 2, rewardp[:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
 		
+		selec = (u % 4)*3
 		for k in range(6): 
-			layer = k // n_heads
-			head = k % n_heads
-			x = attention[layer,:,:,head]
+			layer = k // 3
+			head = k % 3 + selec
+			x = attention[layer,:cl,:cl,head]
 			maxattn[k] = maxattn[k] * 0.97 + th.max(x) * 0.03
 			x = x / maxattn[k]
 			plot_tensor(2, k, x, f"attention[{layer},:,:,{head}]", -1.0, 1.0, colorbar=False)
 			
 		for k in range(6): 
-			x = wqkv[k,:,:]
+			layer = k // 3
+			head = k % 3 + selec
+			x = wqkv[layer,k,:,:]
 			maxqkv[k] = maxqkv[k] * 0.97 + th.max(th.abs(x)) * 0.03
 			maxqkv[k] = th.clamp(th.abs(maxqkv[k]), 0.01, 1e6)
 			x = x.T / maxqkv[k]
-			layer = k // n_heads
-			head = k % n_heads
+			
 			plot_tensor(3, k, x, f"wqkv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
 			if not initialized: 
-				axs[3,k].plot([63.5, 63.5], [0.0, 63.5], 'g')
+				axs[3,k].plot([19.5, 19.5], [0.0, 19.5], 'g')
 			if k == 0: 
 				axs[3,k].set_ylabel('input dim')
 				axs[3,k].set_xlabel('output dim for Q & V')
@@ -156,6 +150,7 @@ if __name__ == "__main__":
 		time.sleep(0.5)
 		print("tock")
 		initialized=True
+		u = u + 1
 		
 		# if reward[i,0,-1] - rewardp[i,0,-1] > 0.9: 
 		# 	print('paused!')
