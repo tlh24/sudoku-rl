@@ -257,7 +257,8 @@ def fillPuzzlNotes(sudoku, notes):
 					notes[ik,jk,ei] = 0.0
 
 def enumerateMoves(depth, episode): 
-	moves = range(8)
+	# moves = range(8)
+	moves = range(4) # only move! 
 	outlist = []
 	if depth > 0: 
 		for m in moves:
@@ -395,15 +396,16 @@ if __name__ == '__main__':
 	sudoku = [Sudoku(9, 25) for _ in range(batch_size)]
 
 	model = model.Racoonizer(
-		xfrmr_width = xfrmr_width, 
+		xfrmr_dim = xfrmr_dim, 
 		world_dim = world_dim,
 		latent_cnt = latent_cnt, 
+		latent_dim = latent_dim,
 		action_dim = action_dim, 
 		reward_dim = reward_dim).cuda()
 	
 	mp.set_start_method('spawn')
 	puzzles = th.load('puzzles_500000.pt')
-	n = 300000 # no notes.
+	n = 44000 # no notes.
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
 		fid = open(fname, 'rb') 
@@ -427,7 +429,9 @@ if __name__ == '__main__':
 	fd_actionp = make_mmf("actionp.mmap", [batch_size, latent_cnt, action_dim])
 	fd_reward = make_mmf("reward.mmap", [batch_size, latent_cnt, reward_dim])
 	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, latent_cnt, reward_dim])
-	fd_latent = make_mmf("latent.mmap", [batch_size, latent_cnt, world_dim])
+	fd_latent = make_mmf("latent.mmap", [batch_size, latent_cnt, action_dim+latent_dim])
+	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
+	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
 
 	fd_losslog = open('losslog.txt', 'w')
 	uu = 0
@@ -437,21 +441,10 @@ if __name__ == '__main__':
 	notes = th.ones((batch_size, 9, 9, 9))
 	episodes = [[] for _ in range(batch_size)]
 	
-	optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay = 3e-2)
+	optimizer = optim.AdamW(model.parameters(), lr=2e-3, weight_decay = 1e-2)
 	# optimizer = Lion(model.parameters(), lr=7e-5, weight_decay = 7e-3)
-	# optimizer = optim.Adagrad(model.parameters(), lr=1e-2, weight_decay = 0.03)
-	
-	def reportFun(board, new_board, actions, wp, ap, rp, latents): 
-		write_mmap(fd_board, board.cpu())
-		write_mmap(fd_new_board, new_board.cpu())
-		write_mmap(fd_action, actions.cpu())
-		# write_mmap(fd_reward, rewards.cpu())
-		
-		write_mmap(fd_worldp, wp.cpu().detach())
-		write_mmap(fd_actionp, ap.cpu().detach())
-		write_mmap(fd_rewardp, rp.cpu().detach())
-		lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
-		write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu())
+	# optimizer = optim.Adagrad(model.parameters(), lr=3e-4, weight_decay = 0.0)
+	# optimizer = optim.Rprop(model.parameters(), lr=3e-3)
 		
 	epoch = 700 # was 700
 	priosiz = epoch * batch_size
@@ -464,7 +457,7 @@ if __name__ == '__main__':
 	prio_loss = th.zeros(priosiz)
 	prio_valid = th.zeros(priosiz)
 		
-	for p in range(1): 
+	for p in range(2000): # 100 is enough dec20
 # 		for b in range(batch_size): 
 # 			i = np.random.randint(puzzles.shape[0])
 # 			initPuzzl(i, puzzles, sudoku[b], cursPos[b], notes[b])
@@ -526,11 +519,10 @@ if __name__ == '__main__':
 			
 			# latents = model.backLatent(board, new_board, actions, reportFun)
 			# pdb.set_trace()
-			latents = actions[:,:,0:-1] # "cheat" to generate structure.
-			# ignore noops
+			latents = actions[:,:,:] # "cheat" to generate structure.
 			
 			model.zero_grad()
-			wp, ap, rp = model.forward(board, latents)
+			wp, ap, rp, a1, a2, w1, w2 = model.forward(board, latents, uu)
 			
 			# keep the batch dim
 			loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
@@ -538,16 +530,18 @@ if __name__ == '__main__':
 						(rewards[:,0,0] - rp[:,0,0])**2 * 4.0
 			lossall = th.sum(loss)
 			lossall.backward()
-			# th.nn.utils.clip_grad_norm_(model.parameters(), 0.01) -- doesn't work!
+			# th.nn.utils.clip_grad_norm_(model.parameters(), 1.0) -- doesn't work!?
 			optimizer.step() 
 			
 			lossall.detach()
-			print(lossall.cpu().item())
+			wqkv1 = th.sum(model.xfrmr.layer1.wqkv.module.weight).cpu().detach().item()
+			wqkv2 = th.sum(model.xfrmr.layer2.wqkv.module.weight).cpu().detach().item()
+			print(lossall.cpu().item(), wqkv1, wqkv2)
 			fd_losslog.write(f'{uu}\t{lossall.cpu().item()}\n')
 			fd_losslog.flush()
 			uu = uu + 1
 
-			if uu % 4 == 0: 
+			if uu % 24 == 0: 
 				write_mmap(fd_board, board.cpu())
 				write_mmap(fd_new_board, new_board.cpu())
 				write_mmap(fd_action, actions.cpu())
@@ -557,7 +551,9 @@ if __name__ == '__main__':
 				write_mmap(fd_actionp, ap.cpu().detach())
 				write_mmap(fd_rewardp, rp.cpu().detach())
 				lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
-				write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu().detach())
+				write_mmap(fd_latent, th.cat((latents, lslow), 2).cpu().detach())
+				write_mmap(fd_attention, th.stack((a1, a2), 0))
+				write_mmap(fd_wqkv, th.stack((w1, w2), 0))
 				
 				i = np.random.randint(batch_size)
 				r = rewards[i,0,0].cpu().item()
@@ -610,10 +606,10 @@ if __name__ == '__main__':
 				actions = prio_actions[indx:indy, :, :]
 				rewards = prio_rewards[indx:indy, :, :]
 				
-				latents = actions[:,:,0:-1] # "cheat" to generate structure.
+				latents = actions[:,:,:] # "cheat" to generate structure.
 				
 				model.zero_grad()
-				wp, ap, rp = model.forward(board, latents)
+				wp, ap, rp, a1,a2,w1,w2 = model.forward(board, latents, uu)
 				
 				# keep the batch dim
 				loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
@@ -636,7 +632,9 @@ if __name__ == '__main__':
 					write_mmap(fd_actionp, ap.cpu().detach())
 					write_mmap(fd_rewardp, rp.cpu().detach())
 					lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
-					write_mmap(fd_latent, th.cat((lslow, latents), 2).cpu().detach())
+					write_mmap(fd_latent, th.cat((latents, lslow), 2).cpu().detach())
+					write_mmap(fd_attention, th.stack((a1, a2), 0))
+					write_mmap(fd_wqkv, th.stack((w1, w2), 0))
 					
 					r = rewards[0,0,0].cpu().item()
 					# num,act = decodeAction(actions[0,0,:].cpu())
@@ -651,5 +649,5 @@ if __name__ == '__main__':
 		# model.save_checkpoint()
 
 	fd_losslog.close()
-
+	pdb.set_trace()
 	# th.cuda.memory._dump_snapshot("my_snapshot.pickle")

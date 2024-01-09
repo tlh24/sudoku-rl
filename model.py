@@ -11,51 +11,72 @@ class Racoonizer(nn.Module):
 	
 	def __init__(
 		self,
-		xfrmr_width:int, 
+		xfrmr_dim:int, 
 		world_dim:int,
 		latent_cnt:int,
+		latent_dim:int,
 		action_dim:int,
 		reward_dim:int
 		): 
 		super().__init__()
-		self.xfrmr_width = xfrmr_width
+		self.xfrmr_dim = xfrmr_dim
 		self.world_dim = world_dim
 		self.latent_cnt = latent_cnt
+		self.latent_dim = latent_dim
 		self.action_dim = action_dim
 		self.reward_dim = reward_dim
 		self.num_tokens = 81+1
+		self.n_head = 3
 		
-		self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_width)
+		# self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_dim)
+		# with th.no_grad(): 
+		# 	w = th.cat([th.eye(world_dim, world_dim) for _ in range(self.n_head)], 0)
+		# 	self.world_to_xfrmr.weight.copy_( w )
+		# 	self.world_to_xfrmr.bias.copy_( th.zeros(xfrmr_dim) )
+		
 		self.gelu = blip_model.QuickGELU()
 		
 		self.xfrmr = blip_model.Transformer(
-			d_model = xfrmr_width, 
+			d_model = xfrmr_dim, 
 			layers = 2, # was 2
-			n_head = 4, 
-			repeat = 3, # was 3
-			init_zeros = True
+			n_head = self.n_head, 
+			repeat = 1, # was 3
+			init_zeros = False
 			)
 		
-		self.xfrmr_to_world = nn.Linear(xfrmr_width, world_dim)
-		self.xfrmr_to_action = nn.Linear(xfrmr_width, action_dim)
+		self.xfrmr_to_world = nn.Linear(xfrmr_dim, world_dim) 
+		with th.no_grad(): 
+			# w = th.cat([th.eye(world_dim, world_dim) for _ in range(self.n_head)], 0)
+			# w = w.T * 0.25
+			w = th.eye(xfrmr_dim, world_dim)
+			self.xfrmr_to_world.weight.copy_( w.T )
+			self.xfrmr_to_world.bias.copy_( th.zeros(world_dim) )
 		
-		# self.world_to_critic = nn.Linear(world_dim, xfrmr_width)
+		self.xfrmr_to_action = nn.Linear(xfrmr_dim, action_dim)
+		with th.no_grad(): 
+			self.xfrmr_to_action.weight.copy_( th.eye(action_dim, xfrmr_dim) )
+			self.xfrmr_to_action.bias.copy_( th.zeros(action_dim) )
+		
+		# self.world_to_critic = nn.Linear(world_dim, xfrmr_dim)
 		
 		# self.critic = clip_model.Transformer(
-		# 	width = xfrmr_width, 
+		# 	width = xfrmr_dim, 
 		# 	layers = 2, 
 		# 	heads = 4, 
 		# 	repeat = 1, 
 		# 	attn_mask = None)
 		
 		self.softmax = nn.Softmax(dim = 2)
-		self.critic_to_reward = nn.Linear(xfrmr_width, 2) 
+		self.critic_to_reward = nn.Linear(xfrmr_dim, 2) # suck in everything. 
+		with th.no_grad(): 
+			self.critic_to_reward.weight.copy_( th.ones(2, xfrmr_dim) / xfrmr_dim )
+			self.critic_to_reward.bias.copy_( th.zeros(2) )
 			
 		self.latent_slow = nn.Parameter(
-			th.randn(latent_cnt, world_dim // 2) / (world_dim ** 0.5))
-		action_slow_dim = world_dim - action_dim
-		self.action_slow = nn.Parameter(
-			th.randn(latent_cnt, action_slow_dim) / (action_slow_dim ** 0.5))
+			th.randn(latent_cnt, latent_dim) / (latent_dim ** 0.5))
+		# action_slow_dim = world_dim - action_dim
+		# self.action_slow = nn.Parameter(
+		# 	th.randn(latent_cnt, action_slow_dim) / (action_slow_dim ** 0.5))
 		
 		
 	def encodePos(self, i, j): # row, column
@@ -191,21 +212,22 @@ class Racoonizer(nn.Module):
 			pdb.set_trace()
 		return reward
 	
-	def forward(self, board_enc, latents): 
+	def forward(self, board_enc, latents, n): 
 		# note: spatially, the number of latents = number of actions
 		batch_size = board_enc.shape[0]
 		lslow = self.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
-		latents = th.cat((lslow, latents), 2)
-		x = th.cat((board_enc, latents), 1)
-		x = self.gelu(self.world_to_xfrmr(x))
-		y = self.xfrmr(x)
-		pdb.set_trace()
+		latentsp = th.cat((latents, lslow), 2)
+		board_encz = th.nn.functional.pad(board_enc, (0, self.xfrmr_dim - self.world_dim))
+		latentz = th.nn.functional.pad(latentsp, (self.world_dim, 0))
+		x = th.cat((board_encz, latentz), 1) # token dim
+		# x = self.world_to_xfrmr(x) # optional gelu here.
+		y,a1,a2,w1,w2 = self.xfrmr(x,n)
 		nt = self.num_tokens
-		new_board = self.xfrmr_to_world(y[:,0:nt, :]) # including cursor
-		action = self.xfrmr_to_action(y[:,nt:,:])
-		# for softmax, have to allow for "no action"=[0] and "no number"=[-1]
-		action = th.cat( 
-			(self.softmax(action[:,:,0:10]), self.softmax(action[:,:,10:])), 2)
+		new_board = self.xfrmr_to_world(y[:,0:nt, :])
+		action = self.xfrmr_to_action(y[:,nt:, :])
+		# for softmax, have to allow for "no action"=[0] and "no number"=[18]
+		# action = th.cat( 
+		# 	(self.softmax(action[:,:,0:10]), self.softmax(action[:,:,10:])), 2)
 		
 		# given the board and suggested action, predict the reward. 
 		# aslow = self.action_slow.unsqueeze(0).expand(batch_size, -1, -1)
@@ -214,7 +236,7 @@ class Racoonizer(nn.Module):
 		# x = th.cat((w, y[:,nt:,:]), 1) # token dim
 		# z = self.critic(x)
 		reward = self.critic_to_reward(y[:,nt:,:]) # one reward for each action
-		return new_board, action, reward
+		return new_board, action, reward, a1, a2, w1, w2
 		
 	def backLatent(self, board_enc, new_board, actions, reportFun): 
 		# in supervised learning need to derive latent based on 
