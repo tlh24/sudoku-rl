@@ -59,7 +59,7 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	
 	nodes.append(nc)
 	
-	na = Node(Types.ACTION, 0)
+	na = Node(Types.ACTION, action_type) # FIXME cheat
 	# action type = left right up down, 0 -- 3
 	ax = 0
 	if action_type > 1: 
@@ -75,34 +75,34 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	
 	nodes.append(na)
 	
-	for y in range(9): 
-		for x in range(9): 
-			v = puzzle[y,x]
-			nb = Node(Types.BOX, v)
-			nbx = Node(Types.POSITION, 0)
-			nbxx = Node(Types.LEAF, x)
-			nby = Node(Types.POSITION, 1)
-			nbyy = Node(Types.LEAF, y)
-			b = (y // 3)*3 + (x // 3)
-			nbb = Node(Types.POSITION, 2)
-			nbbb = Node(Types.LEAF, b)
-			
-			highlight = 0 # this is mostly icing..
-			if x == curs_pos[0] and y == curs_pos[1]: 
-				highlight = 1
-			nbh = Node(Types.POSITION, 3)
-			nbhh = Node(Types.LEAF, highlight)
-			
-			nbx.add_child(nbxx)
-			nby.add_child(nbyy)
-			nbb.add_child(nbbb)
-			nbh.add_child(nbhh)
-			nb.add_child(nbx)
-			nb.add_child(nby)
-			nb.add_child(nbb)
-			nb.add_child(nbh)
-			
-			nodes.append(nb)
+# 	for y in range(9): 
+# 		for x in range(9): 
+# 			v = puzzle[y,x]
+# 			nb = Node(Types.BOX, v)
+# 			nbx = Node(Types.POSITION, 0)
+# 			nbxx = Node(Types.LEAF, x)
+# 			nby = Node(Types.POSITION, 1)
+# 			nbyy = Node(Types.LEAF, y)
+# 			b = (y // 3)*3 + (x // 3)
+# 			nbb = Node(Types.POSITION, 2)
+# 			nbbb = Node(Types.LEAF, b)
+# 			
+# 			highlight = 0 # this is mostly icing..
+# 			if x == curs_pos[0] and y == curs_pos[1]: 
+# 				highlight = 1
+# 			nbh = Node(Types.POSITION, 3)
+# 			nbhh = Node(Types.LEAF, highlight)
+# 			
+# 			nbx.add_child(nbxx)
+# 			nby.add_child(nbyy)
+# 			nbb.add_child(nbbb)
+# 			nbh.add_child(nbhh)
+# 			nb.add_child(nbx)
+# 			nb.add_child(nby)
+# 			nb.add_child(nbb)
+# 			nb.add_child(nbh)
+# 			
+# 			nodes.append(nb)
 			
 	if False: 
 		print("total number of nodes:", sum([n.count() for n in nodes]))

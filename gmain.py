@@ -147,6 +147,8 @@ if __name__ == '__main__':
 	for i in range(12): 
 		j = i % 4
 		msk[:, :, i] = ( board_msk == (2**j) )
+	# add one all-too-all mask
+	msk = torch.nn.functional.pad(msk, (0,1), mode='constant', value=1.0)
 	msk = msk.unsqueeze(0).expand([batch_size, -1, -1, -1])
 	# msk = msk.to_sparse() # idk if you can have views of sparse tensors.. ??
 	# sparse tensors don't work with einsum, alas.
@@ -155,12 +157,16 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
 	model.printParamCount()
 	
-	optimizer = optim.AdamW(model.parameters(), lr=2e-4, weight_decay = 1e-2)
+	optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 1e-2)
+	# optimizer = optim.SGD(model.parameters(), lr=1e-5)
+	# optimizer = optim.Adam(model.parameters(), lr=2e-4)
+	# optimizer = optim.Rprop(model.parameters(), lr=3e-5)
 	
 	for u in range(100000): 
+		model.zero_grad()
 		i = torch.randint(n, (batch_size,)) * 2
-		x = board_enc[i, :, :].to(device)
-		y = board_enc[i+1,:,:].to(device)
+		x = board_enc[i,:,:].to(device)
+		y = board_enc[i+1,:,:].to(device) # FIXME
 		reward = board_reward[i//2]
 		yp,rp,a1,a2,w1,w2 = model.forward(x, msk, u)
 		

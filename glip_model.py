@@ -110,9 +110,9 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.init_zeros = init_zeros
-		# self.ln_1 = LayerNorm(d_model) # unused
-		# self.ln_2 = LayerNorm(d_model) # unused
-		self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2)
+		self.ln_1 = LayerNorm(d_model) # unused
+		self.ln_2 = LayerNorm(d_model) # unused
+		self.wqkv = nn.Linear(d_model, n_head*2*d_model) # NOTE used to have L1 norm; removing it did not fix instability.
 		self.wk = nn.Linear(d_model, n_head, bias=False)
 		# self.bv = nn.Linear(d_model, n_head, bias=False)
 		self.head_enabled = [True for _ in range(n_head)] # FIXME
@@ -132,10 +132,12 @@ class ResidualAttentionBlock(nn.Module):
 		# 	torch.nn.init.zeros_(self.fanin.bias)
 		# else: 
 		# 	with torch.no_grad(): 
-		# 		w = torch.zeros_like(self.wqkv.module.weight)
-		# 		self.wqkv.module.weight.copy_(w)
-		# 		w = torch.zeros_like(self.wqkv.module.bias)
-		# 		self.wqkv.module.bias.copy_(w)
+		# 		w = torch.zeros_like(self.wqkv.weight)
+		# 		self.wqkv.weight.copy_(w)
+		# 		w = torch.zeros_like(self.wqkv.bias)
+		# 		self.wqkv.bias.copy_(w)
+		# 		w = torch.eye(d_model, d_model)
+		# 		self.fanout.weight.copy_(w)
 		# torch.nn.init.zeros_(self.wk.weight)
 		
 	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int):
@@ -166,23 +168,25 @@ class ResidualAttentionBlock(nn.Module):
 		# a = self.gelu(a + 1e-3) / ntok # works just as well as softmax! 
 		a = self.soft(a) # v gets updated from the gradient, but q and k do not.
 		# a = a[:,:,0:-1, :]
-		a = a * msk
+		a = a * msk # don't mask the last layer.
 		b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
-		ap = a[0,:,:,:].squeeze().detach().cpu()
+		ap = a[0,:,:,:-1].squeeze().detach().cpu()
 		return b,ap # residual sum later.
 
 	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int):
-		y,ap = self.attention(x,msk,n,layer) # should this be x or y?
+		y,ap = self.attention(x,msk,n,layer) 
+		# y = self.ln_1(y) # stabilize learning? 
 		# y = self.fanout_stn(self.fanout(y), std)
 		# y = self.fanout(y)
-		y = self.gelu(y) # i think this nonlinearity is essential.
+		y = self.gelu(y) # FIXME i think this nonlinearity is essential.
 		y = self.fanout(y)
 		# y = self.fanin_stn(self.fanin(y), std)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
-		return x + y, ap, self.wqkv.module.weight.detach().cpu()
+		# y = self.ln_2(y) # stabilize learning? 
+		return x + y, ap, self.wqkv.weight.detach().cpu()
 		
 		
 class Transformer(nn.Module): 
@@ -194,6 +198,7 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.layer1 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		self.layer2 = ResidualAttentionBlock(d_model, n_head, init_zeros)
+		self.layer3 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		# self.resblocks = nn.Sequential(*[ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
 	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int):
@@ -203,4 +208,5 @@ class Transformer(nn.Module):
 			# x[:,:,self.d_model - i - 1] = 1.0
 			x,a1,w1 = self.layer1(x,msk,n,0)
 			x,a2,w2 = self.layer2(x,msk,n,1)
+			# x,a3,w3 = self.layer3(x,msk,n,1)
 		return x, a1, a2, w1, w2

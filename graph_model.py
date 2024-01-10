@@ -7,6 +7,7 @@ import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
 import graph_model
+from constants import n_heads
 
 class Gracoonizer(nn.Module):
 	
@@ -20,7 +21,7 @@ class Gracoonizer(nn.Module):
 		self.xfrmr_dim = xfrmr_dim
 		self.world_dim = world_dim
 		self.reward_dim = reward_dim
-		self.n_head = 3*4 # need one head for each of the 4 connection types.
+		self.n_head = n_heads # need one head for each of the 4 connection types.
 		
 		# self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_dim)
 		# with th.no_grad(): 
