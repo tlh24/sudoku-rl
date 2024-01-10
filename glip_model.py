@@ -115,38 +115,38 @@ class ResidualAttentionBlock(nn.Module):
 		self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2)
 		self.wk = nn.Linear(d_model, n_head, bias=False)
 		# self.bv = nn.Linear(d_model, n_head, bias=False)
-		self.head_enabled = [False for _ in range(n_head)]
+		self.head_enabled = [True for _ in range(n_head)] # FIXME
 		self.l1a = l1attn.L1Attn()
 		# self.sta = StraightThroughAttention()
 		self.soft = torch.nn.Softmax(dim=3) # 2 for regular attention, 3 for l1
-		self.fanout = nn.Linear(d_model, d_model * 3)
+		self.fanout = nn.Linear(d_model, d_model * 1)
 		self.fanout_stn = StraightThroughNormal()
 		self.gelu = QuickGELU()
 		self.fanin = nn.Linear(d_model * 3, d_model)
 		self.fanin_stn = StraightThroughNormal()
-		if init_zeros: 
-			torch.nn.init.zeros_(self.wqkv.weight)
-			torch.nn.init.zeros_(self.fanout.weight)
-			torch.nn.init.zeros_(self.fanin.weight)
-			torch.nn.init.zeros_(self.fanout.bias)
-			torch.nn.init.zeros_(self.fanin.bias)
-		else: 
-			with torch.no_grad(): 
-				w = torch.zeros_like(self.wqkv.module.weight)
-				self.wqkv.module.weight.copy_(w)
-				w = torch.zeros_like(self.wqkv.module.bias)
-				self.wqkv.module.bias.copy_(w)
-		torch.nn.init.zeros_(self.wk.weight)
+		# if init_zeros: 
+		# 	torch.nn.init.zeros_(self.wqkv.weight)
+		# 	torch.nn.init.zeros_(self.fanout.weight)
+		# 	torch.nn.init.zeros_(self.fanin.weight)
+		# 	torch.nn.init.zeros_(self.fanout.bias)
+		# 	torch.nn.init.zeros_(self.fanin.bias)
+		# else: 
+		# 	with torch.no_grad(): 
+		# 		w = torch.zeros_like(self.wqkv.module.weight)
+		# 		self.wqkv.module.weight.copy_(w)
+		# 		w = torch.zeros_like(self.wqkv.module.bias)
+		# 		self.wqkv.module.bias.copy_(w)
+		# torch.nn.init.zeros_(self.wk.weight)
 		
 	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int):
-		init_head = n // 1000
-		if n % 1000 == layer*500 and init_head < 3-layer: # only 2 layers! 
-			with torch.no_grad(): 
-				w = self.wk.weight
-				w[init_head, :] = 1.0 # no division -- just a gate! 
-				self.wk.weight.copy_( w )
-				self.head_enabled[init_head] = True
-				print(f"initialized head {init_head}")
+		# init_head = n // 800
+		# if n % 800 == layer*400 and init_head < self.n_head: # only 2 layers! 
+		# 	with torch.no_grad(): 
+		# 		w = self.wk.weight
+		# 		w[init_head, :] = 1.0 # no division -- just a gate! 
+		# 		self.wk.weight.copy_( w )
+		# 		self.head_enabled[init_head] = True
+		# 		print(f"initialized head {init_head}")
 		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
@@ -157,7 +157,6 @@ class ResidualAttentionBlock(nn.Module):
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		gk = self.wk.weight.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
-		# bv = self.bv.weight.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		gv = torch.tensor(self.head_enabled, dtype=torch.float32, device=v.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand([batch_size,ntok,-1,d_head])
 		v = v * gv  # bias term to the value (since there is no subsequent mlp layer)
 		# q = torch.nn.functional.normalize(q, dim=3, eps=1e-2) # doesn't work!! 
@@ -179,6 +178,7 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanout_stn(self.fanout(y), std)
 		# y = self.fanout(y)
 		y = self.gelu(y) # i think this nonlinearity is essential.
+		y = self.fanout(y)
 		# y = self.fanin_stn(self.fanin(y), std)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
@@ -198,9 +198,9 @@ class Transformer(nn.Module):
 
 	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int):
 		for i in range(self.repeat): 
-			# one-hot encode the layer position on all tokens. 
-			x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
-			x[:,:,self.d_model - i - 1] = 1.0
+			# # one-hot encode the layer position on all tokens. 
+			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
+			# x[:,:,self.d_model - i - 1] = 1.0
 			x,a1,w1 = self.layer1(x,msk,n,0)
 			x,a2,w2 = self.layer2(x,msk,n,1)
 		return x, a1, a2, w1, w2

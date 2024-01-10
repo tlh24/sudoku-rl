@@ -155,7 +155,7 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
 	model.printParamCount()
 	
-	optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 1e-2)
+	optimizer = optim.AdamW(model.parameters(), lr=2e-4, weight_decay = 1e-2)
 	
 	for u in range(100000): 
 		i = torch.randint(n, (batch_size,)) * 2
@@ -179,3 +179,4 @@ if __name__ == '__main__':
 			write_mmap(fd_rewardp, rp.cpu().detach())
 			write_mmap(fd_attention, torch.stack((a1, a2), 0))
 			write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
+			
