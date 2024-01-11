@@ -59,7 +59,7 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	
 	nodes.append(nc)
 	
-	na = Node(Types.ACTION, action_type) # FIXME cheat
+	na = Node(Types.ACTION, 0) 
 	# action type = left right up down, 0 -- 3
 	ax = 0
 	if action_type > 1: 

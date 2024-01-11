@@ -143,12 +143,12 @@ if __name__ == '__main__':
 	fd_losslog = open('losslog.txt', 'w')
 	
 	# need to repack the mask to a sparse tensor w/ 3 duplicates. 
-	msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], 12), dtype=torch.int8) # try to save memory...
-	for i in range(12): 
+	msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8) # try to save memory...
+	for i in range(n_heads-1): 
 		j = i % 4
 		msk[:, :, i] = ( board_msk == (2**j) )
 	# add one all-too-all mask
-	msk = torch.nn.functional.pad(msk, (0,1), mode='constant', value=1.0)
+	msk[:,:,-1] = 1.0
 	msk = msk.unsqueeze(0).expand([batch_size, -1, -1, -1])
 	# msk = msk.to_sparse() # idk if you can have views of sparse tensors.. ??
 	# sparse tensors don't work with einsum, alas.

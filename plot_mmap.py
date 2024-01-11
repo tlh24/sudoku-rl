@@ -97,8 +97,8 @@ if __name__ == "__main__":
 	update = True
 	u = 0
 	
-	maxattn = th.ones(6)
-	maxqkv = th.ones(6)
+	maxattn = th.ones(n_heads*2)
+	maxqkv = th.ones(n_heads*2)
 
 	while True:
 		if update: 
@@ -120,22 +120,35 @@ if __name__ == "__main__":
 		plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
 		plot_tensor(1, 2, rewardp[:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
 		
-		selec = (u % 4)*3
+		head_banks = (n_heads-1)//4
+		selec = (u % 2)*3
 		for k in range(6): 
 			layer = k // 3
 			head = k % 3 + selec
+			if head < n_heads: 
+				x = attention[layer,:cl,:cl,head]
+				# j = layer*n_heads + head
+				# maxattn[j] = maxattn[j] * 0.97 + th.max(x) * 0.03
+				# x = x / maxattn[j]
+				plot_tensor(2, k, x, f"attention[{layer},:,:,{head}]", -1.0, 1.0, colorbar=False)
+			
+		# plot the last all-to-all head.
+		for layer in range(2): 
+			head = n_heads-1
 			x = attention[layer,:cl,:cl,head]
-			maxattn[k] = maxattn[k] * 0.97 + th.max(x) * 0.03
-			x = x / maxattn[k]
-			plot_tensor(2, k, x, f"attention[{layer},:,:,{head}]", -1.0, 1.0, colorbar=False)
+			# j = layer*n_heads + head
+			# maxattn[j] = maxattn[j] * 0.97 + th.max(x) * 0.03
+			# x = x / maxattn[j]
+			plot_tensor(layer, 3, x, f"attention[{layer},:,:,{head}]", -1.0, 1.0, colorbar=False)
 			
 		for k in range(6): 
 			layer = k // 3
 			head = k % 3 + selec
-			x = wqkv[layer,k,:,:]
-			maxqkv[k] = maxqkv[k] * 0.97 + th.max(th.abs(x)) * 0.03
-			maxqkv[k] = th.clamp(th.abs(maxqkv[k]), 0.01, 1e6)
-			x = x.T / maxqkv[k]
+			if head < n_heads: 
+				x = wqkv[layer,head,:,:]
+				maxqkv[k] = maxqkv[k] * 0.97 + th.max(th.abs(x)) * 0.03
+				maxqkv[k] = th.clamp(th.abs(maxqkv[k]), 0.01, 1e6)
+				x = x.T / maxqkv[k]
 			
 			plot_tensor(3, k, x, f"wqkv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
 			if not initialized: 
@@ -143,6 +156,8 @@ if __name__ == "__main__":
 			if k == 0: 
 				axs[3,k].set_ylabel('input dim')
 				axs[3,k].set_xlabel('output dim for Q & V')
+				
+		
 		
 		fig.tight_layout()
 		fig.canvas.draw()

@@ -112,10 +112,12 @@ class ResidualAttentionBlock(nn.Module):
 		self.init_zeros = init_zeros
 		self.ln_1 = LayerNorm(d_model) # unused
 		self.ln_2 = LayerNorm(d_model) # unused
-		self.wqkv = nn.Linear(d_model, n_head*2*d_model) # NOTE used to have L1 norm; removing it did not fix instability.
+		self.wqkv = nn.Linear(d_model, n_head*2*d_model) 
+		# self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2) # seems to be slower??
 		self.wk = nn.Linear(d_model, n_head, bias=False)
 		# self.bv = nn.Linear(d_model, n_head, bias=False)
-		self.head_enabled = [True for _ in range(n_head)] # FIXME
+		self.head_enabled = [False for _ in range(n_head)]
+		self.head_enabled[-1] = True # all-to-all always on.
 		self.l1a = l1attn.L1Attn()
 		# self.sta = StraightThroughAttention()
 		self.soft = torch.nn.Softmax(dim=3) # 2 for regular attention, 3 for l1
@@ -124,38 +126,37 @@ class ResidualAttentionBlock(nn.Module):
 		self.gelu = QuickGELU()
 		self.fanin = nn.Linear(d_model * 3, d_model)
 		self.fanin_stn = StraightThroughNormal()
-		# if init_zeros: 
-		# 	torch.nn.init.zeros_(self.wqkv.weight)
-		# 	torch.nn.init.zeros_(self.fanout.weight)
-		# 	torch.nn.init.zeros_(self.fanin.weight)
-		# 	torch.nn.init.zeros_(self.fanout.bias)
-		# 	torch.nn.init.zeros_(self.fanin.bias)
-		# else: 
-		# 	with torch.no_grad(): 
-		# 		w = torch.zeros_like(self.wqkv.weight)
-		# 		self.wqkv.weight.copy_(w)
-		# 		w = torch.zeros_like(self.wqkv.bias)
-		# 		self.wqkv.bias.copy_(w)
-		# 		w = torch.eye(d_model, d_model)
-		# 		self.fanout.weight.copy_(w)
-		# torch.nn.init.zeros_(self.wk.weight)
+		if True:
+			with torch.no_grad(): 
+				w = torch.zeros_like(self.wqkv.weight)
+				self.wqkv.weight.copy_(w)
+				w = torch.zeros_like(self.wqkv.bias)
+				self.wqkv.bias.copy_(w)
+				w = torch.eye(d_model, d_model)
+				self.fanout.weight.copy_(w)
+				w = torch.zeros_like(self.wk.weight)
+				w[:,-1] = 1.0 # all-to-all always on
+				self.wk.weight.copy_(w)
 		
 	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int):
-		# init_head = n // 800
-		# if n % 800 == layer*400 and init_head < self.n_head: # only 2 layers! 
-		# 	with torch.no_grad(): 
-		# 		w = self.wk.weight
-		# 		w[init_head, :] = 1.0 # no division -- just a gate! 
-		# 		self.wk.weight.copy_( w )
-		# 		self.head_enabled[init_head] = True
-		# 		print(f"initialized head {init_head}")
+		init_head = n // 600
+		if n % 600 == layer*300 and init_head < self.n_head: # only 2 layers! 
+			with torch.no_grad(): 
+				w = self.wk.weight
+				w[init_head, :] = 1.0 # no division -- just a gate! 
+				self.wk.weight.copy_( w )
+				self.head_enabled[init_head] = True
+				print(f"initialized head {init_head}")
+		
 		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
 		d_head = self.d_model
+		
 		y = self.wqkv(x)
 		y = torch.reshape(y, (batch_size, ntok, self.n_head, d_head*2) )
-		q,v = torch.split(y, d_head, dim=-1) # q-v hence becomes second to last dim
+		q,v = torch.split(y, d_head, dim=-1) 
+			# q-v hence becomes second to last dim
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		gk = self.wk.weight.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
@@ -168,11 +169,11 @@ class ResidualAttentionBlock(nn.Module):
 		# a = self.gelu(a + 1e-3) / ntok # works just as well as softmax! 
 		a = self.soft(a) # v gets updated from the gradient, but q and k do not.
 		# a = a[:,:,0:-1, :]
-		a = a * msk # don't mask the last layer.
+		a = a * msk 
 		b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
-		ap = a[0,:,:,:-1].squeeze().detach().cpu()
+		ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() # 
 		return b,ap # residual sum later.
 
 	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int):
@@ -180,8 +181,8 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.ln_1(y) # stabilize learning? 
 		# y = self.fanout_stn(self.fanout(y), std)
 		# y = self.fanout(y)
-		y = self.gelu(y) # FIXME i think this nonlinearity is essential.
-		y = self.fanout(y)
+		y = self.gelu(y) # i think this nonlinearity is helpful
+		y = self.fanout(y) # allow sign inversions.
 		# y = self.fanin_stn(self.fanin(y), std)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
