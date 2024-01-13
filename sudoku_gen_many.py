@@ -11,12 +11,16 @@ from itertools import product
 # parallelize and save the results for fast loading later.
 
 N = 500000
+S = 4 # normally 9
 
-x = torch.zeros(N, 9, 9)
+x = torch.zeros(N, S, S)
 
 def makePuzzle(j): # argument is ignored.
-	k = np.random.randint(20) + 25 # how many positions to blank.
-	sudoku = Sudoku(9, k)
+	if S == 9: 
+		k = np.random.randint(20) + 25 # how many positions to blank.
+	if S == 4: 
+		k = np.random.randint(4) + 5
+	sudoku = Sudoku(S, k)
 	sudoku.fillValues()
 	return torch.tensor(sudoku.mat)
 
@@ -27,4 +31,4 @@ for ind, res in enumerate(pool.imap_unordered(makePuzzle, range(N), chunksize)):
 	x[ind, :, :] = res
 
 
-torch.save(x, f'puzzles_{N}.pt')
+torch.save(x, f'puzzles_{S}_{N}.pt')

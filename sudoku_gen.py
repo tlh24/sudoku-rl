@@ -119,7 +119,7 @@ class Sudoku:
 	def printSudoku(self):
 		for i in range(self.N):
 			for j in range(self.N):
-				k = i // 3 + j // 3
+				k = i // self.SRN + j // self.SRN
 				color = "black" if k % 2 == 0 else "red"
 				p = math.floor(self.mat[i,j])
 				print(colored(p, color), end=" ")

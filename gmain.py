@@ -48,8 +48,8 @@ def runAction(action, sudoku, cursPos):
 		cursPos[0] += 1
 	if act == 3: # left
 		cursPos[1] -= 1
-	cursPos[0] = cursPos[0] % 9 # wrap at the edges; 
-	cursPos[1] = cursPos[1] % 9 # works for negative nums
+	cursPos[0] = cursPos[0] % SuN # wrap at the edges; 
+	cursPos[1] = cursPos[1] % SuN # works for negative nums
 			
 	if True: 
 		sact = actionName(act)
@@ -88,13 +88,14 @@ def enumerateBoards(puzzles, n):
 		lst = lst * rep
 	if len(lst) > n: 
 		lst = random.sample(lst, n)
-	sudoku = Sudoku(9, 25)
+	sudoku = Sudoku(SuN, SuK)
 	boards = [] # collapse to one tensor afterward. 
 	rewards = torch.zeros(n)
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
 		sudoku.setMat(puzzl.numpy())
-		cursPos = torch.randint(9, (2,))
+		# cursPos = torch.randint(SuN, (2,))
+		cursPos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
 		enc,msk,enc_new,reward = encodeBoard(sudoku, cursPos, ep[0])
 		boards.append(torch.tensor(enc))
 		boards.append(torch.tensor(enc_new))
@@ -107,9 +108,10 @@ def enumerateBoards(puzzles, n):
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
-	n = 10000
+	n = 12000
 	device = torch.device(type='cuda', index=1)
 	
+	# board_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
 	try: 
 		fname = f'board_enc_{n}.pt'
 		board_enc = torch.load(fname)
@@ -148,34 +150,45 @@ if __name__ == '__main__':
 		j = i % 4
 		msk[:, :, i] = ( board_msk == (2**j) )
 	# add one all-too-all mask
-	msk[:,:,-1] = 1.0
+	if g_globalatten: 
+		msk[:,:,-1] = 1.0
 	msk = msk.unsqueeze(0).expand([batch_size, -1, -1, -1])
+	if g_l1atten: 
+		msk = torch.permute(msk, (0,3,1,2)).contiguous() # L1 atten is bhts order
 	# msk = msk.to_sparse() # idk if you can have views of sparse tensors.. ??
 	# sparse tensors don't work with einsum, alas.
 	msk = msk.to(device)
 	
 	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
 	model.printParamCount()
+	# torch.autograd.set_detect_anomaly(True)
 	
 	optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 1e-2)
 	# optimizer = optim.SGD(model.parameters(), lr=1e-5)
 	# optimizer = optim.Adam(model.parameters(), lr=2e-4)
 	# optimizer = optim.Rprop(model.parameters(), lr=3e-5)
 	
-	for u in range(100000): 
+	uu = 0
+	for u in range(28000): 
 		model.zero_grad()
-		i = torch.randint(n, (batch_size,)) * 2
+		i = torch.randint(n-2000, (batch_size,)) * 2
 		x = board_enc[i,:,:].to(device)
-		y = board_enc[i+1,:,:].to(device) # FIXME
+		y = board_enc[i+1,:,:].to(device) 
 		reward = board_reward[i//2]
 		yp,rp,a1,a2,w1,w2 = model.forward(x, msk, u)
 		
+		# yp = yp - 4.5 * (yp > 4.5)
+		# yp = yp + 4.5 * (yp < -4.5)
+		# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
+		
 		loss = torch.sum((yp - y)**2)
 		loss.backward()
+		torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 		optimizer.step() 
 		print(loss.cpu().item())
-		fd_losslog.write(f'{u}\t{loss.cpu().item()}\n')
+		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 		fd_losslog.flush()
+		uu = uu+1
 		
 		if u % 24 == 0: 
 			write_mmap(fd_board, x.cpu())
@@ -185,4 +198,21 @@ if __name__ == '__main__':
 			write_mmap(fd_rewardp, rp.cpu().detach())
 			write_mmap(fd_attention, torch.stack((a1, a2), 0))
 			write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
-			
+	
+	print("validation")
+	for u in range( (2000-batch_size*2) // (batch_size*2) ): 
+		i = torch.arange(0,batch_size*2, step = 2) + u*batch_size*2
+		x = board_enc[i,:,:].to(device)
+		y = board_enc[i+1,:,:].to(device) 
+		reward = board_reward[i//2]
+		yp,rp,a1,a2,w1,w2 = model.forward(x, msk, uu)
+		
+		yp = yp - 4.5 * (yp > 4.5)
+		yp = yp + 4.5 * (yp < -4.5)
+		# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
+		
+		loss = torch.sum((yp - y)**2)
+		print('v', loss.cpu().item())
+		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
+		fd_losslog.flush()
+		uu = uu+1

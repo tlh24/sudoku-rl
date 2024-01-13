@@ -113,10 +113,10 @@ if __name__ == "__main__":
 		# i = np.random.randint(batch_size) # checking
 		i = 0
 		cl = 40
-		plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 0, boardp[i,:cl,:].T, f"worldp[{i},:,:]", -2.0, 2.0)
-		plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -2.0, 2.0)
-		plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(worldp - board)[{i},:,:]", -2.0, 2.0)
+		plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
+		plot_tensor(1, 0, boardp[i,:cl,:].T, f"worldp[{i},:,:]", -4.0, 4.0)
+		plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
+		plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(worldp - board)[{i},:,:]", -4.0, 4.0)
 		plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
 		plot_tensor(1, 2, rewardp[:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
 		

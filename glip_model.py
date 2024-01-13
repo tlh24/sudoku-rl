@@ -7,6 +7,7 @@ import torchlayers as tl
 import l1attn
 import pdb
 import matplotlib.pyplot as plt
+from constants import g_zeroinit, g_l1atten
 
 class LayerNorm(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16."""
@@ -110,43 +111,48 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.init_zeros = init_zeros
-		self.ln_1 = LayerNorm(d_model) # unused
-		self.ln_2 = LayerNorm(d_model) # unused
+		# self.ln_1 = LayerNorm(d_model) # unused
+		# self.ln_2 = LayerNorm(d_model) # unused
 		self.wqkv = nn.Linear(d_model, n_head*2*d_model) 
 		# self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2) # seems to be slower??
 		self.wk = nn.Linear(d_model, n_head, bias=False)
 		# self.bv = nn.Linear(d_model, n_head, bias=False)
-		self.head_enabled = [False for _ in range(n_head)]
+		self.head_enabled = [not g_zeroinit for _ in range(n_head)]
 		self.head_enabled[-1] = True # all-to-all always on.
 		self.l1a = l1attn.L1Attn()
 		# self.sta = StraightThroughAttention()
-		self.soft = torch.nn.Softmax(dim=3) # 2 for regular attention, 3 for l1
+		if g_l1atten: # axis 2 for regular attention, 3 for l1
+			self.soft = torch.nn.Softmax(dim=3) 
+		else: 
+			self.soft = torch.nn.Softmax(dim=2)
 		self.fanout = nn.Linear(d_model, d_model * 1)
 		self.fanout_stn = StraightThroughNormal()
 		self.gelu = QuickGELU()
 		self.fanin = nn.Linear(d_model * 3, d_model)
 		self.fanin_stn = StraightThroughNormal()
-		if True:
+		if g_zeroinit:
 			with torch.no_grad(): 
 				w = torch.zeros_like(self.wqkv.weight)
 				self.wqkv.weight.copy_(w)
 				w = torch.zeros_like(self.wqkv.bias)
 				self.wqkv.bias.copy_(w)
-				w = torch.eye(d_model, d_model)
-				self.fanout.weight.copy_(w)
+				# w = torch.eye(d_model, d_model)
+				# self.fanout.weight.copy_(w)
 				w = torch.zeros_like(self.wk.weight)
 				w[:,-1] = 1.0 # all-to-all always on
 				self.wk.weight.copy_(w)
 		
-	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int):
-		init_head = n // 600
-		if n % 600 == layer*300 and init_head < self.n_head: # only 2 layers! 
-			with torch.no_grad(): 
-				w = self.wk.weight
-				w[init_head, :] = 1.0 # no division -- just a gate! 
-				self.wk.weight.copy_( w )
-				self.head_enabled[init_head] = True
-				print(f"initialized head {init_head}")
+	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int):
+		if pas == 0 and g_zeroinit: 
+			schedule = 600
+			init_head = n // schedule
+			if n % schedule == layer*(schedule//2) and init_head < self.n_head: # only 2 layers! 
+				with torch.no_grad(): 
+					w = self.wk.weight
+					w[init_head, :] = 1.0 # no division -- just a gate! 
+					self.wk.weight.copy_( w )
+					self.head_enabled[init_head] = True
+					print(f"initialized head {init_head}")
 		
 		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
@@ -164,24 +170,33 @@ class ResidualAttentionBlock(nn.Module):
 		v = v * gv  # bias term to the value (since there is no subsequent mlp layer)
 		# q = torch.nn.functional.normalize(q, dim=3, eps=1e-2) # doesn't work!! 
 		# v = torch.nn.functional.normalize(v, dim=3, eps=1e-2) 
-		a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
-		# a = self.l1a(q,k)
-		# a = self.gelu(a + 1e-3) / ntok # works just as well as softmax! 
-		a = self.soft(a) # v gets updated from the gradient, but q and k do not.
-		# a = a[:,:,0:-1, :]
-		a = a * msk 
-		b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
+		# a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
+		if g_l1atten: 
+			a = self.l1a(q,k) / math.sqrt(d_head) # output is bhts!
+			a = self.soft(a) # v gets updated from the gradient, but q and k do not.
+			# a = self.gelu(a)
+			a = a * msk
+			b = torch.einsum('bhts,bshd -> bthd', a, v) 
+			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() #
+			ap = torch.permute(ap, (1,2,0)).contiguous() # for viewing.
+		else: 
+			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
+			a = self.soft(a) # v gets updated from the gradient, but q and k do not.
+			# a = self.gelu(a) # need bias for this to work
+			a = a * msk
+			b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
+			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() #
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
-		ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() # 
+		 
 		return b,ap # residual sum later.
 
-	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int):
-		y,ap = self.attention(x,msk,n,layer) 
+	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int):
+		y,ap = self.attention(x,msk,n,layer,pas) 
 		# y = self.ln_1(y) # stabilize learning? 
 		# y = self.fanout_stn(self.fanout(y), std)
 		# y = self.fanout(y)
-		y = self.gelu(y) # i think this nonlinearity is helpful
+		y = self.gelu(y+4.0)-4.0 # i think this nonlinearity is helpful
 		y = self.fanout(y) # allow sign inversions.
 		# y = self.fanin_stn(self.fanin(y), std)
 		# y = self.fanin(y)
@@ -199,7 +214,6 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.layer1 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		self.layer2 = ResidualAttentionBlock(d_model, n_head, init_zeros)
-		self.layer3 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		# self.resblocks = nn.Sequential(*[ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
 	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int):
@@ -207,7 +221,7 @@ class Transformer(nn.Module):
 			# # one-hot encode the layer position on all tokens. 
 			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
 			# x[:,:,self.d_model - i - 1] = 1.0
-			x,a1,w1 = self.layer1(x,msk,n,0)
-			x,a2,w2 = self.layer2(x,msk,n,1)
+			x,a1,w1 = self.layer1(x,msk,n,0,i)
+			x,a2,w2 = self.layer2(x,msk,n,1,i)
 			# x,a3,w3 = self.layer3(x,msk,n,1)
 		return x, a1, a2, w1, w2

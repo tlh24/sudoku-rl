@@ -4,6 +4,7 @@ import torch
 from enum import Enum
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
+from constants import SuN, SuH
 
 class Types(Enum): 
 	CURSOR = 1
@@ -48,9 +49,10 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	
 	nc = Node(Types.CURSOR, 0)
 	ncx = Node(Types.POSITION, 0) # x = column
-	ncxx = Node(Types.LEAF, curs_pos[0]) 
+	posOffset = (SuN - 1) / 2.0
+	ncxx = Node(Types.LEAF, curs_pos[0] - posOffset) # -4 -> 0 4 -> 8 
 	ncy = Node(Types.POSITION, 1)
-	ncyy = Node(Types.LEAF, curs_pos[1])
+	ncyy = Node(Types.LEAF, curs_pos[1] - posOffset)
 	
 	ncx.add_child(ncxx)
 	ncy.add_child(ncyy)
@@ -75,34 +77,35 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	
 	nodes.append(na)
 	
-# 	for y in range(9): 
-# 		for x in range(9): 
-# 			v = puzzle[y,x]
-# 			nb = Node(Types.BOX, v)
-# 			nbx = Node(Types.POSITION, 0)
-# 			nbxx = Node(Types.LEAF, x)
-# 			nby = Node(Types.POSITION, 1)
-# 			nbyy = Node(Types.LEAF, y)
-# 			b = (y // 3)*3 + (x // 3)
-# 			nbb = Node(Types.POSITION, 2)
-# 			nbbb = Node(Types.LEAF, b)
-# 			
-# 			highlight = 0 # this is mostly icing..
-# 			if x == curs_pos[0] and y == curs_pos[1]: 
-# 				highlight = 1
-# 			nbh = Node(Types.POSITION, 3)
-# 			nbhh = Node(Types.LEAF, highlight)
-# 			
-# 			nbx.add_child(nbxx)
-# 			nby.add_child(nbyy)
-# 			nbb.add_child(nbbb)
-# 			nbh.add_child(nbhh)
-# 			nb.add_child(nbx)
-# 			nb.add_child(nby)
-# 			nb.add_child(nbb)
-# 			nb.add_child(nbh)
-# 			
-# 			nodes.append(nb)
+	if False: 
+		for y in range(SuN): 
+			for x in range(SuN): 
+				v = puzzle[y,x]
+				nb = Node(Types.BOX, v)
+				nbx = Node(Types.POSITION, 0)
+				nbxx = Node(Types.LEAF, x - posOffset)
+				nby = Node(Types.POSITION, 1)
+				nbyy = Node(Types.LEAF, y - posOffset)
+				b = (y // SuH)*SuH + (x // SuH)
+				nbb = Node(Types.POSITION, 2)
+				nbbb = Node(Types.LEAF, b - posOffset)
+				
+				highlight = 0 # this is mostly icing..
+				if x == curs_pos[0] and y == curs_pos[1]: 
+					highlight = 1
+				nbh = Node(Types.POSITION, 3)
+				nbhh = Node(Types.LEAF, highlight)
+				
+				nbx.add_child(nbxx)
+				nby.add_child(nbyy)
+				nbb.add_child(nbbb)
+				nbh.add_child(nbhh)
+				nb.add_child(nbx)
+				nb.add_child(nby)
+				nb.add_child(nbb)
+				nb.add_child(nbh)
+				
+				nodes.append(nb)
 			
 	if False: 
 		print("total number of nodes:", sum([n.count() for n in nodes]))
@@ -117,7 +120,8 @@ def encode_nodes(nodes):
 	
 	def encode_node(i, node): 
 		enc[i, node.typ.value] = 1.0
-		enc[i, node.value + 10] = 1.0
+		# enc[i, node.value + 10] = 1.0
+		enc[i, 10] = node.value 
 		node.loc = i # need some sort of pointer. 
 		i = i + 1
 		for k in node.kids: 
@@ -182,8 +186,8 @@ if __name__ == "__main__":
 	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 	im = [0,0]
 	
-	N = 9
-	K = 81-37
+	N = SuN
+	K = 5
 	sudoku = Sudoku(N, K)
 	sudoku.fillValues()
 	sudoku.printSudoku()
@@ -200,8 +204,10 @@ if __name__ == "__main__":
 	nodes = sudoku_to_nodes(sudoku.mat, np.zeros((2,)), 0)
 	
 	enc,msk = encode_nodes(nodes)
+	print(enc.shape, msk.shape)
 	plt.imshow(enc.T)
 	plt.show()
 	plt.imshow(msk)
 	plt.colorbar()
 	plt.show()
+
