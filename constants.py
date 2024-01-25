@@ -10,9 +10,11 @@ g_globalatten = False
 batch_size = 64
 
 # sudoku board size
-# SuN = 4 # 4 x 4 board: 4 entries per row, column and box.
-# SuH = 2
-# SuK = 6
-SuN = 9 # 4 x 4 board: 4 entries per row, column and box.
-SuH = 3
-SuK = 25
+if True: 
+	SuN = 4 # 4 x 4 board: 4 entries per row, column and box.
+	SuH = 2
+	SuK = 5
+else: 
+	SuN = 9 # 4 x 4 board: 4 entries per row, column and box.
+	SuH = 3 # sqrt SuN
+	SuK = 25

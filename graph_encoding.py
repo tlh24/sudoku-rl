@@ -4,7 +4,8 @@ import torch
 from enum import Enum
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
-from constants import SuN, SuH
+from constants import SuN, SuH, SuK
+import pdb
 
 class Types(Enum): 
 	CURSOR = 1
@@ -17,7 +18,7 @@ class Types(Enum):
 class Node: 
 	def __init__(self, typ, val):
 		self.typ = typ
-		self.value = int(val) # payload
+		self.value = float(val) # payload
 		self.loc = 0
 		self.kids = []
 		self.parents = []
@@ -48,8 +49,8 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	nodes = []
 	
 	nc = Node(Types.CURSOR, 0)
-	ncx = Node(Types.POSITION, 0) # x = column
 	posOffset = (SuN - 1) / 2.0
+	ncx = Node(Types.POSITION, 0) # x = column
 	ncxx = Node(Types.LEAF, curs_pos[0] - posOffset) # -4 -> 0 4 -> 8 
 	ncy = Node(Types.POSITION, 1)
 	ncyy = Node(Types.LEAF, curs_pos[1] - posOffset)
@@ -187,7 +188,7 @@ if __name__ == "__main__":
 	im = [0,0]
 	
 	N = SuN
-	K = 5
+	K = SuK
 	sudoku = Sudoku(N, K)
 	sudoku.fillValues()
 	sudoku.printSudoku()
@@ -201,11 +202,12 @@ if __name__ == "__main__":
 	plt.colorbar(im[1], ax=axs[1])
 	plt.show()
 	
-	nodes = sudoku_to_nodes(sudoku.mat, np.zeros((2,)), 0)
+	nodes = sudoku_to_nodes(sudoku.mat, np.ones((2,))*2.0, 0)
 	
 	enc,msk = encode_nodes(nodes)
 	print(enc.shape, msk.shape)
 	plt.imshow(enc.T)
+	plt.colorbar()
 	plt.show()
 	plt.imshow(msk)
 	plt.colorbar()

@@ -7,7 +7,7 @@ import torchlayers as tl
 import l1attn
 import pdb
 import matplotlib.pyplot as plt
-from constants import g_zeroinit, g_l1atten
+from constants import g_zeroinit, g_l1atten, SuN
 
 class LayerNorm(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16."""
@@ -115,7 +115,8 @@ class ResidualAttentionBlock(nn.Module):
 		# self.ln_2 = LayerNorm(d_model) # unused
 		self.wqkv = nn.Linear(d_model, n_head*2*d_model) 
 		# self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2) # seems to be slower??
-		self.wk = nn.Linear(d_model, n_head, bias=False)
+		self.wk = nn.Linear(d_model, n_head, bias=False) 
+			# wk is just a weighting, not a full matrix. 
 		# self.bv = nn.Linear(d_model, n_head, bias=False)
 		self.head_enabled = [not g_zeroinit for _ in range(n_head)]
 		self.head_enabled[-1] = True # all-to-all always on.
@@ -138,13 +139,15 @@ class ResidualAttentionBlock(nn.Module):
 				self.wqkv.bias.copy_(w)
 				# w = torch.eye(d_model, d_model)
 				# self.fanout.weight.copy_(w)
+				# w = torch.zeros_like(self.fanout.bias)
+				# self.fanout.bias.copy_(w) # pytorch always initializes bias to zero 
 				w = torch.zeros_like(self.wk.weight)
 				w[:,-1] = 1.0 # all-to-all always on
 				self.wk.weight.copy_(w)
 		
 	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int):
 		if pas == 0 and g_zeroinit: 
-			schedule = 600
+			schedule = 1000 # slower for SGD
 			init_head = n // schedule
 			if n % schedule == layer*(schedule//2) and init_head < self.n_head: # only 2 layers! 
 				with torch.no_grad(): 
@@ -152,7 +155,7 @@ class ResidualAttentionBlock(nn.Module):
 					w[init_head, :] = 1.0 # no division -- just a gate! 
 					self.wk.weight.copy_( w )
 					self.head_enabled[init_head] = True
-					print(f"initialized head {init_head}")
+					print(f"initialized head {init_head} of layer {layer}")
 		
 		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
@@ -163,6 +166,7 @@ class ResidualAttentionBlock(nn.Module):
 		y = torch.reshape(y, (batch_size, ntok, self.n_head, d_head*2) )
 		q,v = torch.split(y, d_head, dim=-1) 
 			# q-v hence becomes second to last dim
+		# gate k by wk, uniformly across tokens; different per head.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		gk = self.wk.weight.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
@@ -196,7 +200,7 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.ln_1(y) # stabilize learning? 
 		# y = self.fanout_stn(self.fanout(y), std)
 		# y = self.fanout(y)
-		y = self.gelu(y+4.0)-4.0 # i think this nonlinearity is helpful
+		y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
 		y = self.fanout(y) # allow sign inversions.
 		# y = self.fanin_stn(self.fanin(y), std)
 		# y = self.fanin(y)

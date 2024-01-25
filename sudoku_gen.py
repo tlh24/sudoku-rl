@@ -2,6 +2,7 @@ import random
 import math
 import numpy as np
 from termcolor import colored
+import pdb
 
 class Sudoku:
 	def __init__(self, N, K):
@@ -15,13 +16,15 @@ class Sudoku:
 	
 	def fillValues(self):
 		# Fill the diagonal of SRN x SRN matrices
-		self.fillDiagonal()
-
-		# Fill remaining blocks
-		self.fillRemaining(0, self.SRN)
-
+		# 4x4 matrices have a good chance of being unsolvable.
+		done = False
+		while not done: 
+			self.fillDiagonal()
+			# Fill remaining blocks
+			done = self.fillRemaining(0, self.SRN)
 		# Remove Randomly K digits to make game
 		self.removeKDigits()
+		print(self.mat)
 	
 	def fillDiagonal(self):
 		for i in range(0, self.N, self.SRN):

@@ -6,7 +6,7 @@ from torch import nn, optim
 import pdb
 import matplotlib.pyplot as plt
 import graph_encoding
-from graph_model import Gracoonizer
+from gracoonizer import Gracoonizer
 from sudoku_gen import Sudoku
 from plot_mmap import make_mmf, write_mmap
 from constants import *
@@ -94,8 +94,8 @@ def enumerateBoards(puzzles, n):
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
 		sudoku.setMat(puzzl.numpy())
-		# cursPos = torch.randint(SuN, (2,))
-		cursPos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
+		cursPos = torch.randint(SuN, (2,))
+		# cursPos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
 		enc,msk,enc_new,reward = encodeBoard(sudoku, cursPos, ep[0])
 		boards.append(torch.tensor(enc))
 		boards.append(torch.tensor(enc_new))
@@ -111,27 +111,27 @@ if __name__ == '__main__':
 	n = 12000
 	device = torch.device(type='cuda', index=1)
 	
-	# board_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
-	try: 
-		fname = f'board_enc_{n}.pt'
-		board_enc = torch.load(fname)
-		print(f'loaded {fname}')
-		# wait ... the graph never changes, just the data. 
-		# only need one mask!
-		fname = f'board_msk_{n}.pt'
-		board_msk = torch.load(fname)
-		print(f'loaded {fname}')
-		fname = f'board_reward_{n}.pt'
-		board_reward = torch.load(fname)
-		print(f'loaded {fname}')
-	except: 
-		board_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
-		fname = f'board_enc_{n}.pt'
-		torch.save(board_enc, fname)
-		fname = f'board_msk_{n}.pt'
-		torch.save(board_msk, fname)
-		fname = f'board_reward_{n}.pt'
-		torch.save(board_reward, fname)
+	board_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
+	# try: 
+	# 	fname = f'board_enc_{n}.pt'
+	# 	board_enc = torch.load(fname)
+	# 	print(f'loaded {fname}')
+	# 	# wait ... the graph never changes, just the data. 
+	# 	# only need one mask!
+	# 	fname = f'board_msk_{n}.pt'
+	# 	board_msk = torch.load(fname)
+	# 	print(f'loaded {fname}')
+	# 	fname = f'board_reward_{n}.pt'
+	# 	board_reward = torch.load(fname)
+	# 	print(f'loaded {fname}')
+	# except: 
+	# 	board_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
+	# 	fname = f'board_enc_{n}.pt'
+	# 	torch.save(board_enc, fname)
+	# 	fname = f'board_msk_{n}.pt'
+	# 	torch.save(board_msk, fname)
+	# 	fname = f'board_reward_{n}.pt'
+	# 	torch.save(board_reward, fname)
 	print(board_enc.shape, board_msk.shape, board_reward.shape)
 	
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
@@ -161,15 +161,20 @@ if __name__ == '__main__':
 	
 	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
 	model.printParamCount()
+	try: 
+		model.load_checkpoint()
+	except : 
+		print("could not load model checkpoint")
 	# torch.autograd.set_detect_anomaly(True)
 	
 	optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 1e-2)
-	# optimizer = optim.SGD(model.parameters(), lr=1e-5)
+	# optimizer = optim.ASGD(model.parameters(), lr=1e-4) # very slowww
 	# optimizer = optim.Adam(model.parameters(), lr=2e-4)
-	# optimizer = optim.Rprop(model.parameters(), lr=3e-5)
+	# optimizer = optim.Rprop(model.parameters(), lr=1) # does not work.
+	# optimizer = optim.Adadelta(model.parameters(), lr=0.5, weight_decay = 1e-2, foreach=True)
 	
 	uu = 0
-	for u in range(28000): 
+	for u in range(100000): 
 		model.zero_grad()
 		i = torch.randint(n-2000, (batch_size,)) * 2
 		x = board_enc[i,:,:].to(device)
@@ -183,9 +188,9 @@ if __name__ == '__main__':
 		
 		loss = torch.sum((yp - y)**2)
 		loss.backward()
-		torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+		# torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 		optimizer.step() 
-		print(loss.cpu().item())
+		# print(loss.cpu().item())
 		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 		fd_losslog.flush()
 		uu = uu+1
@@ -216,3 +221,5 @@ if __name__ == '__main__':
 		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 		fd_losslog.flush()
 		uu = uu+1
+
+	model.save_checkpoint()

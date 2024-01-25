@@ -2,12 +2,11 @@ import math
 import numpy as np
 import torch as th
 from torch import nn
-import glip_model
+import graph_transformer
 import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
-import graph_model
-from constants import n_heads
+from constants import n_heads, g_zeroinit
 
 class Gracoonizer(nn.Module):
 	
@@ -29,14 +28,14 @@ class Gracoonizer(nn.Module):
 		# 	self.world_to_xfrmr.weight.copy_( w )
 		# 	self.world_to_xfrmr.bias.copy_( th.zeros(xfrmr_dim) )
 		
-		self.gelu = glip_model.QuickGELU()
+		self.gelu = graph_transformer.QuickGELU()
 		
-		self.xfrmr = glip_model.Transformer(
+		self.xfrmr = graph_transformer.Transformer(
 			d_model = xfrmr_dim, 
 			layers = 2, # was 2
 			n_head = self.n_head, 
 			repeat = 1, # was 3
-			init_zeros = False
+			init_zeros = g_zeroinit
 			)
 		
 		self.xfrmr_to_world = nn.Linear(xfrmr_dim, world_dim) 
