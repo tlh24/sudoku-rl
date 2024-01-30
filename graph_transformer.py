@@ -117,6 +117,7 @@ class ResidualAttentionBlock(nn.Module):
 		# self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2) # seems to be slower??
 		self.wk = nn.Linear(d_model, n_head, bias=False) 
 			# wk is just a weighting, not a full matrix. 
+			# should be stored in the model state dict
 		# self.bv = nn.Linear(d_model, n_head, bias=False)
 		self.head_enabled = [not g_zeroinit for _ in range(n_head)]
 		self.head_enabled[-1] = True # all-to-all always on.
@@ -127,18 +128,18 @@ class ResidualAttentionBlock(nn.Module):
 		else: 
 			self.soft = torch.nn.Softmax(dim=2)
 		self.fanout = nn.Linear(d_model, d_model * 1)
-		self.fanout_stn = StraightThroughNormal()
+		# self.fanout_stn = StraightThroughNormal()
 		self.gelu = QuickGELU()
-		self.fanin = nn.Linear(d_model * 3, d_model)
-		self.fanin_stn = StraightThroughNormal()
+		# self.fanin = nn.Linear(d_model * 3, d_model)
+		# self.fanin_stn = StraightThroughNormal()
 		if g_zeroinit:
 			with torch.no_grad(): 
 				w = torch.zeros_like(self.wqkv.weight)
 				self.wqkv.weight.copy_(w)
 				w = torch.zeros_like(self.wqkv.bias)
 				self.wqkv.bias.copy_(w)
-				# w = torch.eye(d_model, d_model)
-				# self.fanout.weight.copy_(w)
+				w = torch.eye(d_model, d_model)
+				self.fanout.weight.copy_(w)
 				# w = torch.zeros_like(self.fanout.bias)
 				# self.fanout.bias.copy_(w) # pytorch always initializes bias to zero 
 				w = torch.zeros_like(self.wk.weight)
@@ -149,7 +150,7 @@ class ResidualAttentionBlock(nn.Module):
 		if pas == 0 and g_zeroinit: 
 			schedule = 1000 # slower for SGD
 			init_head = n // schedule
-			if n % schedule == layer*(schedule//2) and init_head < self.n_head: # only 2 layers! 
+			if n % schedule == layer*(schedule//2) and init_head < self.n_head and (not self.head_enabled[init_head]): # only 2 layers! 
 				with torch.no_grad(): 
 					w = self.wk.weight
 					w[init_head, :] = 1.0 # no division -- just a gate! 
@@ -208,6 +209,9 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.ln_2(y) # stabilize learning? 
 		return x + y, ap, self.wqkv.weight.detach().cpu()
 		
+	def allHeadsOn(self): 
+		self.head_enabled = [True for _ in range(self.n_head)]
+		
 		
 class Transformer(nn.Module): 
 	def __init__(self, d_model:int, layers:int, repeat:int, n_head:int, init_zeros:bool):
@@ -229,3 +233,7 @@ class Transformer(nn.Module):
 			x,a2,w2 = self.layer2(x,msk,n,1,i)
 			# x,a3,w3 = self.layer3(x,msk,n,1)
 		return x, a1, a2, w1, w2
+
+	def allHeadsOn(self): 
+		self.layer1.allHeadsOn()
+		self.layer2.allHeadsOn()

@@ -10,30 +10,31 @@ import pdb
 import matplotlib.pyplot as plt
 import numpy as np
 
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.dropout1 = nn.Dropout(0.25)
-        self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(9216, 128)
-        self.fc2 = nn.Linear(128, 10)
+# class Net(nn.Module):
+# 	def __init__(self):
+# 		super(Net, self).__init__()
+# 		self.conv1 = nn.Conv2d(1, 32, 3, 1)
+# 		self.conv2 = nn.Conv2d(32, 64, 3, 1)
+# 		self.dropout1 = nn.Dropout(0.25)
+# 		self.dropout2 = nn.Dropout(0.5)
+# 		self.fc1 = nn.Linear(9216, 128)
+# 		self.fc2 = nn.Linear(128, 10)
+#
+# 	def forward(self, x):
+# 		x = self.conv1(x)
+# 		x = F.relu(x)
+# 		x = self.conv2(x)
+# 		x = F.relu(x)
+# 		x = F.max_pool2d(x, 2)
+# 		x = self.dropout1(x)
+# 		x = torch.flatten(x, 1)
+# 		x = self.fc1(x)
+# 		x = F.relu(x)
+# 		x = self.dropout2(x)
+# 		x = self.fc2(x)
+# 		output = F.log_softmax(x, dim=1)
+# 		return output
 
-    def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout2(x)
-        x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
 
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
@@ -103,6 +104,17 @@ class NetSimp(nn.Module):
 		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
 		return output
 
+	def load_checkpoint(self, path:str=None):
+		if path is None:
+			path = "mnist_2layer.pth"
+		self.load_state_dict(torch.load(path))
+
+	def save_checkpoint(self, path:str=None):
+		if path is None:
+			path = "mnist_2layer.pth"
+		torch.save(self.state_dict(), path)
+		print(f"saved checkpoint to {path}")
+
 
 def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
@@ -110,6 +122,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
+        pdb.set_trace()
         loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
@@ -147,7 +160,7 @@ def main():
 							help='input batch size for training (default: 64)')
 	parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
 							help='input batch size for testing (default: 1000)')
-	parser.add_argument('--epochs', type=int, default=50, metavar='N',
+	parser.add_argument('--epochs', type=int, default=15, metavar='N',
 							help='number of epochs to train (default: 5)')
 	parser.add_argument('--lr', type=float, default=0.006, metavar='LR',
 							help='learning rate (default: 0.006)')
@@ -194,41 +207,77 @@ def main():
 	test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
 	model = NetSimp(init_zeros = True).to(device) # NOTE
+	try:
+		model.load_checkpoint()
+	except:
+		print("could not load model checkpoint")
 
 	# optimizer = optim.AdamW(model.parameters(), lr=0.006)
 	# optimizer = optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01)
+	optimizer = optim.Adadelta(model.parameters(), lr=0.05, weight_decay=0.01)
 	# optimizer = optim.RMSprop(model.parameters(), lr=0.005, weight_decay=0.01) # really bad
-	optimizer = optim.SGD(model.parameters(), lr=0.02, weight_decay=0.01) # quite slow, but works.
+	# optimizer = optim.SGD(model.parameters(), lr=0.02, weight_decay=0.01) # quite slow, but works.
 	# Adagrad works well for this simple problem.
 	# AdamW has (surprisingly) worse sparsity.
 	# might want to switch optimizer?
 
-	scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-	for epoch in range(1, args.epochs + 1):
-		train(args, model, device, train_loader, optimizer, epoch)
-		test(model, device, test_loader)
-		scheduler.step()
+	if False:
+		scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
+		for epoch in range(1, args.epochs + 1):
+			train(args, model, device, train_loader, optimizer, epoch)
+			test(model, device, test_loader)
+			scheduler.step()
 
-	if args.save_model:
-		torch.save(model.state_dict(), "mnist_cnn.pt")
+		model.save_checkpoint()
 	
-	plot_rows = 2
-	plot_cols = 2
-	figsize = (16, 8)
-	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
-	
-	w1 = model.fc1.weight.detach().cpu().numpy()
-	w2 = model.fc2.weight.detach().cpu().numpy()
-	pcm = axs[0,0].imshow(w1)
-	fig.colorbar(pcm, ax=axs[0,0])
-	axs[1,0].plot(np.var(w1, 1))
-	axs[1,1].hist(np.var(w1, 1), 140)
-	axs[1,1].set_title('histogram of variances of weight matrix 1 along output dim')
-	
-	pcm = axs[0,1].imshow(w2)
-	fig.colorbar(pcm, ax=axs[0,1])
-	
-	plt.show()
+	if False:
+		plot_rows = 2
+		plot_cols = 2
+		figsize = (16, 8)
+		fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
+
+		w1 = model.fc1.weight.detach().cpu().numpy()
+		w2 = model.fc2.weight.detach().cpu().numpy()
+		pcm = axs[0,0].imshow(w1)
+		fig.colorbar(pcm, ax=axs[0,0])
+		axs[1,0].plot(np.var(w1, 1))
+		axs[1,1].hist(np.var(w1, 1), 140)
+		axs[1,1].set_title('histogram of variances of weight matrix 1 along output dim')
+
+		pcm = axs[0,1].imshow(w2)
+		fig.colorbar(pcm, ax=axs[0,1])
+
+		plt.show()
+
+	# need to propagate activity backwards, see what the image looks like.
+	# (this of course makes me think of a diffusion model, the current champion of conditional image generation.
+	losses = np.zeros((1500,))
+
+	for i in range(1500):
+		model.zero_grad()
+		y = torch.zeros((2,), device=device, dtype=torch.long)
+		y[0] = 0
+		y[1] = 1
+		# pdb.set_trace()
+		xnp = np.random.normal(0, 0.1, (2,28,28))
+		x = torch.tensor(xnp, requires_grad=True, device=device, dtype=torch.float)
+		yp = model(x)
+		loss = F.nll_loss(yp, y)
+		loss.backward()
+		losses[i] = loss.cpu().detach().item()
+		print(losses[i])
+		with torch.no_grad():
+			x -= x.grad * 0.005
+			x -= x * 0.0001
+		if i == 1499:
+			fig,axs = plt.subplots(1,2, figsize=(18,9))
+			im = axs[0].imshow(x[0,:,:].cpu().detach().numpy())
+			plt.colorbar(im, ax=axs[0])
+			axs[0].set_title('resultant image')
+			axs[1].plot(losses)
+			axs[1].set_title('losses')
+
+			plt.show()
 
 
 if __name__ == '__main__':

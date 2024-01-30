@@ -7,6 +7,7 @@ import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
 from constants import n_heads, g_zeroinit
+import graph_encoding
 
 class Gracoonizer(nn.Module):
 	
@@ -52,34 +53,68 @@ class Gracoonizer(nn.Module):
 
 
 	def encodeBoard(self, cursPos, board, action): 
-		nodes = sudoku_to_nodes(board, cursPos, action_type)
-		enc, msk = encode_nodes(nodes)
-		return enc, msk
+		nodes, actnodes = sudoku_to_nodes(board, cursPos, action_type)
+		benc, actenc, msk = encode_nodes(nodes, nodes_act)
+		return benc, actenc, msk
 		
 	
-	def forward(self, enc, msk, n): 
-		# note: spatially, the number of latents = number of actions
-		batch_size = enc.shape[0]
-		# x = self.world_to_xfrmr(x) # optional gelu here.
-		y,a1,a2,w1,w2 = self.xfrmr(enc,msk,n)
-		# for softmax, have to allow for "no action"=[0] and "no number"=[18]
-		# action = th.cat( 
-		# 	(self.softmax(action[:,:,0:10]), self.softmax(action[:,:,10:])), 2)
-		
-		# given the board and suggested action, predict the reward. 
-		# aslow = self.action_slow.unsqueeze(0).expand(batch_size, -1, -1)
-		# action_l = th.cat((aslow, action), 2)
-		# w = self.gelu(self.world_to_xfrmr(board_enc))
-		# x = th.cat((w, y[:,nt:,:]), 1) # token dim
-		# z = self.critic(x)
-		# reward = self.critic_to_reward(y[:,nt:,:]) # one reward for each action
+	def forward(self, benc, actenc, msk, n): 
+		batch_size = benc.shape[0]
+		board_size = benc.shape[1]
+		x = th.cat((benc, actenc), axis=1)
+		y,a1,a2,w1,w2 = self.xfrmr(x,msk,n)
 		reward = th.ones(batch_size) * 0.05
-		return y, reward, a1, a2, w1, w2
+		return y[:,:board_size,:], reward, a1, a2, w1, w2
+		
+	def backAction(self, benc, msk, n, newbenc, actual_action): 
+		# pdb.set_trace()
+		batch_size = benc.shape[0]
+		actnodes = graph_encoding.sudokuActionNodes(-1) # null move.
+		_,actenc,_ = graph_encoding.encode_nodes([], actnodes) 
+		actenc = np.tile(actenc, [batch_size, 1, 1])
+		action = th.tensor(actenc, requires_grad=True, device=benc.device)
+		loss = np.zeros((1500,))
+		for i in range(1500): 
+			self.zero_grad()
+			y,_,_,_,_,_ = self.forward(benc, action, msk, n)
+			err = th.sum((y - newbenc)**2)
+			err.backward()
+			loss[i] = err.cpu().detach().item()
+			print(loss[i])
+			with th.no_grad(): 
+				action -= action.grad * 0.005 # ??
+				action -= action * 0.0001 # weight decay
+				# action = th.clip(action, -2.5, 2.0)
+			if i == 1499:
+				fig, axs = plt.subplots(2, 3, figsize=(12,8))
+
+				axs[0,2].plot(loss[:i])
+				axs[0,2].set_title('loss over new board encoding')
+
+				im = axs[0,0].imshow(newbenc[0,:,:].cpu().detach().numpy())
+				plt.colorbar(im, ax=axs[0,0])
+				axs[0,0].set_title('target board encoding')
+				
+				im = axs[0,1].imshow(y[0,:,:].cpu().detach().numpy())
+				plt.colorbar(im, ax=axs[0,1])
+				axs[0,1].set_title('predicted board encoding')
+				
+				im = axs[1,0].imshow(actual_action[0,:,:].cpu().detach().numpy())
+				plt.colorbar(im, ax=axs[1,0])
+				axs[1,0].set_title('actual action')
+				
+				im = axs[1,1].imshow(action[0,:,:].cpu().detach().numpy())
+				plt.colorbar(im, ax=axs[1,1])
+				axs[1,1].set_title('predicted action')
+				plt.show()
+		return action
 		
 	def load_checkpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
 		self.load_state_dict(th.load(path))
+		# if we load the state dict, then start all heads 'on'
+		self.xfrmr.allHeadsOn()
    
 	def save_checkpoint(self, path:str=None):
 		if path is None:

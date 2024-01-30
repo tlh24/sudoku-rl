@@ -59,15 +59,15 @@ def runAction(action, sudoku, cursPos):
 
 
 def encodeBoard(sudoku, cursPos, action): 
-	nodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
-	enc,msk = graph_encoding.encode_nodes(nodes)
+	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
+	benc,actenc,msk = graph_encoding.encode_nodes(nodes, actnodes)
 	
 	reward = runAction(action, sudoku, cursPos)
 	
-	nodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
-	enc_new,_ = graph_encoding.encode_nodes(nodes)
+	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
+	newbenc,_,_ = graph_encoding.encode_nodes(nodes, actnodes)
 	
-	return enc, msk, enc_new, reward
+	return benc, actenc, newbenc, msk, reward
 
 
 def enumerateMoves(depth, episode): 
@@ -90,28 +90,31 @@ def enumerateBoards(puzzles, n):
 		lst = random.sample(lst, n)
 	sudoku = Sudoku(SuN, SuK)
 	boards = [] # collapse to one tensor afterward. 
+	actions = []
 	rewards = torch.zeros(n)
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
 		sudoku.setMat(puzzl.numpy())
 		cursPos = torch.randint(SuN, (2,))
 		# cursPos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
-		enc,msk,enc_new,reward = encodeBoard(sudoku, cursPos, ep[0])
-		boards.append(torch.tensor(enc))
-		boards.append(torch.tensor(enc_new))
+		benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, cursPos, ep[0])
+		boards.append(torch.tensor(benc))
+		boards.append(torch.tensor(newbenc))
+		actions.append(torch.tensor(actenc))
 		rewards[i] = reward
 		
 	board_enc = torch.stack(boards) # note! alternating old and new. 
+	action_enc = torch.stack(actions)
 	board_msk = torch.tensor(msk)
-	return board_enc,board_msk,rewards
+	return board_enc,action_enc,board_msk,rewards
 
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
 	n = 12000
-	device = torch.device(type='cuda', index=1)
+	device = torch.device(type='cuda', index=0)
 	
-	board_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
+	board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
 	# try: 
 	# 	fname = f'board_enc_{n}.pt'
 	# 	board_enc = torch.load(fname)
@@ -132,7 +135,7 @@ if __name__ == '__main__':
 	# 	torch.save(board_msk, fname)
 	# 	fname = f'board_reward_{n}.pt'
 	# 	torch.save(board_reward, fname)
-	print(board_enc.shape, board_msk.shape, board_reward.shape)
+	print(board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
 	
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
 	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
@@ -163,6 +166,7 @@ if __name__ == '__main__':
 	model.printParamCount()
 	try: 
 		model.load_checkpoint()
+		print("loaded model checkpoint")
 	except : 
 		print("could not load model checkpoint")
 	# torch.autograd.set_detect_anomaly(True)
@@ -174,43 +178,46 @@ if __name__ == '__main__':
 	# optimizer = optim.Adadelta(model.parameters(), lr=0.5, weight_decay = 1e-2, foreach=True)
 	
 	uu = 0
-	for u in range(100000): 
-		model.zero_grad()
-		i = torch.randint(n-2000, (batch_size,)) * 2
-		x = board_enc[i,:,:].to(device)
-		y = board_enc[i+1,:,:].to(device) 
-		reward = board_reward[i//2]
-		yp,rp,a1,a2,w1,w2 = model.forward(x, msk, u)
-		
-		# yp = yp - 4.5 * (yp > 4.5)
-		# yp = yp + 4.5 * (yp < -4.5)
-		# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
-		
-		loss = torch.sum((yp - y)**2)
-		loss.backward()
-		# torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-		optimizer.step() 
-		# print(loss.cpu().item())
-		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
-		fd_losslog.flush()
-		uu = uu+1
-		
-		if u % 24 == 0: 
-			write_mmap(fd_board, x.cpu())
-			write_mmap(fd_new_board, y.cpu())
-			write_mmap(fd_boardp, yp.cpu().detach())
-			write_mmap(fd_reward, reward.cpu())
-			write_mmap(fd_rewardp, rp.cpu().detach())
-			write_mmap(fd_attention, torch.stack((a1, a2), 0))
-			write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
+	if True:
+		for u in range(100000): 
+			model.zero_grad()
+			i = torch.randint(n-2000, (batch_size,)) * 2
+			x = board_enc[i,:,:].to(device)
+			a = action_enc[i//2,:,:].to(device)
+			y = board_enc[i+1,:,:].to(device) 
+			reward = board_reward[i//2]
+			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u)
+			
+			# yp = yp - 4.5 * (yp > 4.5)
+			# yp = yp + 4.5 * (yp < -4.5)
+			# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
+			
+			loss = torch.sum((yp - y)**2)
+			loss.backward()
+			# torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+			optimizer.step() 
+			# print(loss.cpu().item())
+			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
+			fd_losslog.flush()
+			uu = uu+1
+			
+			if u % 24 == 0: 
+				write_mmap(fd_board, x.cpu())
+				write_mmap(fd_new_board, y.cpu())
+				write_mmap(fd_boardp, yp.cpu().detach())
+				write_mmap(fd_reward, reward.cpu())
+				write_mmap(fd_rewardp, rp.cpu().detach())
+				write_mmap(fd_attention, torch.stack((a1, a2), 0))
+				write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
 	
 	print("validation")
 	for u in range( (2000-batch_size*2) // (batch_size*2) ): 
 		i = torch.arange(0,batch_size*2, step = 2) + u*batch_size*2
 		x = board_enc[i,:,:].to(device)
+		a = action_enc[i//2,:,:].to(device)
 		y = board_enc[i+1,:,:].to(device) 
 		reward = board_reward[i//2]
-		yp,rp,a1,a2,w1,w2 = model.forward(x, msk, uu)
+		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu)
 		
 		yp = yp - 4.5 * (yp > 4.5)
 		yp = yp + 4.5 * (yp < -4.5)
@@ -221,5 +228,17 @@ if __name__ == '__main__':
 		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 		fd_losslog.flush()
 		uu = uu+1
+		
+	print("action inference")
+	for u in range(10): 
+		i = torch.arange(0, batch_size) * 2 + u*batch_size*2
+		x = board_enc[i,:,:].to(device)
+		a = action_enc[i//2,:,:].to(device)
+		y = board_enc[i+1,:,:].to(device) 
+		
+		ap = model.backAction(x, msk, uu, y, a)
+		
+		loss = torch.sum((ap - a)**2)
+		print('a', loss.cpu().item())
 
 	model.save_checkpoint()
