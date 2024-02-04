@@ -66,30 +66,30 @@ class Gracoonizer(nn.Module):
 		reward = th.ones(batch_size) * 0.05
 		return y[:,:board_size,:], reward, a1, a2, w1, w2
 		
-	def backAction(self, benc, msk, n, newbenc, actual_action): 
+	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask): 
 		# pdb.set_trace()
 		batch_size = benc.shape[0]
 		actnodes = graph_encoding.sudokuActionNodes(-1) # null move.
 		_,actenc,_ = graph_encoding.encode_nodes([], actnodes) 
 		actenc = np.tile(actenc, [batch_size, 1, 1])
+		# actenc = actual_action.cpu().detach().numpy()
 		action = th.tensor(actenc, requires_grad=True, device=benc.device)
 		loss = np.zeros((1500,))
 		for i in range(1500): 
 			self.zero_grad()
 			y,_,_,_,_,_ = self.forward(benc, action, msk, n)
-			err = th.sum((y - newbenc)**2)
+			# y = y * lossmask
+			err = th.sum((y[:,:,10] - newbenc[:,:,10])**2)
 			err.backward()
 			loss[i] = err.cpu().detach().item()
 			print(loss[i])
 			with th.no_grad(): 
 				action -= action.grad * 0.005 # ??
-				action -= action * 0.0001 # weight decay
-				# action = th.clip(action, -2.5, 2.0)
+				# action -= action * 0.0001 # weight decay
+				action += th.randn_like(action)*0.0001
+				# action = th.clip(action, -2.5, 2.0) # breaks things?
 			if i == 1499:
 				fig, axs = plt.subplots(2, 3, figsize=(12,8))
-
-				axs[0,2].plot(loss[:i])
-				axs[0,2].set_title('loss over new board encoding')
 
 				im = axs[0,0].imshow(newbenc[0,:,:].cpu().detach().numpy())
 				plt.colorbar(im, ax=axs[0,0])
@@ -99,6 +99,11 @@ class Gracoonizer(nn.Module):
 				plt.colorbar(im, ax=axs[0,1])
 				axs[0,1].set_title('predicted board encoding')
 				
+				yy = y - newbenc
+				im = axs[0,2].imshow(yy[0,:,:].cpu().detach().numpy())
+				plt.colorbar(im, ax=axs[0,2])
+				axs[0,2].set_title('difference: prediction - target')
+				
 				im = axs[1,0].imshow(actual_action[0,:,:].cpu().detach().numpy())
 				plt.colorbar(im, ax=axs[1,0])
 				axs[1,0].set_title('actual action')
@@ -106,6 +111,9 @@ class Gracoonizer(nn.Module):
 				im = axs[1,1].imshow(action[0,:,:].cpu().detach().numpy())
 				plt.colorbar(im, ax=axs[1,1])
 				axs[1,1].set_title('predicted action')
+				
+				axs[1,2].plot(loss[:i])
+				axs[1,2].set_title('loss over new board encoding')
 				plt.show()
 		return action
 		

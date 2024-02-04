@@ -113,6 +113,7 @@ if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
 	n = 12000
 	device = torch.device(type='cuda', index=0)
+	torch.set_float32_matmul_precision('high')
 	
 	board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
 	# try: 
@@ -170,14 +171,19 @@ if __name__ == '__main__':
 	except : 
 		print("could not load model checkpoint")
 	# torch.autograd.set_detect_anomaly(True)
+	# model_opt = torch.compile(model)
 	
-	optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 1e-2)
+	optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
 	# optimizer = optim.ASGD(model.parameters(), lr=1e-4) # very slowww
 	# optimizer = optim.Adam(model.parameters(), lr=2e-4)
 	# optimizer = optim.Rprop(model.parameters(), lr=1) # does not work.
 	# optimizer = optim.Adadelta(model.parameters(), lr=0.5, weight_decay = 1e-2, foreach=True)
 	
 	uu = 0
+	beshape = board_enc.shape
+	lossmask = torch.ones(batch_size,beshape[1],beshape[2], device=device)
+	for i in range(11,20):
+		lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
 	if True:
 		for u in range(100000): 
 			model.zero_grad()
@@ -191,7 +197,7 @@ if __name__ == '__main__':
 			# yp = yp - 4.5 * (yp > 4.5)
 			# yp = yp + 4.5 * (yp < -4.5)
 			# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
-			
+			yp = yp * lossmask
 			loss = torch.sum((yp - y)**2)
 			loss.backward()
 			# torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -201,12 +207,12 @@ if __name__ == '__main__':
 			fd_losslog.flush()
 			uu = uu+1
 			
-			if u % 24 == 0: 
-				write_mmap(fd_board, x.cpu())
-				write_mmap(fd_new_board, y.cpu())
-				write_mmap(fd_boardp, yp.cpu().detach())
-				write_mmap(fd_reward, reward.cpu())
-				write_mmap(fd_rewardp, rp.cpu().detach())
+			if u % 25 == 0: 
+				write_mmap(fd_board, x[0:4,:,:].cpu())
+				write_mmap(fd_new_board, y[0:4,:,:].cpu())
+				write_mmap(fd_boardp, yp[0:4,:,:].cpu().detach())
+				write_mmap(fd_reward, reward[0:4].cpu())
+				write_mmap(fd_rewardp, rp[0:4].cpu().detach())
 				write_mmap(fd_attention, torch.stack((a1, a2), 0))
 				write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
 	
@@ -219,26 +225,28 @@ if __name__ == '__main__':
 		reward = board_reward[i//2]
 		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu)
 		
-		yp = yp - 4.5 * (yp > 4.5)
-		yp = yp + 4.5 * (yp < -4.5)
+		# yp = yp - 4.5 * (yp > 4.5)
+		# yp = yp + 4.5 * (yp < -4.5)
 		# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
+		yp = yp * lossmask
 		
 		loss = torch.sum((yp - y)**2)
 		print('v', loss.cpu().item())
 		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 		fd_losslog.flush()
 		uu = uu+1
-		
-	print("action inference")
-	for u in range(10): 
-		i = torch.arange(0, batch_size) * 2 + u*batch_size*2
-		x = board_enc[i,:,:].to(device)
-		a = action_enc[i//2,:,:].to(device)
-		y = board_enc[i+1,:,:].to(device) 
-		
-		ap = model.backAction(x, msk, uu, y, a)
-		
-		loss = torch.sum((ap - a)**2)
-		print('a', loss.cpu().item())
+	
+	if True: 
+		print("action inference")
+		for u in range(3): 
+			i = torch.arange(0, batch_size) * 2 + u*batch_size*2
+			x = board_enc[i,:,:].to(device)
+			a = action_enc[i//2,:,:].to(device)
+			y = board_enc[i+1,:,:].to(device) 
+			
+			ap = model.backAction(x, msk, uu, y, a, lossmask)
+			
+			loss = torch.sum((ap - a)**2)
+			print('a', loss.cpu().item())
 
 	model.save_checkpoint()

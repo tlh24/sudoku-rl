@@ -138,8 +138,8 @@ class ResidualAttentionBlock(nn.Module):
 				self.wqkv.weight.copy_(w)
 				w = torch.zeros_like(self.wqkv.bias)
 				self.wqkv.bias.copy_(w)
-				w = torch.eye(d_model, d_model)
-				self.fanout.weight.copy_(w)
+				# w = torch.eye(d_model, d_model)
+				# self.fanout.weight.copy_(w)
 				# w = torch.zeros_like(self.fanout.bias)
 				# self.fanout.bias.copy_(w) # pytorch always initializes bias to zero 
 				w = torch.zeros_like(self.wk.weight)
@@ -148,7 +148,7 @@ class ResidualAttentionBlock(nn.Module):
 		
 	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int):
 		if pas == 0 and g_zeroinit: 
-			schedule = 1000 # slower for SGD
+			schedule = 10000 # slower for SGD
 			init_head = n // schedule
 			if n % schedule == layer*(schedule//2) and init_head < self.n_head and (not self.head_enabled[init_head]): # only 2 layers! 
 				with torch.no_grad(): 

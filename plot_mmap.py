@@ -95,8 +95,8 @@ if __name__ == "__main__":
 		axs[r,c].tick_params(bottom=True, top=True, left=True, right=True)
 
 	bs = batch_size
-	if batch_size > 32: 
-		bs = 32
+	if batch_size > 4: 
+		bs = 4
 		
 	u = 0
 	
@@ -141,7 +141,7 @@ if __name__ == "__main__":
 					maxqkv[head] = th.clamp(th.abs(maxqkv[head]), 0.01, 1e6)
 					x = x.T / maxqkv[head]
 					
-					plot_tensor(layer+2, head, x, f"wqkv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
+					plot_tensor(layer+2, head, x, f"wqv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
 					if not initialized: 
 						axs[layer+2,head].plot([19.5, 19.5], [0.0, 19.5], 'g')
 					if head == 0: 

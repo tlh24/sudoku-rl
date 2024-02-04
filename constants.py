@@ -7,7 +7,7 @@ g_zeroinit = True
 g_l1atten = True
 g_globalatten = False
 
-batch_size = 64
+batch_size = 128
 
 # sudoku board size
 if True: 
