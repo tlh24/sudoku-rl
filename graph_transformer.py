@@ -19,47 +19,63 @@ class LayerNorm(nn.LayerNorm):
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
         return x * torch.sigmoid(1.702 * x)
+	  
+class LinearM(nn.Module): 
+	# with the bias merged.
+	def __init__(self, indim:int, outdim:int, initzeros:bool): 
+		super(LinearM, self).__init__()
+		scl = math.sqrt(6) / math.sqrt(indim + outdim)
+		if initzeros: 
+			scl = 0.0
+		self.w = torch.nn.Parameter( scl * torch.rand(outdim, indim+1) )
+		with torch.no_grad(): 
+			self.w[:,-1] = 0.0 # bias starts at 0
+		
+	def forward(self, x):
+		return torch.einsum('oi,bhi -> bho', self.w[:, :-1], x) + self.w[:, -1]
+		
+class LinearNobias(nn.Module): 
+	# with the bias merged.
+	def __init__(self, indim:int, outdim:int, initzeros:bool): 
+		super(LinearNobias, self).__init__()
+		scl = math.sqrt(6) / math.sqrt(indim + outdim)
+		if initzeros: 
+			scl = 0.0
+		self.w = torch.nn.Parameter( scl * torch.rand(outdim, indim) )
+		
+	def forward(self, x):
+		return torch.einsum('oi,bhi -> bho', self.w[:, :-1], x)
 
 class STNFunction(torch.autograd.Function):
 	# see https://www.kaggle.com/code/peggy1502/learning-pytorch-2-new-autograd-functions/notebook
 	# and https://hassanaskary.medium.com/intuitive-explanation-of-straight-through-estimators-with-pytorch-implementation-71d99d25d9d0
 	@staticmethod
-	def forward(ctx, u, std, activ):
-		# don't add noise to active tensors
-		ushape = u.shape
-		ac = torch.exp(-5.0*activ)
-		s = torch.sum(ac, 2) # along model dim
-		ac[:,:,0] = s*99 # zero is the null unit; sets probability of perturb
-		ac = torch.reshape(ac, (ushape[0]*ushape[1], ushape[2]))
-		r = torch.multinomial(ac, 1)
-		u = torch.reshape(u, (ushape[0]*ushape[1], ushape[2]))
-		u[:,r] = u[:,r] + (std * (r > 0))
-		u = torch.reshape(u, ushape)
-		# ctx.save_for_backward(r)
-		return u
+	def forward(ctx, input, std, activ):
+		batch_size = input.shape[0]
+		ac = torch.squeeze(activ)
+		ac = torch.exp(-5.0*ac)
+		s = torch.sum(ac)
+		ac[0] = s*999 # controls the probability of adding a new unit
+		# unit zero is hence never enabled.
+		# this causes scaling problems... meh.
+		r = torch.multinomial(ac, batch_size, replacement=True) # sample 1 row to activate, based on the probability distribution 'ac'.
+		i = torch.arange(batch_size)
+		x = input
+		x[i,0,r] = x[i,0,r] + (std * (r > 0))
+		return x
 
 	@staticmethod
 	def backward(ctx, grad_output):
-		# r2, = ctx.saved_tensors
 		return grad_output, None, None # grad for: input, std, activ
-		# return F.hardtanh(grad_output * x), None, None # clip gradients?
-		# note: no need to gate the noise.
-		# if the error is zero, grad_output will be zero as well.
 		
 class StraightThroughNormal(nn.Module):
-	def __init__(self):
+	def __init__(self,n):
 		super(StraightThroughNormal, self).__init__()
-		self.activ = torch.randn(1)
-		self.activ.requires_grad_(False)
-		# self.register_buffer('activ', torch.randn(1))
-		# don't do this - gradient calc leaks memory.
+		self.register_buffer('activ', torch.zeros(1,n))
 
 	def forward(self, x, std):
-		if self.activ.shape != x.shape: 
-			self.activ = torch.zeros_like(x)
-			self.activ.requires_grad_(False)
-		self.activ = 0.97 * self.activ + 0.03 * torch.abs(x.detach()) # or x^2 ?
-		x = STNFunction.apply(x, std, self.activ)
+		self.activ = 0.97 * self.activ + 0.03 * torch.mean(torch.abs(x), dim=0) # or x^2 ?
+		x = STNFunction.apply(x, std, self.activ.detach())
 		return x
 		
 class STAFunction(torch.autograd.Function): 
@@ -111,50 +127,34 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.init_zeros = init_zeros
-		# self.ln_1 = LayerNorm(d_model) # unused
-		# self.ln_2 = LayerNorm(d_model) # unused
-		self.wqkv = nn.Linear(d_model, n_head*2*d_model) 
-		# self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2) # seems to be slower??
-		self.wk = nn.Linear(d_model, n_head, bias=False) 
-			# wk is just a weighting, not a full matrix. 
-			# should be stored in the model state dict
-		# self.bv = nn.Linear(d_model, n_head, bias=False)
-		self.head_enabled = [not g_zeroinit for _ in range(n_head)]
+		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
+		self.wk = LinearNobias(d_model, n_head, True) 
+			# wk is just a weighting, not a full matrix 
+			# to avoid double permutation invariance.
+			# starts out at zero = head gated off.
+		self.head_enabled = [not init_zeros for _ in range(n_head)]
 		self.head_enabled[-1] = True # all-to-all always on.
 		self.l1a = l1attn.L1Attn()
-		# self.sta = StraightThroughAttention()
 		if g_l1atten: # axis 2 for regular attention, 3 for l1
 			self.soft = torch.nn.Softmax(dim=3) 
 		else: 
 			self.soft = torch.nn.Softmax(dim=2)
-		self.fanout = nn.Linear(d_model, d_model * 1)
+		self.fanout = LinearM(d_model, d_model * 1, False)
 		# self.fanout_stn = StraightThroughNormal()
 		self.gelu = QuickGELU()
 		# self.fanin = nn.Linear(d_model * 3, d_model)
 		# self.fanin_stn = StraightThroughNormal()
-		if g_zeroinit:
-			with torch.no_grad(): 
-				w = torch.zeros_like(self.wqkv.weight)
-				self.wqkv.weight.copy_(w)
-				w = torch.zeros_like(self.wqkv.bias)
-				self.wqkv.bias.copy_(w)
-				# w = torch.eye(d_model, d_model)
-				# self.fanout.weight.copy_(w)
-				# w = torch.zeros_like(self.fanout.bias)
-				# self.fanout.bias.copy_(w) # pytorch always initializes bias to zero 
-				w = torch.zeros_like(self.wk.weight)
-				w[:,-1] = 1.0 # all-to-all always on
-				self.wk.weight.copy_(w)
+		
 		
 	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int):
-		if pas == 0 and g_zeroinit: 
+		if pas == 0 and self.init_zeros: 
 			schedule = 10000 # slower for SGD
 			init_head = n // schedule
 			if n % schedule == layer*(schedule//2) and init_head < self.n_head and (not self.head_enabled[init_head]): # only 2 layers! 
 				with torch.no_grad(): 
-					w = self.wk.weight
+					w = self.wk.w
 					w[init_head, :] = 1.0 # no division -- just a gate! 
-					self.wk.weight.copy_( w )
+					self.wk.w.copy_( w )
 					self.head_enabled[init_head] = True
 					print(f"initialized head {init_head} of layer {layer}")
 		
@@ -163,13 +163,13 @@ class ResidualAttentionBlock(nn.Module):
 		ntok = x.shape[1]
 		d_head = self.d_model
 		
-		y = self.wqkv(x)
+		y = self.wqv(x)
 		y = torch.reshape(y, (batch_size, ntok, self.n_head, d_head*2) )
 		q,v = torch.split(y, d_head, dim=-1) 
 			# q-v hence becomes second to last dim
 		# gate k by wk, uniformly across tokens; different per head.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
-		gk = self.wk.weight.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
+		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
 		gv = torch.tensor(self.head_enabled, dtype=torch.float32, device=v.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand([batch_size,ntok,-1,d_head])
 		v = v * gv  # bias term to the value (since there is no subsequent mlp layer)
@@ -207,7 +207,7 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
 		# y = self.ln_2(y) # stabilize learning? 
-		return x + y, ap, self.wqkv.weight.detach().cpu()
+		return x + y, ap, self.wqv.w[:,:-1].detach().cpu()
 		
 	def allHeadsOn(self): 
 		self.head_enabled = [True for _ in range(self.n_head)]

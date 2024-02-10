@@ -128,14 +128,14 @@ if __name__ == "__main__":
 			wqkv = read_mmap(fd_wqkv, [2,n_heads,2*xfrmr_dim,xfrmr_dim])
 
 			for layer in range(2): 
-				for head in range(9): 
+				for head in range(n_heads): 
 					x = attention[layer,:cl,:cl,head]
 					# j = layer*n_heads + head
 					# maxattn[j] = maxattn[j] * 0.97 + th.max(x) * 0.03
 					# x = x / maxattn[j]
 					plot_tensor(layer+0, head, x, f"attention[{layer},:,:,{head}]", -1.0, 1.0, colorbar=False)
 					
-				for head in range(9): 
+				for head in range(n_heads): 
 					x = wqkv[layer,head,:,:]
 					maxqkv[head] = maxqkv[head] * 0.97 + th.max(th.abs(x)) * 0.03
 					maxqkv[head] = th.clamp(th.abs(maxqkv[head]), 0.01, 1e6)

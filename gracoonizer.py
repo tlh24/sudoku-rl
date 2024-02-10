@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from constants import n_heads, g_zeroinit
 import graph_encoding
 
+
 class Gracoonizer(nn.Module):
 	
 	def __init__(
@@ -39,17 +40,17 @@ class Gracoonizer(nn.Module):
 			init_zeros = g_zeroinit
 			)
 		
-		self.xfrmr_to_world = nn.Linear(xfrmr_dim, world_dim) 
-		with th.no_grad(): 
-			w = th.eye(xfrmr_dim, world_dim)
-			self.xfrmr_to_world.weight.copy_( w.T )
-			self.xfrmr_to_world.bias.copy_( th.zeros(world_dim) )
+		# self.xfrmr_to_world = graph_transformer.LinearM(xfrmr_dim, world_dim, True) 
+		# with th.no_grad(): 
+		# 	w = th.zeros(world_dim, xfrmr_dim+1)
+		# 	for i in range(min(xfrmr_dim, world_dim)): 
+		# 		w[i,i] = 1.0
+		# 	self.xfrmr_to_world.w.copy_( w )
 		
-		self.softmax = nn.Softmax(dim = 2)
-		self.critic_to_reward = nn.Linear(xfrmr_dim, 2) # suck in everything. 
-		with th.no_grad(): 
-			self.critic_to_reward.weight.copy_( th.ones(2, xfrmr_dim) / xfrmr_dim )
-			self.critic_to_reward.bias.copy_( th.zeros(2) )
+		# self.softmax = nn.Softmax(dim = 2)
+		# self.critic_to_reward = graph_transformer.LinearM(xfrmr_dim, 2, True) # suck in everything. 
+		# with th.no_grad(): 
+		# 	self.critic_to_reward.w.copy_( th.ones(2, xfrmr_dim+1) / xfrmr_dim )
 
 
 	def encodeBoard(self, cursPos, board, action): 

@@ -49,23 +49,18 @@ class STNFunction(torch.autograd.Function):
 		ac = torch.squeeze(activ)
 		ac = torch.exp(-5.0*ac)
 		s = torch.sum(ac)
-		ac[0] = s*99 # 1 - probability of adding a new unit
+		ac[0] = s*999 # controls the probability of adding a new unit
 		# unit zero is hence never enabled.
 		# this causes scaling problems... meh.
 		r = torch.multinomial(ac, batch_size, replacement=True) # sample 1 row to activate, based on the probability distribution 'ac'.
 		i = torch.arange(batch_size)
 		x = input
 		x[i,0,r] = x[i,0,r] + (std * (r > 0))
-		# ctx.save_for_backward(r)
 		return x
 
 	@staticmethod
 	def backward(ctx, grad_output):
-		# r2, = ctx.saved_tensors
 		return grad_output, None, None # grad for: input, std, activ
-		# return F.hardtanh(grad_output * x), None, None # clip gradients?
-		# note: no need to gate the noise.
-		# if the error is zero, grad_output will be zero as well.
 		
 class StraightThroughNormal(nn.Module):
 	def __init__(self,n):
@@ -106,7 +101,7 @@ class NetSimp(nn.Module):
 	def hidden(self, x):
 		x = torch.reshape(x, (-1, 1, 784))
 		x = self.fc1(x)
-		return self.gelu(x)
+		return x # self.gelu(x)
 
 	def load_checkpoint(self, path:str=None):
 		if path is None:
@@ -156,8 +151,8 @@ class NetSimp3(nn.Module):
 	def hidden(self, x):
 		x = torch.reshape(x, (-1, 1, 784))
 		x = self.fc1(x)
-		# x = self.gelu(x)
-		# x = self.fc2(x)
+		x = self.gelu(x)
+		x = self.fc2(x)
 		return self.gelu(x)
 
 	def load_checkpoint(self, path:str=None):
@@ -318,7 +313,7 @@ def main():
 	
 	denoiseopt = optim.AdamW(denoise.parameters(), lr=1e-3, weight_decay = 5e-2)
 
-	if True:
+	if True and args.epochs > 0:
 		scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 		for epoch in range(1, args.epochs + 1):
 			train(args, model, device, train_loader, optimizer, epoch)
@@ -327,21 +322,24 @@ def main():
 
 		model.save_checkpoint()
 
-		plot_rows = 2
+		plot_rows = 3
 		plot_cols = 2
 		figsize = (16, 8)
 		fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 
-		w1 = model.fc1.weight.detach().cpu().numpy()
-		w2 = model.fc2.weight.detach().cpu().numpy()
-		pcm = axs[0,0].imshow(w1)
-		fig.colorbar(pcm, ax=axs[0,0])
-		axs[1,0].plot(np.var(w1, 1))
-		axs[1,1].hist(np.var(w1, 1), 140)
-		axs[1,1].set_title('histogram of variances of weight matrix 1 along output dim')
-
-		pcm = axs[0,1].imshow(w2)
+		w = [model.fc1.weight.detach().cpu().numpy(), \
+			model.fc2.weight.detach().cpu().numpy() ]
+		
+		pcm = axs[0,1].imshow(w[1])
 		fig.colorbar(pcm, ax=axs[0,1])
+		for j in range(2): 
+			pcm = axs[0,j].imshow(w[j])
+			fig.colorbar(pcm, ax=axs[0,j])
+			axs[0,j].set_title(f'weight matrix {j+1}')
+			axs[j+1,0].plot(np.var(w[j], 1))
+			axs[j+1,0].set_title(f'variances of weight matrix {j+1} along output dim')
+			axs[j+1,1].hist(np.var(w[j], 1), 140)
+			axs[j+1,1].set_title(f'histogram of variances of weight matrix {j+1} along output dim')
 
 		plt.show()
 		
@@ -350,11 +348,13 @@ def main():
 		# if we drive the hidden units with a denoiser, 
 		# can you also re-create the digit? 
 		H = 250
+		indata = torch.zeros(60000, 28, 28).to(device)
 		hidden = torch.zeros(60000, H).to(device)
 		for i, (data, target) in enumerate(train_loader):
 			data = data.to(device)
 			h = model.hidden(data)
 			hidden[i*batch_size:(i+1)*batch_size, :] = torch.squeeze(h)
+			indata[i*batch_size:(i+1)*batch_size, :, :] = torch.squeeze(data)
 		print('done generating hidden')
 		
 		N = 40000
@@ -374,12 +374,12 @@ def main():
 			denoiseopt.step()
 			losses[u] = loss.cpu().detach().item()
 			# print(losses[u])
-			if u % 10000 == 9999: 
-				plt.plot(x[0,:].cpu().numpy(), 'k', label='x')
-				plt.plot(xn[0,:].cpu().numpy(), 'b', label='x + noise')
-				plt.plot(y[0,:].cpu().detach().numpy(), 'r', label='denoised')
-				plt.legend()
-				plt.show()
+			# if u % 10000 == 9999: 
+			# 	plt.plot(x[0,:].cpu().numpy(), 'k', label='x')
+			# 	plt.plot(xn[0,:].cpu().numpy(), 'b', label='x + noise')
+			# 	plt.plot(y[0,:].cpu().detach().numpy(), 'r', label='denoised')
+			# 	plt.legend()
+			# 	plt.show()
 			
 		denoise.save_checkpoint()
 		# plt.plot(np.log(losses))
@@ -392,7 +392,7 @@ def main():
 			indx = torch.randint(60000, (10,)).to(device)
 			hdn = hidden[indx, :] # no grad here
 		
-		N = 5000
+		N = 2000
 		losses = np.zeros((N,))
 		
 		for u in range(N): 
@@ -419,15 +419,24 @@ def main():
 				fig.canvas.draw()
 				fig.canvas.flush_events()
 				
-		fig,axs = plt.subplots(2,6, figsize=(18,9))
+		fig,axs = plt.subplots(3,6, figsize=(18,10))
 		axs[0,0].plot(losses)
 		axs[0,0].set_title('hidden losses w fixed target')
-		for j in range(10): 
-			r = j // 5
-			c = j % 5 + 1
-			im = axs[r,c].imshow(x[j,:,:].cpu().detach().numpy())
-			plt.colorbar(im, ax=axs[r,c])
-			axs[r,c].set_title(f'resultant image {j}')
+		for j in range(5): 
+			c = j+1
+			axs[0,c].plot(hdn[j,:].cpu().detach().numpy(), 'b')
+			axs[0,c].plot(h[j,:].cpu().detach().numpy(), 'r')
+			q = h - hdn
+			axs[0,c].plot(q[j,:].cpu().detach().numpy(), 'k')
+			axs[0,c].set_title(f'blue = target hidden; red = denoised; black = residual')
+			im = axs[1,c].imshow(x[j,:,:].cpu().detach().numpy())
+			plt.colorbar(im, ax=axs[1,c])
+			axs[1,c].set_title(f'resultant image {j}')
+			# show the actual image as well.
+			k = indx[j]
+			im = axs[2,c].imshow(indata[k,:,:].cpu().detach().numpy())
+			plt.colorbar(im, ax=axs[2,c])
+			axs[2,c].set_title(f'original image {j}')
 		plt.show()
 
 	# need to propagate activity backwards, see what the image looks like.

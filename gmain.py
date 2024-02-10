@@ -9,6 +9,7 @@ import graph_encoding
 from gracoonizer import Gracoonizer
 from sudoku_gen import Sudoku
 from plot_mmap import make_mmf, write_mmap
+import psgd
 from constants import *
 
 
@@ -173,36 +174,54 @@ if __name__ == '__main__':
 	# torch.autograd.set_detect_anomaly(True)
 	# model_opt = torch.compile(model)
 	
-	optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
-	# optimizer = optim.ASGD(model.parameters(), lr=1e-4) # very slowww
-	# optimizer = optim.Adam(model.parameters(), lr=2e-4)
-	# optimizer = optim.Rprop(model.parameters(), lr=1) # does not work.
-	# optimizer = optim.Adadelta(model.parameters(), lr=0.5, weight_decay = 1e-2, foreach=True)
+	use_adamw = False
+	
+	if use_adamw: 
+		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
+		# optimizer = optim.ASGD(model.parameters(), lr=1e-4) # very slowww
+		# optimizer = optim.Adam(model.parameters(), lr=2e-4)
+		# optimizer = optim.Rprop(model.parameters(), lr=1) # does not work.
+		# optimizer = optim.Adadelta(model.parameters(), lr=0.5, weight_decay = 1e-2, foreach=True)
+	else: 
+		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
 	
 	uu = 0
 	beshape = board_enc.shape
 	lossmask = torch.ones(batch_size,beshape[1],beshape[2], device=device)
 	for i in range(11,20):
 		lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
+		
+	# PSGD setup
+	Qs = [[torch.eye(W.shape[0],device=device), torch.eye(W.shape[1],device=device)] for W in model.parameters()]
+	lr = 0.0001
+	grad_norm_clip_thr = 0.1*sum(W.numel() for W in model.parameters())**0.5
+
 	if True:
 		for u in range(100000): 
-			model.zero_grad()
+			# model.zero_grad() enabled later
 			i = torch.randint(n-2000, (batch_size,)) * 2
 			x = board_enc[i,:,:].to(device)
 			a = action_enc[i//2,:,:].to(device)
 			y = board_enc[i+1,:,:].to(device) 
 			reward = board_reward[i//2]
-			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u)
 			
-			# yp = yp - 4.5 * (yp > 4.5)
-			# yp = yp + 4.5 * (yp < -4.5)
-			# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
-			yp = yp * lossmask
-			loss = torch.sum((yp - y)**2)
-			loss.backward()
-			# torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-			optimizer.step() 
-			# print(loss.cpu().item())
+			# if use_adamw: 
+			# optimizer.zero_grad()
+			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u)
+			# yp = yp * lossmask
+			# loss = torch.sum((yp - y)**2)
+			# loss.backward()
+			# optimizer.step() 
+			# else: 
+			def closure():
+				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u)
+				yp = yp * lossmask
+				loss = torch.sum((yp - y)**2) + sum( \
+                [torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
+				return loss
+			loss = optimizer.step(closure)
+            
+			print(loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 			fd_losslog.flush()
 			uu = uu+1
