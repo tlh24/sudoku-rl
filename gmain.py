@@ -9,8 +9,10 @@ import graph_encoding
 from gracoonizer import Gracoonizer
 from sudoku_gen import Sudoku
 from plot_mmap import make_mmf, write_mmap
-import psgd
 from constants import *
+import psgd 
+	# https://sites.google.com/site/lixilinx/home/psgd
+	# https://github.com/lixilinx/psgd_torch/issues/2
 
 
 def actionName(act): 

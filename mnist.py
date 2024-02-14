@@ -9,6 +9,7 @@ from torch.optim.lr_scheduler import StepLR
 import pdb
 import matplotlib.pyplot as plt
 import numpy as np
+import math 
 
 # class Net(nn.Module):
 # 	def __init__(self):
@@ -167,9 +168,9 @@ class NetSimp3(nn.Module):
 		print(f"saved checkpoint to {path}")
 
 class NetDenoise(nn.Module): 
-	def __init__(self):
+	def __init__(self, H):
 		super(NetDenoise, self).__init__()
-		H = 250
+		self.h = H
 		self.fc1 = nn.Linear(H+1, 125)
 		self.fc2 = nn.Linear(126, 64)
 		self.fc3 = nn.Linear(65, 125)
@@ -190,14 +191,48 @@ class NetDenoise(nn.Module):
 		
 	def load_checkpoint(self, path:str=None):
 		if path is None:
-			path = "denoise.pth"
+			path = f"denoise_{self.h}.pth"
 		self.load_state_dict(torch.load(path))
 
 	def save_checkpoint(self, path:str=None):
 		if path is None:
-			path = "denoise.pth"
+			path = f"denoise_{self.h}.pth"
 		torch.save(self.state_dict(), path)
 		print(f"saved checkpoint to {path}")
+		
+class NetDenoise2(nn.Module): 
+	def __init__(self, H):
+		super(NetDenoise2, self).__init__()
+		self.h = H
+		self.fc1 = nn.Linear(H+1, 400)
+		self.fc2 = nn.Linear(400+1, 125)
+		self.fc3 = nn.Linear(125+1, 400)
+		self.fc4 = nn.Linear(400+1, H)
+		self.gelu = QuickGELU()
+		
+	def forward(self, x, t): 
+		# t is the noise std. dev, as in diffusion models. 
+		t = t.unsqueeze(-1)
+		x = self.fc1(torch.cat((x,t), 1))
+		x = self.gelu(x)
+		x = self.fc2(torch.cat((x,t), 1))
+		x = self.gelu(x)
+		x = self.fc3(torch.cat((x,t), 1))
+		x = self.gelu(x)
+		x = self.fc4(torch.cat((x,t), 1))
+		return x
+		
+	def load_checkpoint(self, path:str=None):
+		if path is None:
+			path = f"denoise_{self.h}.pth"
+		self.load_state_dict(torch.load(path))
+
+	def save_checkpoint(self, path:str=None):
+		if path is None:
+			path = f"denoise_{self.h}.pth"
+		torch.save(self.state_dict(), path)
+		print(f"saved checkpoint to {path}")
+		
 
 def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
@@ -291,13 +326,15 @@ def main():
 	test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
 	model = NetSimp(init_zeros = True).to(device) 
-	denoise = NetDenoise().to(device)
+	hdenoise = NetDenoise(250).to(device)
+	idenoise = NetDenoise2(784).to(device)
 	try: 
 		model.load_checkpoint()
 	except:
 		print('could not load mnist model weights')
 	try: 
-		denoise.load_checkpoint()
+		hdenoise.load_checkpoint()
+		idenoise.load_checkpoint()
 	except:
 		print('could not load denoise model weights')
 
@@ -311,7 +348,8 @@ def main():
 	# AdamW has (surprisingly) worse sparsity.
 	# might want to switch optimizer?
 	
-	denoiseopt = optim.AdamW(denoise.parameters(), lr=1e-3, weight_decay = 5e-2)
+	hdenoiseopt = optim.AdamW(hdenoise.parameters(), lr=1e-3, weight_decay = 5e-2)
+	idenoiseopt = optim.AdamW(idenoise.parameters(), lr=1e-3, weight_decay = 5e-2)
 
 	if True and args.epochs > 0:
 		scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
@@ -357,21 +395,23 @@ def main():
 			indata[i*batch_size:(i+1)*batch_size, :, :] = torch.squeeze(data)
 		print('done generating hidden')
 		
-		N = 40000
+		N = 4000
 		losses = np.zeros((N,))
 		
+		print('training hidden denoiser')
 		for u in range(N): 
 			with torch.no_grad():
 				i = torch.randint(60000, (batch_size,)).to(device)
 				t = torch.rand(batch_size).to(device)
 				tx = t.unsqueeze(-1).expand((-1, H))
 				x = hidden[i,:]
-				xn = x + torch.randn(batch_size, H).to(device) * tx * 2.5
-			denoiseopt.zero_grad()
-			y = denoise.forward(xn,t)
+				z = torch.randn_like(x) * tx * 2.5
+				xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
+			hdenoiseopt.zero_grad()
+			y = hdenoise.forward(xz,t)
 			loss = torch.sum((y - x)**2)
 			loss.backward()
-			denoiseopt.step()
+			hdenoiseopt.step()
 			losses[u] = loss.cpu().detach().item()
 			# print(losses[u])
 			# if u % 10000 == 9999: 
@@ -381,11 +421,30 @@ def main():
 			# 	plt.legend()
 			# 	plt.show()
 			
-		denoise.save_checkpoint()
-		# plt.plot(np.log(losses))
-		# plt.show()
+		N = 6000
+		losses = np.zeros((N,))
+		print('training input denoiser')
+		for u in range(N): 
+			with torch.no_grad():
+				i = torch.randint(60000, (batch_size,)).to(device)
+				t = torch.rand(batch_size).to(device) # temperature
+				tx = t.unsqueeze(-1).expand((-1, 784))
+				x = torch.reshape(indata[i,:,:], (batch_size, 784))
+				z = torch.randn(batch_size, 784).to(device) * tx * 0.5
+				xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
+			idenoiseopt.zero_grad()
+			y = idenoise.forward(xz,t)
+			loss = torch.sum((y - x)**2) # predict the noise / residual.
+			loss.backward()
+			idenoiseopt.step()
+			losses[u] = loss.cpu().detach().item()
+			
+		hdenoise.save_checkpoint()
+		idenoise.save_checkpoint()
+		plt.plot(np.log(losses))
+		plt.show()
 		
-		print('checking inversion')
+		print('checking hidden inversion')
 		xnp = np.random.normal(0, 0.1, (10,28,28))
 		x = torch.tensor(xnp, requires_grad=True, device=device, dtype=torch.float)
 		with torch.no_grad():
@@ -402,7 +461,9 @@ def main():
 			h = torch.squeeze(h)
 			with torch.no_grad():
 				z = torch.randn_like(hdn) * 0.2
-				hdnz = hdn+z # noisy target? seems not to make much difference.
+				temp = torch.tensor((2000 - u)/2500.0).to(device)
+				temp = temp.expand((10,))
+				hdnz = hdenoise(hdn+z, temp) # noisy target? seems not to make much difference.
 			loss = torch.sum((h - hdnz)**2) # yes, this is just a matrix... 
 			loss.backward() # this interacts in some weird way .. ? 
 			losses[u] = loss.cpu().detach().item()
@@ -438,7 +499,38 @@ def main():
 			plt.colorbar(im, ax=axs[2,c])
 			axs[2,c].set_title(f'original image {j}')
 		plt.show()
-
+		
+		if True: 
+			print('checking input inversion')
+			xnp = np.random.normal(0, 0.1, (10,28,28))
+			x = torch.tensor(xnp, requires_grad=False, device=device, dtype=torch.float)
+			
+			N = 200
+			losses = np.zeros((N,))
+			plt.ion()
+			fig,axs = plt.subplots(2,5, figsize=(18,10))
+			
+			for u in range(N): 
+				with torch.no_grad():
+					temp = torch.tensor((2000 - u)/2500.0).to(device)
+					z = torch.randn_like(x) * 0.2 * temp
+					temp = temp.expand((10,))
+					xz = idenoise(torch.reshape(x+z, (10, 784)), temp ) # noisy target? seems not to make much difference.
+					xz = torch.reshape(xz, (10,28,28) )
+					x = 0.99*x + 0.01 * xz
+					x = x / torch.clip(torch.abs(x), 1.0, 100.0)
+				
+				if u % 10 == 0: 
+					for j in range(10): 
+						c = j
+						axs[c//5,c%5].cla()
+						im = axs[c//5,c%5].imshow(x[j,:,:].cpu().detach().numpy())
+						# plt.colorbar(im, ax=axs[c//5,c%5])
+						# axs[c//5,c%5].set_title(f'resultant image {j}')
+					fig.tight_layout()
+					fig.canvas.draw()
+					fig.canvas.flush_events()
+			plt.ioff()
 	# need to propagate activity backwards, see what the image looks like.
 	# (this of course makes me think of a diffusion model, the current champion of conditional image generation.
 	N = 8000
@@ -454,6 +546,7 @@ def main():
 	for i in range(N):
 		model.zero_grad() # does nothing, we're not taking grad wrt parameters.
 		x.grad = None
+		x.requires_grad = True # removed by inplace update..
 		yp = model(x)
 		loss = F.nll_loss(yp, y)
 		loss.backward()
@@ -470,10 +563,10 @@ def main():
 			h = model.hidden(x)
 			h = torch.squeeze(h)
 			with torch.no_grad(): 
-				t = torch.ones(10) * (N - i) / (N+2.0)
-				t = t.to(device)
-				z = torch.randn_like(h) * 0.75 * ((N - i) / (N+2.0)) # anneal
-				hdn = denoise(h+z,t)
+				temp = (N - i) / (N+2.0)
+				t = torch.ones(10, device=device) * temp
+				z = torch.randn_like(h) * 2.5 * math.sqrt(temp) # anneal
+				hdn = hdenoise(h+z,t)
 				if i % 100 == 0: 
 					axs[0].cla()
 					axs[0].plot(h[0,:].cpu().numpy(), 'b')
@@ -486,12 +579,20 @@ def main():
 					fig.tight_layout()
 					fig.canvas.draw()
 					fig.canvas.flush_events()
-			loss = torch.sum((h - hdn)**2) # yes, this is just a matrix... 
+			loss = torch.sum((h - hdn)**2)*1.0
 			loss.backward() # this interacts in some weird way .. ? 
 			losses[i,1] = loss.cpu().detach().item()
 			with torch.no_grad():
 				torch.nn.utils.clip_grad_norm_([x], 0.1)
 				x -= x.grad * 0.035
+				
+		if True: 
+			with torch.no_grad(): 
+				z = torch.randn_like(x) * 0.5 * temp
+				xdn = idenoise(torch.reshape(x+z, (10, 784)),t)
+				xdn = torch.reshape(xdn, (10,28,28))
+				x = 0.9995*x + 0.0005 * xdn
+				x = x / torch.clip(torch.abs(x), 1.0, 100.0)
 		
 		if i == N-1:
 			plt.ioff()
