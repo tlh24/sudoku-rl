@@ -59,15 +59,15 @@ class Gracoonizer(nn.Module):
 		return benc, actenc, msk
 		
 	
-	def forward(self, benc, actenc, msk, n): 
+	def forward(self, benc, actenc, msk, n, record): 
 		batch_size = benc.shape[0]
 		board_size = benc.shape[1]
 		x = th.cat((benc, actenc), axis=1)
-		y,a1,a2,w1,w2 = self.xfrmr(x,msk,n)
+		y,a1,a2,w1,w2 = self.xfrmr(x,msk,n,record)
 		reward = th.ones(batch_size) * 0.05
 		return y[:,:board_size,:], reward, a1, a2, w1, w2
 		
-	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask): 
+	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd): 
 		# pdb.set_trace()
 		batch_size = benc.shape[0]
 		actnodes = graph_encoding.sudokuActionNodes(-1) # null move.
@@ -75,21 +75,28 @@ class Gracoonizer(nn.Module):
 		actenc = np.tile(actenc, [batch_size, 1, 1])
 		# actenc = actual_action.cpu().detach().numpy()
 		action = th.tensor(actenc, requires_grad=True, device=benc.device)
-		loss = np.zeros((1500,))
-		for i in range(1500): 
+		N = 500
+		loss = np.zeros((N,5))
+		for i in range(N): 
+			temp = (N - i) / (N+2.0)
 			self.zero_grad()
-			y,_,_,_,_,_ = self.forward(benc, action, msk, n)
-			# y = y * lossmask
-			err = th.sum((y[:,:,10] - newbenc[:,:,10])**2)
-			err.backward()
-			loss[i] = err.cpu().detach().item()
+			record = []
+			y,_,_,_,_,_ = self.forward(benc, action, msk, n, record)
+			y = y * lossmask
+			err = th.sum((y - newbenc)**2)
+			err.backward(retain_graph=True)
+			loss[i,0] = err.cpu().detach().item()
+			x = th.cat((benc, action), axis=1)
+			losses = self.xfrmr.backAction(x, msk, newbenc, record, denoisenet, denoisestd, temp)
+			for j,l in enumerate(losses):
+				loss[i,j+1] = l
 			print(loss[i])
 			with th.no_grad(): 
 				action -= action.grad * 0.005 # ??
 				# action -= action * 0.0001 # weight decay
 				action += th.randn_like(action)*0.0001
 				# action = th.clip(action, -2.5, 2.0) # breaks things?
-			if i == 1499:
+			if i == N-1:
 				fig, axs = plt.subplots(2, 3, figsize=(12,8))
 
 				im = axs[0,0].imshow(newbenc[0,:,:].cpu().detach().numpy())
@@ -113,7 +120,11 @@ class Gracoonizer(nn.Module):
 				plt.colorbar(im, ax=axs[1,1])
 				axs[1,1].set_title('predicted action')
 				
-				axs[1,2].plot(loss[:i])
+				axs[1,2].plot(loss[:,0], "k",label="output")
+				axs[1,2].plot(loss[:,1], "r",label="h0")
+				axs[1,2].plot(loss[:,2], "g",label="h1")
+				axs[1,2].plot(loss[:,3], "b",label="h2")
+				axs[1,2].plot(loss[:,4], "m",label="h3")
 				axs[1,2].set_title('loss over new board encoding')
 				plt.show()
 		return action

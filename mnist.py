@@ -518,7 +518,7 @@ def main():
 					xz = idenoise(torch.reshape(x+z, (10, 784)), temp ) # noisy target? seems not to make much difference.
 					xz = torch.reshape(xz, (10,28,28) )
 					x = 0.99*x + 0.01 * xz
-					x = x / torch.clip(torch.abs(x), 1.0, 100.0)
+					x = x / torch.clip(torch.abs(x)-0.25, 1.0, 100.0)
 				
 				if u % 10 == 0: 
 					for j in range(10): 
@@ -592,7 +592,7 @@ def main():
 				xdn = idenoise(torch.reshape(x+z, (10, 784)),t)
 				xdn = torch.reshape(xdn, (10,28,28))
 				x = 0.9995*x + 0.0005 * xdn
-				x = x / torch.clip(torch.abs(x), 1.0, 100.0)
+				x = x / torch.clip(torch.abs(x)-0.25, 1.0, 100.0)
 		
 		if i == N-1:
 			plt.ioff()

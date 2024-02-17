@@ -9,6 +9,7 @@ import graph_encoding
 from gracoonizer import Gracoonizer
 from sudoku_gen import Sudoku
 from plot_mmap import make_mmf, write_mmap
+from netdenoise import NetDenoise
 from constants import *
 import psgd 
 	# https://sites.google.com/site/lixilinx/home/psgd
@@ -114,11 +115,11 @@ def enumerateBoards(puzzles, n):
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
-	n = 12000
+	N = 12000
 	device = torch.device(type='cuda', index=0)
 	torch.set_float32_matmul_precision('high')
 	
-	board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
+	board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
 	# try: 
 	# 	fname = f'board_enc_{n}.pt'
 	# 	board_enc = torch.load(fname)
@@ -151,7 +152,7 @@ if __name__ == '__main__':
 
 	fd_losslog = open('losslog.txt', 'w')
 	
-	# need to repack the mask to a sparse tensor w/ 3 duplicates. 
+	# need to repack the mask to match the attention matrix, with head duplicates. 
 	msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8) # try to save memory...
 	for i in range(n_heads-1): 
 		j = i % 4
@@ -192,16 +193,11 @@ if __name__ == '__main__':
 	lossmask = torch.ones(batch_size,beshape[1],beshape[2], device=device)
 	for i in range(11,20):
 		lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
-		
-	# PSGD setup
-	Qs = [[torch.eye(W.shape[0],device=device), torch.eye(W.shape[1],device=device)] for W in model.parameters()]
-	lr = 0.0001
-	grad_norm_clip_thr = 0.1*sum(W.numel() for W in model.parameters())**0.5
 
-	if True:
+	if False:
 		for u in range(100000): 
 			# model.zero_grad() enabled later
-			i = torch.randint(n-2000, (batch_size,)) * 2
+			i = torch.randint(N-2000, (batch_size,)) * 2
 			x = board_enc[i,:,:].to(device)
 			a = action_enc[i//2,:,:].to(device)
 			y = board_enc[i+1,:,:].to(device) 
@@ -209,14 +205,14 @@ if __name__ == '__main__':
 			
 			# if use_adamw: 
 			# optimizer.zero_grad()
-			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u)
+			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
 			# yp = yp * lossmask
 			# loss = torch.sum((yp - y)**2)
 			# loss.backward()
 			# optimizer.step() 
 			# else: 
 			def closure():
-				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u)
+				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
 				yp = yp * lossmask
 				loss = torch.sum((yp - y)**2) + sum( \
                 [torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
@@ -236,15 +232,17 @@ if __name__ == '__main__':
 				write_mmap(fd_rewardp, rp[0:4].cpu().detach())
 				write_mmap(fd_attention, torch.stack((a1, a2), 0))
 				write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
+		model.save_checkpoint()
 	
 	print("validation")
 	for u in range( (2000-batch_size*2) // (batch_size*2) ): 
-		i = torch.arange(0,batch_size*2, step = 2) + u*batch_size*2
+		i = torch.arange(0,batch_size) + u*batch_size + (N-2000)
+		i = i*2
 		x = board_enc[i,:,:].to(device)
 		a = action_enc[i//2,:,:].to(device)
 		y = board_enc[i+1,:,:].to(device) 
 		reward = board_reward[i//2]
-		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu)
+		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, None)
 		
 		# yp = yp - 4.5 * (yp > 4.5)
 		# yp = yp + 4.5 * (yp < -4.5)
@@ -257,17 +255,90 @@ if __name__ == '__main__':
 		fd_losslog.flush()
 		uu = uu+1
 	
+	# need to allocate hidden activations for denoising
+	record = []
+	yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
+	denoisenet = []
+	denoiseopt = []
+	denoisestd = []
+	hiddenl = []
+	stridel = []
+	for i,h in enumerate(record): 
+		net = NetDenoise(h.shape[-1]).to(device)
+		opt = optim.AdamW(net.parameters(), lr=1e-3, weight_decay = 5e-2)
+		denoisenet.append(net)
+		denoiseopt.append(opt)
+		stride = h.shape[1] # usually 8
+		stridel.append(stride)
+		hidden = torch.zeros(stride*N, h.shape[-1], device=device)
+		hiddenl.append(hidden)
+		
+	print("gathering denoising data")
+	for u in range( (N - batch_size*2) // (batch_size*2) ): 
+		i = torch.arange(0,batch_size) + u*batch_size
+		x = board_enc[i*2,:,:].to(device)
+		a = action_enc[i,:,:].to(device)
+		y = board_enc[i*2+1,:,:].to(device) 
+		reward = board_reward[i//2]
+		record = []
+		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
+		for j,h in enumerate(record): 
+			stride = stridel[j]
+			i = torch.arange(0,batch_size*stride) + u*batch_size*stride
+			hiddenl[j][i, :] = torch.reshape(h.detach(), (batch_size*stride, -1))
+		for h in hiddenl: 
+			std = torch.std(h)
+			denoisestd.append(std)
+	
+	for j,net in enumerate(denoisenet): 
+		try: 
+			net.load_checkpoint(f"denoise_{j}.pth")
+		except: 
+			print(f"could not load denoise_{j}.pth")
+	
+	if False: 
+		print("training denoising networks")
+		K = 30000
+		losses = np.zeros((len(denoisenet),K))
+		for j,net in enumerate(denoisenet): 
+			hidden = hiddenl[j]
+			l = hidden.shape[0]
+			w = hidden.shape[1]
+			opt = denoiseopt[j]
+			std = denoisestd[j]
+			
+			for u in range(K): 
+				with torch.no_grad(): 
+					i = torch.randint(l, (batch_size,)).to(device)
+					x = hidden[i,:]
+					t = torch.rand(batch_size).to(device)
+					tx = t.unsqueeze(-1).expand(-1,w)
+					z = torch.randn(batch_size, w).to(device) * tx * std
+					xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
+				opt.zero_grad()
+				y = net.forward(xz,t)
+				loss = torch.sum((y - x)**2)
+				loss.backward()
+				opt.step()
+				losses[j,u] = loss.cpu().detach().item()
+				
+		plt.plot(losses.T)
+		plt.title(f'denoising losses')
+		plt.show()
+		
+		for j,net in enumerate(denoisenet): 
+			net.save_checkpoint(f"denoise_{j}.pth")
+	
+	
 	if True: 
 		print("action inference")
 		for u in range(3): 
-			i = torch.arange(0, batch_size) * 2 + u*batch_size*2
-			x = board_enc[i,:,:].to(device)
-			a = action_enc[i//2,:,:].to(device)
-			y = board_enc[i+1,:,:].to(device) 
+			i = torch.arange(0, batch_size) + u*batch_size
+			x = board_enc[i*2,:,:].to(device)
+			a = action_enc[i,:,:].to(device)
+			y = board_enc[i*2+1,:,:].to(device) 
 			
-			ap = model.backAction(x, msk, uu, y, a, lossmask)
+			ap = model.backAction(x, msk, uu, y, a, lossmask, denoisenet, denoisestd)
 			
 			loss = torch.sum((ap - a)**2)
 			print('a', loss.cpu().item())
-
-	model.save_checkpoint()

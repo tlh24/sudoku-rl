@@ -21,7 +21,7 @@ class QuickGELU(nn.Module):
         return x * torch.sigmoid(1.702 * x)
 	  
 class LinearM(nn.Module): 
-	# with the bias merged.
+	# with the bias merged -- used for PSGD optimizer.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearM, self).__init__()
 		scl = math.sqrt(6) / math.sqrt(indim + outdim)
@@ -78,46 +78,46 @@ class StraightThroughNormal(nn.Module):
 		x = STNFunction.apply(x, std, self.activ.detach())
 		return x
 		
-class STAFunction(torch.autograd.Function): 
-	@staticmethod
-	def forward(ctx, a, activ):
-		# activ is head dimensioned
-		ashape = a.shape
-		batch_size = ashape[0]
-		nheads = ashape[-1]
-		ntok = ashape[1]
-		ac = torch.exp(-5.0 * activ)
-		s = torch.sum(ac)
-		# add a 'none' selection at the end
-		ac = torch.cat((ac, s.expand(1)*99*batch_size))
-		ac = ac.unsqueeze(0).repeat(batch_size, 1)
-		r = torch.multinomial(ac, 1)
-		g = torch.zeros((batch_size, nheads+1), device=a.device)
-		g[:,r] = 3.0
-		g = g[:,0:-1]
-		if torch.sum(g) > 0: 
-			print("!!firing random attention!!")
-		r = g.unsqueeze(1).unsqueeze(2).repeat((1,ntok,ntok,1))
-		y = torch.nn.functional.relu(torch.randn_like(a) - 3.0) * r
-		return a + y
-		
-	def backward(ctx, grad_output): 
-		return grad_output, None
-		
-class StraightThroughAttention(nn.Module):
-	def __init__(self):
-		super(StraightThroughAttention, self).__init__()
-		self.activ = torch.randn(1)
-		self.activ.requires_grad_(False)
-
-	def forward(self, a):
-		if self.activ.shape != a.shape[-1]: 
-			self.activ = torch.zeros(a.shape[-1], device=a.device)
-			self.activ.requires_grad_(False)
-		s = torch.sum(torch.abs(a.detach()), (0,1,2)) # batch, tok, tok
-		self.activ = 0.97 * self.activ + 0.03 * s # or x^2 ?
-		a = STAFunction.apply(a, self.activ)
-		return a
+# class STAFunction(torch.autograd.Function): 
+# 	@staticmethod
+# 	def forward(ctx, a, activ):
+# 		# activ is head dimensioned
+# 		ashape = a.shape
+# 		batch_size = ashape[0]
+# 		nheads = ashape[-1]
+# 		ntok = ashape[1]
+# 		ac = torch.exp(-5.0 * activ)
+# 		s = torch.sum(ac)
+# 		# add a 'none' selection at the end
+# 		ac = torch.cat((ac, s.expand(1)*99*batch_size))
+# 		ac = ac.unsqueeze(0).repeat(batch_size, 1)
+# 		r = torch.multinomial(ac, 1)
+# 		g = torch.zeros((batch_size, nheads+1), device=a.device)
+# 		g[:,r] = 3.0
+# 		g = g[:,0:-1]
+# 		if torch.sum(g) > 0: 
+# 			print("!!firing random attention!!")
+# 		r = g.unsqueeze(1).unsqueeze(2).repeat((1,ntok,ntok,1))
+# 		y = torch.nn.functional.relu(torch.randn_like(a) - 3.0) * r
+# 		return a + y
+# 		
+# 	def backward(ctx, grad_output): 
+# 		return grad_output, None
+# 		
+# class StraightThroughAttention(nn.Module):
+# 	def __init__(self):
+# 		super(StraightThroughAttention, self).__init__()
+# 		self.activ = torch.randn(1)
+# 		self.activ.requires_grad_(False)
+# 
+# 	def forward(self, a):
+# 		if self.activ.shape != a.shape[-1]: 
+# 			self.activ = torch.zeros(a.shape[-1], device=a.device)
+# 			self.activ.requires_grad_(False)
+# 		s = torch.sum(torch.abs(a.detach()), (0,1,2)) # batch, tok, tok
+# 		self.activ = 0.97 * self.activ + 0.03 * s # or x^2 ?
+# 		a = STAFunction.apply(a, self.activ)
+# 		return a
 
 class ResidualAttentionBlock(nn.Module): 
 	def __init__(self, d_model: int, n_head: int, init_zeros:bool):
@@ -146,7 +146,7 @@ class ResidualAttentionBlock(nn.Module):
 		# self.fanin_stn = StraightThroughNormal()
 		
 		
-	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int):
+	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int, record=list):
 		if pas == 0 and self.init_zeros: 
 			schedule = 10000 # slower for SGD
 			init_head = n // schedule
@@ -161,48 +161,54 @@ class ResidualAttentionBlock(nn.Module):
 		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
-		d_head = self.d_model
+		d_head = self.d_model ## no sub-spaces!
 		
 		y = self.wqv(x)
+		if record is not None: 
+			record.append( y ) # with grad!
 		y = torch.reshape(y, (batch_size, ntok, self.n_head, d_head*2) )
 		q,v = torch.split(y, d_head, dim=-1) 
 			# q-v hence becomes second to last dim
-		# gate k by wk, uniformly across tokens; different per head.
+		
+		# per-axis gate k by wk, uniformly across tokens; different per head.
+		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
+		
+		# gate the value by head_enabled. 
+		# during sampling, all heads enabled, so no need to save. 
 		gv = torch.tensor(self.head_enabled, dtype=torch.float32, device=v.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand([batch_size,ntok,-1,d_head])
-		v = v * gv  # bias term to the value (since there is no subsequent mlp layer)
-		# q = torch.nn.functional.normalize(q, dim=3, eps=1e-2) # doesn't work!! 
-		# v = torch.nn.functional.normalize(v, dim=3, eps=1e-2) 
-		# a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
+		v = v * gv  
+		
 		if g_l1atten: 
 			a = self.l1a(q,k) / math.sqrt(d_head) # output is bhts!
-			a = self.soft(a) # v gets updated from the gradient, but q and k do not.
-			# a = self.gelu(a)
-			a = a * msk
+			a = self.soft(a) 
+			a = a * msk # msk permuted in gmain.py! 
 			b = torch.einsum('bhts,bshd -> bthd', a, v) 
 			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() #
 			ap = torch.permute(ap, (1,2,0)).contiguous() # for viewing.
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
-			a = self.soft(a) # v gets updated from the gradient, but q and k do not.
-			# a = self.gelu(a) # need bias for this to work
-			a = a * msk
+			a = self.soft(a)
+			a = a * msk 
 			b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
 			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() #
+		
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
 		 
 		return b,ap # residual sum later.
 
-	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int):
-		y,ap = self.attention(x,msk,n,layer,pas) 
+	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int, record=list):
+		y,ap = self.attention(x,msk,n,layer,pas,record)
+		if record is not None: 
+			record.append( y )
 		# y = self.ln_1(y) # stabilize learning? 
 		# y = self.fanout_stn(self.fanout(y), std)
 		# y = self.fanout(y)
 		y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
-		y = self.fanout(y) # allow sign inversions.
+		y = self.fanout(y) # allow sign inversions & mixing; no dim change
 		# y = self.fanin_stn(self.fanin(y), std)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
@@ -224,16 +230,33 @@ class Transformer(nn.Module):
 		self.layer2 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		# self.resblocks = nn.Sequential(*[ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
-	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int):
+	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, record:list):
 		for i in range(self.repeat): 
 			# # one-hot encode the layer position on all tokens. 
 			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
 			# x[:,:,self.d_model - i - 1] = 1.0
-			x,a1,w1 = self.layer1(x,msk,n,0,i)
-			x,a2,w2 = self.layer2(x,msk,n,1,i)
+			x,a1,w1 = self.layer1(x,msk,n,0,i,record)
+			x,a2,w2 = self.layer2(x,msk,n,1,i,record)
 			# x,a3,w3 = self.layer3(x,msk,n,1)
 		return x, a1, a2, w1, w2
 
 	def allHeadsOn(self): 
 		self.layer1.allHeadsOn()
 		self.layer2.allHeadsOn()
+
+	def backAction(self, x, msk, y, record, denoisenet, denoisestd, temp): 
+		# x needs to have grad on! 
+		losses = []
+		# accumulate gradients from the denoised hidden states. 
+		for j,h in enumerate(record):
+			h = torch.reshape(h, (h.shape[0]*h.shape[1], h.shape[2]))
+			with torch.no_grad(): 
+				net = denoisenet[j]
+				std = denoisestd[j]
+				z = torch.randn_like(h) * std * math.sqrt(temp)
+				t = torch.ones(h.shape[0], device=x.device) * temp
+				hdn = net.forward(h+z,t)
+			loss = torch.sum(0.001*(h - hdn)**2) # ??
+			loss.backward(retain_graph=True)
+			losses.append(loss.detach().cpu().item())
+		return losses
