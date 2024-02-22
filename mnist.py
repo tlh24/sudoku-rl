@@ -395,7 +395,7 @@ def main():
 			indata[i*batch_size:(i+1)*batch_size, :, :] = torch.squeeze(data)
 		print('done generating hidden')
 		
-		N = 4000
+		N = 40000
 		losses = np.zeros((N,))
 		
 		print('training hidden denoiser')
@@ -405,7 +405,7 @@ def main():
 				t = torch.rand(batch_size).to(device)
 				tx = t.unsqueeze(-1).expand((-1, H))
 				x = hidden[i,:]
-				z = torch.randn_like(x) * tx * 2.5
+				z = torch.randn_like(x) * 2.5 
 				xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
 			hdenoiseopt.zero_grad()
 			y = hdenoise.forward(xz,t)
@@ -421,7 +421,7 @@ def main():
 			# 	plt.legend()
 			# 	plt.show()
 			
-		N = 6000
+		N = 60000
 		losses = np.zeros((N,))
 		print('training input denoiser')
 		for u in range(N): 
@@ -430,7 +430,7 @@ def main():
 				t = torch.rand(batch_size).to(device) # temperature
 				tx = t.unsqueeze(-1).expand((-1, 784))
 				x = torch.reshape(indata[i,:,:], (batch_size, 784))
-				z = torch.randn(batch_size, 784).to(device) * tx * 0.5
+				z = torch.randn(batch_size, 784).to(device) * 0.5 
 				xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
 			idenoiseopt.zero_grad()
 			y = idenoise.forward(xz,t)

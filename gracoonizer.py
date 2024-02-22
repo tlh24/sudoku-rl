@@ -67,13 +67,15 @@ class Gracoonizer(nn.Module):
 		reward = th.ones(batch_size) * 0.05
 		return y[:,:board_size,:], reward, a1, a2, w1, w2
 		
-	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd): 
-		# pdb.set_trace()
+	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd):
+		# record the real targets for the internal variables. 
+		record_true = []
+		self.forward(benc, actual_action, msk, n, record_true)
+		
 		batch_size = benc.shape[0]
 		actnodes = graph_encoding.sudokuActionNodes(-1) # null move.
 		_,actenc,_ = graph_encoding.encode_nodes([], actnodes) 
-		actenc = np.tile(actenc, [batch_size, 1, 1])
-		# actenc = actual_action.cpu().detach().numpy()
+		actenc = np.tile(actenc, [batch_size, 1, 1]) # tile the null move
 		action = th.tensor(actenc, requires_grad=True, device=benc.device)
 		N = 500
 		loss = np.zeros((N,5))
@@ -81,13 +83,14 @@ class Gracoonizer(nn.Module):
 			temp = (N - i) / (N+2.0)
 			self.zero_grad()
 			record = []
+			# pdb.set_trace()
 			y,_,_,_,_,_ = self.forward(benc, action, msk, n, record)
 			y = y * lossmask
 			err = th.sum((y - newbenc)**2)
 			err.backward(retain_graph=True)
 			loss[i,0] = err.cpu().detach().item()
 			x = th.cat((benc, action), axis=1)
-			losses = self.xfrmr.backAction(x, msk, newbenc, record, denoisenet, denoisestd, temp)
+			losses = self.xfrmr.backAction(x, msk, newbenc, record, denoisenet, denoisestd, temp, record_true)
 			for j,l in enumerate(losses):
 				loss[i,j+1] = l
 			print(loss[i])
@@ -126,6 +129,7 @@ class Gracoonizer(nn.Module):
 				axs[1,2].plot(loss[:,3], "b",label="h2")
 				axs[1,2].plot(loss[:,4], "m",label="h3")
 				axs[1,2].set_title('loss over new board encoding')
+				axs[1,2].legend()
 				plt.show()
 		return action
 		

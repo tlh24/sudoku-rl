@@ -257,7 +257,7 @@ if __name__ == '__main__':
 	
 	# need to allocate hidden activations for denoising
 	record = []
-	yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
+	yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record) # dummy
 	denoisenet = []
 	denoiseopt = []
 	denoisestd = []
@@ -287,7 +287,7 @@ if __name__ == '__main__':
 			i = torch.arange(0,batch_size*stride) + u*batch_size*stride
 			hiddenl[j][i, :] = torch.reshape(h.detach(), (batch_size*stride, -1))
 		for h in hiddenl: 
-			std = torch.std(h)
+			std = torch.std(h) / 2.0
 			denoisestd.append(std)
 	
 	for j,net in enumerate(denoisenet): 
@@ -313,8 +313,9 @@ if __name__ == '__main__':
 					x = hidden[i,:]
 					t = torch.rand(batch_size).to(device)
 					tx = t.unsqueeze(-1).expand(-1,w)
-					z = torch.randn(batch_size, w).to(device) * tx * std
-					xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
+					z = torch.randn(batch_size, w).to(device) * std
+					# xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
+					xz = x + torch.sqrt(tx)*z
 				opt.zero_grad()
 				y = net.forward(xz,t)
 				loss = torch.sum((y - x)**2)
