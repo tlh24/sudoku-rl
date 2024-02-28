@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import torch as th
-from torch import nn
+from torch import nn, optim
 import graph_transformer
 import pdb
 from termcolor import colored
@@ -62,6 +62,8 @@ class Gracoonizer(nn.Module):
 	def forward(self, benc, actenc, msk, n, record): 
 		batch_size = benc.shape[0]
 		board_size = benc.shape[1]
+		if record is not None: 
+			record.append(actenc)
 		x = th.cat((benc, actenc), axis=1)
 		y,a1,a2,w1,w2 = self.xfrmr(x,msk,n,record)
 		reward = th.ones(batch_size) * 0.05
@@ -77,27 +79,32 @@ class Gracoonizer(nn.Module):
 		_,actenc,_ = graph_encoding.encode_nodes([], actnodes) 
 		actenc = np.tile(actenc, [batch_size, 1, 1]) # tile the null move
 		action = th.tensor(actenc, requires_grad=True, device=benc.device)
-		N = 500
-		loss = np.zeros((N,5))
+		opt = optim.AdamW([action], lr=1e-3, weight_decay = 5e-2)
+		N = 5000
+		loss = np.zeros((N,6))
 		for i in range(N): 
 			temp = (N - i) / (N+2.0)
 			self.zero_grad()
+			action.grad = None
+			opt.zero_grad()
 			record = []
 			# pdb.set_trace()
 			y,_,_,_,_,_ = self.forward(benc, action, msk, n, record)
 			y = y * lossmask
-			err = th.sum((y - newbenc)**2)
+			err = 10 * th.sum((y - newbenc)**2) / np.prod(y.shape)
 			err.backward(retain_graph=True)
 			loss[i,0] = err.cpu().detach().item()
 			x = th.cat((benc, action), axis=1)
-			losses = self.xfrmr.backAction(x, msk, newbenc, record, denoisenet, denoisestd, temp, record_true)
+			losses = self.xfrmr.backAction(x, msk, newbenc, record, denoisenet, denoisestd, temp, record_true, doplot=(i==N-1))
 			for j,l in enumerate(losses):
 				loss[i,j+1] = l
 			print(loss[i])
-			with th.no_grad(): 
-				action -= action.grad * 0.005 # ??
+			opt.step()
+			# with th.no_grad(): 
+				# action -= th.nn.utils.clip_grad_norm(action, 1) * 0.05
+				# action -= action.grad * 0.1 # ??
 				# action -= action * 0.0001 # weight decay
-				action += th.randn_like(action)*0.0001
+				# action += th.randn_like(action)*0.001
 				# action = th.clip(action, -2.5, 2.0) # breaks things?
 			if i == N-1:
 				fig, axs = plt.subplots(2, 3, figsize=(12,8))
@@ -124,10 +131,11 @@ class Gracoonizer(nn.Module):
 				axs[1,1].set_title('predicted action')
 				
 				axs[1,2].plot(loss[:,0], "k",label="output")
-				axs[1,2].plot(loss[:,1], "r",label="h0")
-				axs[1,2].plot(loss[:,2], "g",label="h1")
-				axs[1,2].plot(loss[:,3], "b",label="h2")
-				axs[1,2].plot(loss[:,4], "m",label="h3")
+				axs[1,2].plot(loss[:,1], "r",label="action")
+				axs[1,2].plot(loss[:,2], "r",label="h0")
+				axs[1,2].plot(loss[:,3], "g",label="h1")
+				axs[1,2].plot(loss[:,4], "b",label="h2")
+				axs[1,2].plot(loss[:,5], "m",label="h3")
 				axs[1,2].set_title('loss over new board encoding')
 				axs[1,2].legend()
 				plt.show()

@@ -244,35 +244,36 @@ class Transformer(nn.Module):
 		self.layer1.allHeadsOn()
 		self.layer2.allHeadsOn()
 
-	def backAction(self, x, msk, y, record, denoisenet, denoisestd, temp, record_true): 
+	def backAction(self, x, msk, y, record, denoisenet, denoisestd, temp, record_true, doplot=False): 
 		# x needs to have grad on! 
-		doplot = False
 		if doplot: 
-			fig, axs = plt.subplots(4, 20, figsize=(30,20))
+			fig, axs = plt.subplots(5, 1, figsize=(35,20))
 		
 		losses = []
 		# accumulate gradients from the denoised hidden states. 
 		for j,h in enumerate(record):
-			h = torch.reshape(h, (h.shape[0]*h.shape[1], h.shape[2]))
-			with torch.no_grad(): 
-				net = denoisenet[j]
-				std = denoisestd[j]
-				z = torch.randn_like(h) * std * math.sqrt(temp) * 0.1
-				t = torch.ones(h.shape[0], device=x.device) * temp
-				hdn = net.forward(h+z,t)
-			loss = torch.sum(0.001*(h - hdn)**2) # ??
-			loss.backward(retain_graph=True)
-			losses.append(loss.detach().cpu().item())
+			if j > -1: # ignore action. (saved in gracoonizer, not here)
+				h = torch.reshape(h, (h.shape[0], h.shape[1]*h.shape[2]))
+				with torch.no_grad(): 
+					net = denoisenet[j]
+					std = denoisestd[j]
+					z = torch.randn_like(h) * std * math.sqrt(temp) * 0.1
+					t = torch.ones(h.shape[0], device=x.device) * temp
+					hdn = net.forward(h+z,t)
+				loss = torch.sum((h - hdn)**2) / np.prod(h.shape)
+				loss.backward(retain_graph=True)
+				losses.append(loss.detach().cpu().item())
+			else: 
+				losses.append(0.0)
 			
 			if doplot: 
-				if j < 4: 
+				if j < 5 and j > -1: 
 					ht = record_true[j]
-					ht = torch.reshape(ht, (ht.shape[0]*ht.shape[1], ht.shape[2]))
-					for r in range(20): 
-						axs[j, r].plot(ht[r,:].detach().cpu().numpy().T, 'k')
-						axs[j, r].plot(h[r,:].detach().cpu().numpy().T, 'b')
-						axs[j, r].plot(hdn[r,:].detach().cpu().numpy().T, 'r')
-						axs[j, r].set_title(f'{j} k=truth; b=estimate; r=denoised')
+					ht = torch.reshape(ht, (ht.shape[0], ht.shape[1]*ht.shape[2]))
+					axs[j].plot(ht[0,:].detach().cpu().numpy().T, 'k')
+					axs[j].plot(h[0,:].detach().cpu().numpy().T, 'b')
+					axs[j].plot(hdn[0,:].detach().cpu().numpy().T, 'r')
+					axs[j].set_title(f'{j} k=truth; b=estimate; r=denoised')
 			
 		plt.show()
 		return losses

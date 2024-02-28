@@ -6,10 +6,10 @@ class NetDenoise(nn.Module):
 	def __init__(self, H):
 		super(NetDenoise, self).__init__()
 		self.h = H
-		self.fc1 = nn.Linear(H+1, H//2)
-		self.fc2 = nn.Linear(H//2+1, H//4)
-		self.fc3 = nn.Linear(H//4+1, H//2)
-		self.fc4 = nn.Linear(H//2+1, H)
+		self.fc1 = nn.Linear(H+1, H//4)
+		self.fc2 = nn.Linear(H//4+1, H//16)
+		self.fc3 = nn.Linear(H//16+1, H//4)
+		self.fc4 = nn.Linear(H//4+1, H)
 		self.gelu = QuickGELU()
 		
 	def forward(self, x, t): 

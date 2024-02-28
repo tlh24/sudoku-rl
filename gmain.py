@@ -264,13 +264,13 @@ if __name__ == '__main__':
 	hiddenl = []
 	stridel = []
 	for i,h in enumerate(record): 
-		net = NetDenoise(h.shape[-1]).to(device)
-		opt = optim.AdamW(net.parameters(), lr=1e-3, weight_decay = 5e-2)
+		stride = h.shape[1]*h.shape[2]
+		stridel.append(stride)
+		net = NetDenoise(stride).to(device)
+		opt = optim.AdamW(net.parameters(), lr=2e-4, weight_decay = 5e-2)
 		denoisenet.append(net)
 		denoiseopt.append(opt)
-		stride = h.shape[1] # usually 8
-		stridel.append(stride)
-		hidden = torch.zeros(stride*N, h.shape[-1], device=device)
+		hidden = torch.zeros(N, stride, device=device)
 		hiddenl.append(hidden)
 		
 	print("gathering denoising data")
@@ -284,8 +284,8 @@ if __name__ == '__main__':
 		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
 		for j,h in enumerate(record): 
 			stride = stridel[j]
-			i = torch.arange(0,batch_size*stride) + u*batch_size*stride
-			hiddenl[j][i, :] = torch.reshape(h.detach(), (batch_size*stride, -1))
+			i = torch.arange(0,batch_size) + u*batch_size
+			hiddenl[j][i, :] = torch.reshape(h.detach(), (batch_size, stride))
 		for h in hiddenl: 
 			std = torch.std(h) / 2.0
 			denoisestd.append(std)
