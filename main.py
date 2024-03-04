@@ -665,7 +665,7 @@ if __name__ == '__main__':
                     th.sum((actions - ap)**2, (1, 2)) + \
                     (rewards[:, 0, 0] - rp[:, 0, 0])**2
                 
-				loss = loss / new_board.shape[0]
+                loss = loss / new_board.shape[0]
                 lossall = th.sum(loss)
                 lossall.backward()
                 # th.nn.utils.clip_grad_norm_(model.parameters(), 0.025)
