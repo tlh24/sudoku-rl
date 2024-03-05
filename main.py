@@ -105,7 +105,7 @@ def decodeActionGreedy(action):
 	act = np.argmax(action[10:].detach().cpu().numpy())
 	return num,act
 
-def runAction(action, sudoku, cursPos, guess, notes): 
+def runAction(action, sudoku, cursPos, guess, notes):
 	# run the action, update the world, return the reward.
 	num,act = decodeAction(action)
 	# act = b % 4

@@ -11,16 +11,16 @@ class Types(Enum):
 	CURSOR = 1
 	POSITION = 2 # value is the axis
 	LEAF = 3 # bare value
-	BOX = 4
+	BOX = 4 # set type
 	ACTION = 5
-	
+
 class Axes(float, Enum): 
 	X_AX = 1
 	Y_AX = 2
 	B_AX = 3 # block
-	H_AX = 4 # highlight
+	H_AX = 4 # highlight - extra
 	
-class Node: 
+class Node: # equivalent to token
 	def __init__(self, typ, val):
 		self.typ = typ
 		self.value = float(val) # payload
@@ -50,24 +50,40 @@ class Node:
 # let's start with a DAG for simplicity?
 # how to encode a variable number of edges then? 
 
-def sudokuActionNodes(action_type): 
+def sudokuActionNodes(action_type, sudoku, curs_pos, guess, notes):
 	na = Node(Types.ACTION, 0) 
 	# action type = left right up down, 0 -- 3
 	# -1 = null
 	ax = Axes.X_AX
-	if action_type > 1: 
-		ax = Axes.Y_AX
-	v = -1 # reserve zero for zero motion
-	if action_type == 1 or action_type == 3: 
-		v = 1
-	if action_type < 0:
-		ax = 0
-		v = 0
-	nax = Node(Types.POSITION, ax)
-	naxx = Node(Types.LEAF, v)
-	
-	na.add_child(nax)
-	nax.add_child(naxx)
+	if action_type >= 0 or action_type <= 3:
+		if action_type > 1:
+			ax = Axes.Y_AX
+		v = -1 # reserve zero for zero motion
+		if action_type == 1 or action_type == 3:
+			v = 1
+		if action_type < 0:
+			ax = 0
+			v = 0
+		nax = Node(Types.POSITION, ax)
+		naxx = Node(Types.LEAF, v)
+
+		na.add_child(nax)
+		nax.add_child(naxx)
+	if action_type == 4:
+		# set guess
+		clue = sudoku.mat[curs_pos[0], curs_pos[1]]
+		curr = guess[curs_pos[0], curs_pos[1]]
+		if sudoku.checkIfSafe(curs_pos[0], curs_pos[1], num) and clue == 0 and curr == 0:
+			updateNotes(curs_pos, num, notes)
+			reward = 1 # ultimate goal is to maximize cumulative expected reward
+			guess[curs_pos[0], curs_pos[1]] = num
+		else:
+			reward = -1
+		# XXX todo
+
+	# add in other action encodings here
+	# see e.g. def runAction in main.py
+
 	return [na]
 
 def sudoku_to_nodes(puzzle, curs_pos, action_type): 
@@ -89,7 +105,7 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	
 	actnodes = sudokuActionNodes(action_type)
 	
-	if False: 
+	if False: # full board eencoding enable/disable.
 		for y in range(SuN): 
 			for x in range(SuN): 
 				v = puzzle[y,x]
