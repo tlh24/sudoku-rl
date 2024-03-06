@@ -91,6 +91,7 @@ def updateNotes(cursPos, num, notes):
 def decodeAction(action): 
 	pnum = th.sum(action[:10]).cpu().item()
 	pact = th.sum(action[10:]).cpu().item()
+	# If get badly formatted action vector, where the sum of weights are much greater/smaller than 2
 	if abs(pnum + pact - 2.0) > 0.001: 
 		print(colored(f'decodeAction: random choice error! {pnum},{pact}', 'cyan'))
 		num = np.random.choice(10)
@@ -107,6 +108,7 @@ def decodeActionGreedy(action):
 
 def runAction(action, sudoku, cursPos, guess, notes): 
 	# run the action, update the world, return the reward.
+	# num, act are both 0-indexed
 	num,act = decodeAction(action)
 	# act = b % 4
 	reward = -0.05
@@ -229,6 +231,15 @@ def compressReplayBuffer(model, sudoku, replay_buffer):
 		replay_buffer.append(add)
 
 def initPuzzl(i, puzzles, sudoku, cursPos, notes): 
+	'''
+	Sets the notes for a particular puzzle to have a corresponding value of 0 for all non-empty squares
+	and 1 for all empty squares. 
+	Randomly sets a cursPos that represents an (i,j) index in a 9 by 9 square 
+
+	notes: (tensor) Has shape (9,9,9), the last dimension represents the note digit value
+	cursPos: (tensor) Has shape (2,) and is an (i,j) where i,j in [0,8]
+	'''
+	
 	# i = np.random.randint(puzzles.shape[0])
 	puzzl = puzzles[i, :, :]
 	sudoku.setMat(puzzl.numpy())
@@ -256,9 +267,23 @@ def fillPuzzlNotes(sudoku, notes):
 					jk = jj + k % 3
 					notes[ik,jk,ei] = 0.0
 
+
 def enumerateMoves(depth, episode): 
-	# moves = range(8)
-	moves = range(4) # only move! 
+    """
+    This function generates all possible sequences of moves of a certain length (depth).
+    
+    Parameters:
+    depth (int): The length of the sequences of moves to generate.
+    episode (list): The current sequence of moves. Initially, this should be an empty list.
+    
+    Returns:
+    outlist (list): A list of all sequences of moves of length 'depth'.
+    """
+    
+    # Define the possible moves. In this case, there are 4 possible moves, but there are up to
+	# 8 moves.
+    #moves = range(8)
+	moves = range(4)
 	outlist = []
 	if depth > 0: 
 		for m in moves:
@@ -266,32 +291,57 @@ def enumerateMoves(depth, episode):
 			outlist = outlist + enumerateMoves(depth-1, episode + [m])
 	return outlist
 
+
 def enumerateReplayBuffer(puzzles, model, n): 
-	lst = enumerateMoves(1, [])
-	if len(lst) < n: 
-		rep = n // len(lst) + 1
-		lst = lst * rep
-	if len(lst) > n: 
-		lst = random.sample(lst, n)
+	"""
+    This function creates a replay buffer for a Sudoku game. 
+	The replay buffer is a list of game states and actions, which can be used for training a model.
+
+    Parameters:
+    puzzles (tensor): List of Sudoku boards.
+    model (object): The model used to encode and decode the board state.
+    n (int): The number of moves to be considered.
+
+    Returns:
+    replay_buffer (list): A list of a list of ReplayData. The inner list corresponds to ReplayData
+	that corresponds to each action in an episode
+	"""
+
+	all_moves = enumerateMoves(1, [])
+	# If there are less than n move combos, repeat all combos list until larger
+	if len(all_moves) < n: 
+		rep = n // len(all_moves) + 1
+		n_moves = all_moves * rep
+	# If there are more than n move combos, randomly sample n combos from list
+	if len(all_moves) > n: 
+		n_moves = random.sample(all_moves, n)
 	replay_buffer = []
 	sudoku = Sudoku(9, 25)
-	for i, ep in enumerate(lst): 
+	for i, ep in enumerate(n_moves): 
 		cursPos = th.zeros((2,), dtype=th.int32)
 		guess = th.zeros((9, 9))
 		notes = th.ones((9, 9, 9))
 		initPuzzl(i, puzzles, sudoku, cursPos, notes)
 		# fillPuzzlNotes(sudoku, notes) ## NOTE FIXME (hah)
 		
+		# Populate a list of ReplayData that corresponds to each action in the episode
 		db = []
 		for act in ep: 
 			num = np.random.randint(9) +1
 			board_enc = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
-			action = th.zeros(19)
-			action[num] = 1.0
-			action[10+act] = 1.0
-			hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
-			new_board = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
+			# Store both the digit weights and the chosen action weight in an action vector 
+			# Action vector: the first element is 0, the next 9 element is the weight of digits 1-9, 
+			# the last 8 elements is the weight of the 8 actions
+			# TODO: Change action vector to be a size 18, remove the 0 first element
 			
+			action = th.zeros(19)
+			action[num] = 1.0 # place all weight in one digit
+			action[10+act] = 1.0 # place all weight in one action
+			hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
+			
+			# Get updated board state after executing action
+			new_board = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
+
 			# # check
 			# rd = model.decodeBoard(board_enc, num, act, reward)
 			
@@ -362,6 +412,7 @@ def runStep(sudoku, cursPos, guess, notes, reportFun):
 	return d_b
 	
 def makeBatch(replay_buffer):
+	# Sample a random episode 
 	r = np.random.randint(len(replay_buffer))
 	episode = replay_buffer[r]
 	
@@ -406,6 +457,7 @@ if __name__ == '__main__':
 	mp.set_start_method('spawn')
 	puzzles = th.load('puzzles_500000.pt')
 	n = 44000 # no notes.
+	# Reads saved replay buffer file if exists, else generates a replay buffer
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
 		fid = open(fname, 'rb') 
@@ -534,8 +586,8 @@ if __name__ == '__main__':
 			optimizer.step() 
 			
 			lossall.detach()
-			wqkv1 = th.sum(model.xfrmr.layer1.wqkv.module.weight).cpu().detach().item()
-			wqkv2 = th.sum(model.xfrmr.layer2.wqkv.module.weight).cpu().detach().item()
+			wqkv1 = th.sum(model.xfrmr.layer1.wqkv.weight).cpu().detach().item()
+			wqkv2 = th.sum(model.xfrmr.layer2.wqkv.weight).cpu().detach().item()
 			print(lossall.cpu().item(), wqkv1, wqkv2)
 			fd_losslog.write(f'{uu}\t{lossall.cpu().item()}\n')
 			fd_losslog.flush()
