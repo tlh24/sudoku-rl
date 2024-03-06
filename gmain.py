@@ -194,7 +194,7 @@ if __name__ == '__main__':
 	for i in range(11,20):
 		lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
 
-	if False:
+	if True:
 		for u in range(100000): 
 			# model.zero_grad() enabled later
 			i = torch.randint(N-2000, (batch_size,)) * 2
@@ -219,7 +219,7 @@ if __name__ == '__main__':
 				return loss
 			loss = optimizer.step(closure)
             
-			print(loss.cpu().item())
+			# print(loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 			fd_losslog.flush()
 			uu = uu+1

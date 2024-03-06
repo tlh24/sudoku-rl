@@ -129,6 +129,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.init_zeros = init_zeros
 		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
 		self.wk = LinearNobias(d_model, n_head, True) 
+		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
 			# wk is just a weighting, not a full matrix 
 			# to avoid double permutation invariance.
 			# starts out at zero = head gated off.
@@ -147,6 +148,8 @@ class ResidualAttentionBlock(nn.Module):
 		
 		
 	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int, record=list):
+		d_head = self.d_model ## no sub-spaces!
+		
 		if pas == 0 and self.init_zeros: 
 			schedule = 10000 # slower for SGD
 			init_head = n // schedule
@@ -154,6 +157,8 @@ class ResidualAttentionBlock(nn.Module):
 				with torch.no_grad(): 
 					w = self.wk.w
 					w[init_head, :] = 1.0 # no division -- just a gate! 
+					# indx = init_head*d_head
+					# w[indx:indx+d_head, :] = torch.randn(d_head, d_head) / math.sqrt(d_head) # full rank key calc
 					self.wk.w.copy_( w )
 					self.head_enabled[init_head] = True
 					print(f"initialized head {init_head} of layer {layer}")
@@ -161,7 +166,6 @@ class ResidualAttentionBlock(nn.Module):
 		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
-		d_head = self.d_model ## no sub-spaces!
 		
 		y = self.wqv(x)
 		if record is not None: 
@@ -176,6 +180,10 @@ class ResidualAttentionBlock(nn.Module):
 		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
 		
+		# full-rank key calculation
+		# kw = self.wk.w.reshape([self.n_head, self.d_model, -1])
+		# k = torch.einsum("btd,hde -> bthe", x, kw)
+	
 		# gate the value by head_enabled. 
 		# during sampling, all heads enabled, so no need to save. 
 		gv = torch.tensor(self.head_enabled, dtype=torch.float32, device=v.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand([batch_size,ntok,-1,d_head])
