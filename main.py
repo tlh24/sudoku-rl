@@ -430,7 +430,7 @@ def makeBatch(replay_buffer):
 		actions_batch[kk, 0] = 1.0 # zero
 		actions_batch[kk, -1] = 1.0 # noop
 	rewards_batch[:,1] = th.cumsum(rewards_batch[:,0], dim=0)
-	d = lst[0]
+	d = lst[0] # starting at index j, see above.
 	board_batch = th.tensor(d.board_enc)
 	d = lst[-1]
 	new_board_batch = th.tensor(d.new_board)
