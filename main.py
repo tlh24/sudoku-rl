@@ -379,7 +379,7 @@ def makeBatch(replay_buffer):
 		actions_batch[kk, 0] = 1.0 # zero
 		actions_batch[kk, -1] = 1.0 # noop
 	rewards_batch[:,1] = th.cumsum(rewards_batch[:,0], dim=0)
-	d = lst[0]
+	d = lst[0] # starting at index j, see above.
 	board_batch = th.tensor(d.board_enc)
 	d = lst[-1]
 	new_board_batch = th.tensor(d.new_board)
@@ -534,8 +534,8 @@ if __name__ == '__main__':
 			optimizer.step() 
 			
 			lossall.detach()
-			wqkv1 = th.sum(model.xfrmr.layer1.wqkv.module.weight).cpu().detach().item()
-			wqkv2 = th.sum(model.xfrmr.layer2.wqkv.module.weight).cpu().detach().item()
+			wqkv1 = th.sum(model.xfrmr.layer1.wqkv.weight).cpu().detach().item()
+			wqkv2 = th.sum(model.xfrmr.layer2.wqkv.weight).cpu().detach().item()
 			print(lossall.cpu().item(), wqkv1, wqkv2)
 			fd_losslog.write(f'{uu}\t{lossall.cpu().item()}\n')
 			fd_losslog.flush()
