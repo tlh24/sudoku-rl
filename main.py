@@ -107,6 +107,14 @@ def decodeActionGreedy(action):
 	return num,act
 
 def runAction(action, sudoku, cursPos, guess, notes): 
+	'''
+	Runs the action and updates the world correspondingly.
+	
+	Output: 
+		hotnum: (tensor) One hot tensor representing the digit used, 0-indexed. 
+		hotact: (tensor) One hot tensor representing the action used, 0-index
+		reward: (float) Reward that results from action 
+	'''
 	# run the action, update the world, return the reward.
 	# num, act are both 0-indexed
 	num,act = decodeAction(action)
@@ -269,20 +277,21 @@ def fillPuzzlNotes(sudoku, notes):
 
 
 def enumerateMoves(depth, episode): 
-    """
-    This function generates all possible sequences of moves of a certain length (depth).
+   
+	"""
+	This function generates all possible sequences of moves of a certain length (depth).
+
+	Parameters:
+	depth (int): The length of the sequences of moves to generate.
+	episode (list): The current sequence of moves. Initially, this should be an empty list.
+
+	Returns:
+	outlist (list): A list of all sequences of moves of length 'depth'.
+	"""
     
-    Parameters:
-    depth (int): The length of the sequences of moves to generate.
-    episode (list): The current sequence of moves. Initially, this should be an empty list.
-    
-    Returns:
-    outlist (list): A list of all sequences of moves of length 'depth'.
-    """
-    
-    # Define the possible moves. In this case, there are 4 possible moves, but there are up to
+   # Define the possible moves. In this case, there are 4 possible moves, but there are up to
 	# 8 moves.
-    #moves = range(8)
+   #moves = range(8)
 	moves = range(4)
 	outlist = []
 	if depth > 0: 
@@ -294,16 +303,16 @@ def enumerateMoves(depth, episode):
 
 def enumerateReplayBuffer(puzzles, model, n): 
 	"""
-    This function creates a replay buffer for a Sudoku game. 
-	The replay buffer is a list of game states and actions, which can be used for training a model.
+		This function creates a replay buffer for a Sudoku game. 
+		The replay buffer is a list of game states and actions, which can be used for training a model.
 
-    Parameters:
-    puzzles (tensor): List of Sudoku boards.
-    model (object): The model used to encode and decode the board state.
-    n (int): The number of moves to be considered.
+		Parameters:
+		puzzles (tensor): List of Sudoku boards.
+		model (object): The model used to encode and decode the board state.
+		n (int): The number of moves to be considered.
 
-    Returns:
-    replay_buffer (list): A list of a list of ReplayData. The inner list corresponds to ReplayData
+		Returns:
+		replay_buffer (list): A list of a list of ReplayData. The inner list corresponds to ReplayData
 	that corresponds to each action in an episode
 	"""
 
@@ -412,6 +421,24 @@ def runStep(sudoku, cursPos, guess, notes, reportFun):
 	return d_b
 	
 def makeBatch(replay_buffer):
+	'''
+	Creates a batch used for training forward prediction. Returns a batch of initial boards, 
+		a batch of final boards (denoted new_boards), a batch of (possibly multiple) actions that make initial board go
+		to the final board, and a batch of (possibly multiple) rewards that occur from each state, action
+	
+	To create an element in the batch, an episode, representing a series of actions, is randomly sampled
+		and a contiguous sublist of actions is chosen from the episode. The initial board corresponds to the 
+		board before the first action of the sublist and the final board corresponds to the board after
+		the last action in the sublist. 
+
+	output:
+	actions_batch: (tensor) Size (batch x latent_cnt x action_dim).
+		Each action from the sublist is embedded into a length action_dim, where the embed
+		composes of first a one hot of the cell digit, then a one hot of the action, and then zeros
+		The l-many embeddings of the sublist actions make up the first l vectors of latent_cnt, 
+		then remaning are either some degenerate action or 0s 
+	'''
+
 	# Sample a random episode 
 	r = np.random.randint(len(replay_buffer))
 	episode = replay_buffer[r]
@@ -426,9 +453,11 @@ def makeBatch(replay_buffer):
 		actions_batch[k, 0:10] = th.tensor(d.hotnum)
 		actions_batch[k, 10:] = th.tensor(d.hotact)
 		rewards_batch[k, 0] = th.tensor(d.reward)
+
 	for kk in range(k+1, latent_cnt): 
 		actions_batch[kk, 0] = 1.0 # zero
-		actions_batch[kk, -1] = 1.0 # noop
+		actions_batch[kk, -1] = 1.0 # noop 
+	# First element of reward vector is the actual reward (floating num), second element is the cumulative reward
 	rewards_batch[:,1] = th.cumsum(rewards_batch[:,0], dim=0)
 	d = lst[0] # starting at index j, see above.
 	board_batch = th.tensor(d.board_enc)
