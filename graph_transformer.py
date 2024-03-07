@@ -128,7 +128,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.d_model = d_model
 		self.init_zeros = init_zeros
 		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
-		self.wk = LinearNobias(d_model, n_head, True) 
+		self.wk = LinearNobias(d_model, n_head, True) # zeroinit
 		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
 			# wk is just a weighting, not a full matrix 
 			# to avoid double permutation invariance.
@@ -140,8 +140,8 @@ class ResidualAttentionBlock(nn.Module):
 			self.soft = torch.nn.Softmax(dim=3) 
 		else: 
 			self.soft = torch.nn.Softmax(dim=2)
-		self.fanout = LinearM(d_model, d_model * 1, False)
-		# self.fanout_stn = StraightThroughNormal()
+		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		self.fanout_stn = StraightThroughNormal() # try this again?
 		self.gelu = QuickGELU()
 		# self.fanin = nn.Linear(d_model * 3, d_model)
 		# self.fanin_stn = StraightThroughNormal()
@@ -213,11 +213,11 @@ class ResidualAttentionBlock(nn.Module):
 		if record is not None: 
 			record.append( y )
 		# y = self.ln_1(y) # stabilize learning? 
-		# y = self.fanout_stn(self.fanout(y), std)
+		# y = self.fanout_stn(self.fanout(y), 0.01)
 		# y = self.fanout(y)
 		y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
 		y = self.fanout(y) # allow sign inversions & mixing; no dim change
-		# y = self.fanin_stn(self.fanin(y), std)
+		# y = self.fanout_stn(y, 0.01)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
 		# y = self.ln_2(y) # stabilize learning? 
