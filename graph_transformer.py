@@ -180,7 +180,7 @@ class ResidualAttentionBlock(nn.Module):
 		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
 		
-		# full-rank key calculation
+		# full-rank key calculation (worse)
 		# kw = self.wk.w.reshape([self.n_head, self.d_model, -1])
 		# k = torch.einsum("btd,hde -> bthe", x, kw)
 	
