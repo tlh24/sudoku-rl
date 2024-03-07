@@ -111,8 +111,8 @@ def runAction(action, sudoku, cursPos, guess, notes):
 	Runs the action and updates the world correspondingly.
 	
 	Output: 
-		hotnum: (tensor) One hot tensor representing the digit used, 0-indexed. 
-		hotact: (tensor) One hot tensor representing the action used, 0-index
+		hotnum: (tensor) One hot tensor representing the digit used, 0-indexed 
+		hotact: (tensor) One hot tensor representing the action used, 0-indexed
 		reward: (float) Reward that results from action 
 	'''
 	# run the action, update the world, return the reward.
@@ -457,7 +457,8 @@ def makeBatch(replay_buffer):
 	for kk in range(k+1, latent_cnt): 
 		actions_batch[kk, 0] = 1.0 # zero
 		actions_batch[kk, -1] = 1.0 # noop 
-	# First element of reward vector is the actual reward (floating num), second element is the cumulative reward
+	# First element of reward vector is the actual reward (floating num),
+	# second element is the cumulative reward
 	rewards_batch[:,1] = th.cumsum(rewards_batch[:,0], dim=0)
 	d = lst[0] # starting at index j, see above.
 	board_batch = th.tensor(d.board_enc)
@@ -515,7 +516,7 @@ if __name__ == '__main__':
 	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
 
 	fd_losslog = open('losslog.txt', 'w')
-	uu = 0
+	total_epochs_run = 0
 	
 	cursPos = th.zeros((batch_size, 2), dtype=th.int32)
 	guess = th.zeros((batch_size, 9, 9))
@@ -582,6 +583,7 @@ if __name__ == '__main__':
 		# -- select longer runs for prediction-training
 		# -- prune away useless rollouts?
 		
+		# Iterate over all epochs (or epochs // 2)
 		for u in range(epoch//2): 
 			
 			board = th.zeros(batch_size, 82, world_dim)
@@ -603,12 +605,16 @@ if __name__ == '__main__':
 			latents = actions[:,:,:] # "cheat" to generate structure.
 			
 			model.zero_grad()
-			wp, ap, rp, a1, a2, w1, w2 = model.forward(board, latents, uu)
+			# Input the initial board state, the actions (embedded as latents) that cause the
+			# final board state, and the total number of epochs run
+			final_board_pred, actions_pred, rewards_pred, a1, a2, w1, w2 = model.forward(board, latents, total_epochs_run)
 			
+			# Loss objective: predict the final board state, actions latents that cause the final board state, and 
+			# the rewards that occur due to the actions. Note that action latents are given as input.
 			# keep the batch dim
-			loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
-						th.sum((actions - ap)**2, (1,2)) + \
-						(rewards[:,0,0] - rp[:,0,0])**2 * 4.0
+			loss = th.sum((new_board - final_board_pred)**2, (1,2))*0.15 + \
+						th.sum((actions - actions_pred)**2, (1,2)) + \
+						(rewards[:,0,0] - rewards_pred[:,0,0])**2 * 4.0
 			lossall = th.sum(loss)
 			lossall.backward()
 			# th.nn.utils.clip_grad_norm_(model.parameters(), 1.0) -- doesn't work!?
@@ -618,19 +624,19 @@ if __name__ == '__main__':
 			wqkv1 = th.sum(model.xfrmr.layer1.wqkv.weight).cpu().detach().item()
 			wqkv2 = th.sum(model.xfrmr.layer2.wqkv.weight).cpu().detach().item()
 			print(lossall.cpu().item(), wqkv1, wqkv2)
-			fd_losslog.write(f'{uu}\t{lossall.cpu().item()}\n')
+			fd_losslog.write(f'{total_epochs_run}\t{lossall.cpu().item()}\n')
 			fd_losslog.flush()
-			uu = uu + 1
+			total_epochs_run += 1
 
-			if uu % 24 == 0: 
+			if total_epochs_run % 24 == 0: 
 				write_mmap(fd_board, board.cpu())
 				write_mmap(fd_new_board, new_board.cpu())
 				write_mmap(fd_action, actions.cpu())
 				write_mmap(fd_reward, rewards.cpu())
 				
-				write_mmap(fd_worldp, wp.cpu().detach())
-				write_mmap(fd_actionp, ap.cpu().detach())
-				write_mmap(fd_rewardp, rp.cpu().detach())
+				write_mmap(fd_worldp, final_board_pred.cpu().detach())
+				write_mmap(fd_actionp, actions_pred.cpu().detach())
+				write_mmap(fd_rewardp, rewards_pred.cpu().detach())
 				lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
 				write_mmap(fd_latent, th.cat((latents, lslow), 2).cpu().detach())
 				write_mmap(fd_attention, th.stack((a1, a2), 0))
@@ -640,7 +646,7 @@ if __name__ == '__main__':
 				r = rewards[i,0,0].cpu().item()
 				# num,act = decodeAction(actions[0,0,:].cpu())
 				# rd = model.decodeBoard(board[0,:,:].cpu().numpy(), num,act,r) # positive control!
-				rd = rp[i,0,0].cpu().item()
+				rd = rewards_pred[i,0,0].cpu().item()
 				
 				fd = open('rewardlog.txt', 'a')
 				fd.write(f'{r}\t{rd}\n')
@@ -654,13 +660,13 @@ if __name__ == '__main__':
 			prio_new_board[indx:indy, :, :] = new_board
 			prio_actions[indx:indy, :, :] = actions
 			prio_rewards[indx:indy, :, :] = rewards
-			prio_rewardp[indx:indy, :, :] = rp
+			prio_rewardp[indx:indy, :, :] = rewards_pred
 			prio_loss[indx:indy] = loss.detach()
 			prio_valid[indx:indy] = 1.0
 			
 		# run over the whole prioritized repaly buffer, update the loss. 
 		# allow for warm-up to find the challenging examples. 
-		qrange = 1 + uu // 3500
+		qrange = 1 + total_epochs_run // 3500
 		qrange = min(qrange, 3)
 		print(f'q range {qrange}')
 		for q in range(qrange): 
@@ -690,12 +696,12 @@ if __name__ == '__main__':
 				latents = actions[:,:,:] # "cheat" to generate structure.
 				
 				model.zero_grad()
-				wp, ap, rp, a1,a2,w1,w2 = model.forward(board, latents, uu)
+				final_board_pred, actions_pred, rewards_pred, a1,a2,w1,w2 = model.forward(board, latents, total_epochs_run)
 				
 				# keep the batch dim
-				loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
-							th.sum((actions - ap)**2, (1,2)) + \
-							(rewards[:,0,0] - rp[:,0,0])**2
+				loss = th.sum((new_board - final_board_pred)**2, (1,2))*0.15 + \
+							th.sum((actions - actions_pred)**2, (1,2)) + \
+							(rewards[:,0,0] - rewards_pred[:,0,0])**2
 				lossall = th.sum(loss)
 				lossall.backward()
 				#th.nn.utils.clip_grad_norm_(model.parameters(), 0.025)
@@ -709,9 +715,9 @@ if __name__ == '__main__':
 					write_mmap(fd_action, actions.cpu())
 					write_mmap(fd_reward, rewards.cpu())
 					
-					write_mmap(fd_worldp, wp.cpu().detach())
-					write_mmap(fd_actionp, ap.cpu().detach())
-					write_mmap(fd_rewardp, rp.cpu().detach())
+					write_mmap(fd_worldp, final_board_pred.cpu().detach())
+					write_mmap(fd_actionp, actions_pred.cpu().detach())
+					write_mmap(fd_rewardp, rewards_pred.cpu().detach())
 					lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
 					write_mmap(fd_latent, th.cat((latents, lslow), 2).cpu().detach())
 					write_mmap(fd_attention, th.stack((a1, a2), 0))
@@ -720,7 +726,7 @@ if __name__ == '__main__':
 					r = rewards[0,0,0].cpu().item()
 					# num,act = decodeAction(actions[0,0,:].cpu())
 					# rd = model.decodeBoard(board[0,:,:].cpu().numpy(), num,act,r) # positive control!
-					rd = rp[0,0,0].cpu().item()
+					rd = rewards_pred[0,0,0].cpu().item()
 					
 					fd = open('rewardlog.txt', 'a')
 					fd.write(f'{r}\t{rd}\n')
