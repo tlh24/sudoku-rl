@@ -91,6 +91,7 @@ def updateNotes(cursPos, num, notes):
 def decodeAction(action): 
 	pnum = th.sum(action[:10]).cpu().item()
 	pact = th.sum(action[10:]).cpu().item()
+	# If get badly formatted action vector, where the sum of weights are much greater/smaller than 2
 	if abs(pnum + pact - 2.0) > 0.001: 
 		print(colored(f'decodeAction: random choice error! {pnum},{pact}', 'cyan'))
 		num = np.random.choice(10)
@@ -106,7 +107,16 @@ def decodeActionGreedy(action):
 	return num,act
 
 def runAction(action, sudoku, cursPos, guess, notes): 
+	'''
+	Runs the action and updates the world correspondingly.
+	
+	Output: 
+		hotnum: (tensor) One hot tensor representing the digit used, 0-indexed 
+		hotact: (tensor) One hot tensor representing the action used, 0-indexed
+		reward: (float) Reward that results from action 
+	'''
 	# run the action, update the world, return the reward.
+	# num, act are both 0-indexed
 	num,act = decodeAction(action)
 	# act = b % 4
 	reward = -0.05
@@ -229,6 +239,15 @@ def compressReplayBuffer(model, sudoku, replay_buffer):
 		replay_buffer.append(add)
 
 def initPuzzl(i, puzzles, sudoku, cursPos, notes): 
+	'''
+	Sets the notes for a particular puzzle to have a corresponding value of 0 for all non-empty squares
+	and 1 for all empty squares. 
+	Randomly sets a cursPos that represents an (i,j) index in a 9 by 9 square 
+
+	notes: (tensor) Has shape (9,9,9), the last dimension represents the note digit value
+	cursPos: (tensor) Has shape (2,) and is an (i,j) where i,j in [0,8]
+	'''
+	
 	# i = np.random.randint(puzzles.shape[0])
 	puzzl = puzzles[i, :, :]
 	sudoku.setMat(puzzl.numpy())
@@ -256,9 +275,24 @@ def fillPuzzlNotes(sudoku, notes):
 					jk = jj + k % 3
 					notes[ik,jk,ei] = 0.0
 
+
 def enumerateMoves(depth, episode): 
-	# moves = range(8)
-	moves = range(4) # only move! 
+   
+	"""
+	This function generates all possible sequences of moves of a certain length (depth).
+
+	Parameters:
+	depth (int): The length of the sequences of moves to generate.
+	episode (list): The current sequence of moves. Initially, this should be an empty list.
+
+	Returns:
+	outlist (list): A list of all sequences of moves of length 'depth'.
+	"""
+    
+   # Define the possible moves. In this case, there are 4 possible moves, but there are up to
+	# 8 moves.
+   #moves = range(8)
+	moves = range(4)
 	outlist = []
 	if depth > 0: 
 		for m in moves:
@@ -266,32 +300,57 @@ def enumerateMoves(depth, episode):
 			outlist = outlist + enumerateMoves(depth-1, episode + [m])
 	return outlist
 
+
 def enumerateReplayBuffer(puzzles, model, n): 
-	lst = enumerateMoves(1, [])
-	if len(lst) < n: 
-		rep = n // len(lst) + 1
-		lst = lst * rep
-	if len(lst) > n: 
-		lst = random.sample(lst, n)
+	"""
+		This function creates a replay buffer for a Sudoku game. 
+		The replay buffer is a list of game states and actions, which can be used for training a model.
+
+		Parameters:
+		puzzles (tensor): List of Sudoku boards.
+		model (object): The model used to encode and decode the board state.
+		n (int): The number of moves to be considered.
+
+		Returns:
+		replay_buffer (list): A list of a list of ReplayData. The inner list corresponds to ReplayData
+	that corresponds to each action in an episode
+	"""
+
+	all_moves = enumerateMoves(1, [])
+	# If there are less than n move combos, repeat all combos list until larger
+	if len(all_moves) < n: 
+		rep = n // len(all_moves) + 1
+		n_moves = all_moves * rep
+	# If there are more than n move combos, randomly sample n combos from list
+	if len(all_moves) > n: 
+		n_moves = random.sample(all_moves, n)
 	replay_buffer = []
 	sudoku = Sudoku(9, 25)
-	for i, ep in enumerate(lst): 
+	for i, ep in enumerate(n_moves): 
 		cursPos = th.zeros((2,), dtype=th.int32)
 		guess = th.zeros((9, 9))
 		notes = th.ones((9, 9, 9))
 		initPuzzl(i, puzzles, sudoku, cursPos, notes)
 		# fillPuzzlNotes(sudoku, notes) ## NOTE FIXME (hah)
 		
+		# Populate a list of ReplayData that corresponds to each action in the episode
 		db = []
 		for act in ep: 
 			num = np.random.randint(9) +1
 			board_enc = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
-			action = th.zeros(19)
-			action[num] = 1.0
-			action[10+act] = 1.0
-			hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
-			new_board = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
+			# Store both the digit weights and the chosen action weight in an action vector 
+			# Action vector: the first element is 0, the next 9 element is the weight of digits 1-9, 
+			# the last 8 elements is the weight of the 8 actions
+			# TODO: Change action vector to be a size 18, remove the 0 first element
 			
+			action = th.zeros(19)
+			action[num] = 1.0 # place all weight in one digit
+			action[10+act] = 1.0 # place all weight in one action
+			hotnum,hotact,reward = runAction(action, sudoku, cursPos, guess, notes)
+			
+			# Get updated board state after executing action
+			new_board = model.encodeBoard(cursPos, sudoku.mat, guess, notes)
+
 			# # check
 			# rd = model.decodeBoard(board_enc, num, act, reward)
 			
@@ -362,6 +421,25 @@ def runStep(sudoku, cursPos, guess, notes, reportFun):
 	return d_b
 	
 def makeBatch(replay_buffer):
+	'''
+	Creates a batch used for training forward prediction. Returns a batch of initial boards, 
+		a batch of final boards (denoted new_boards), a batch of (possibly multiple) actions that make initial board go
+		to the final board, and a batch of (possibly multiple) rewards that occur from each state, action
+	
+	To create an element in the batch, an episode, representing a series of actions, is randomly sampled
+		and a contiguous sublist of actions is chosen from the episode. The initial board corresponds to the 
+		board before the first action of the sublist and the final board corresponds to the board after
+		the last action in the sublist. 
+
+	output:
+	actions_batch: (tensor) Size (batch x latent_cnt x action_dim).
+		Each action from the sublist is embedded into a length action_dim, where the embed
+		composes of first a one hot of the cell digit, then a one hot of the action, and then zeros
+		The l-many embeddings of the sublist actions make up the first l vectors of latent_cnt, 
+		then remaning are either some degenerate action or 0s 
+	'''
+
+	# Sample a random episode 
 	r = np.random.randint(len(replay_buffer))
 	episode = replay_buffer[r]
 	
@@ -375,9 +453,12 @@ def makeBatch(replay_buffer):
 		actions_batch[k, 0:10] = th.tensor(d.hotnum)
 		actions_batch[k, 10:] = th.tensor(d.hotact)
 		rewards_batch[k, 0] = th.tensor(d.reward)
+
 	for kk in range(k+1, latent_cnt): 
 		actions_batch[kk, 0] = 1.0 # zero
-		actions_batch[kk, -1] = 1.0 # noop
+		actions_batch[kk, -1] = 1.0 # noop 
+	# First element of reward vector is the actual reward (floating num),
+	# second element is the cumulative reward
 	rewards_batch[:,1] = th.cumsum(rewards_batch[:,0], dim=0)
 	d = lst[0] # starting at index j, see above.
 	board_batch = th.tensor(d.board_enc)
@@ -406,6 +487,7 @@ if __name__ == '__main__':
 	mp.set_start_method('spawn')
 	puzzles = th.load('puzzles_500000.pt')
 	n = 44000 # no notes.
+	# Reads saved replay buffer file if exists, else generates a replay buffer
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
 		fid = open(fname, 'rb') 
@@ -434,7 +516,7 @@ if __name__ == '__main__':
 	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
 
 	fd_losslog = open('losslog.txt', 'w')
-	uu = 0
+	total_epochs_run = 0
 	
 	cursPos = th.zeros((batch_size, 2), dtype=th.int32)
 	guess = th.zeros((batch_size, 9, 9))
@@ -501,6 +583,7 @@ if __name__ == '__main__':
 		# -- select longer runs for prediction-training
 		# -- prune away useless rollouts?
 		
+		# Iterate over all epochs (or epochs // 2)
 		for u in range(epoch//2): 
 			
 			board = th.zeros(batch_size, 82, world_dim)
@@ -522,12 +605,16 @@ if __name__ == '__main__':
 			latents = actions[:,:,:] # "cheat" to generate structure.
 			
 			model.zero_grad()
-			wp, ap, rp, a1, a2, w1, w2 = model.forward(board, latents, uu)
+			# Input the initial board state, the actions (embedded as latents) that cause the
+			# final board state, and the total number of epochs run
+			new_board_pred, actions_pred, rewards_pred, a1, a2, w1, w2 = model.forward(board, latents, total_epochs_run)
 			
+			# Loss objective: predict the final board state, actions latents that cause the final board state, and 
+			# the rewards that occur due to the actions. Note that action latents are given as input.
 			# keep the batch dim
-			loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
-						th.sum((actions - ap)**2, (1,2)) + \
-						(rewards[:,0,0] - rp[:,0,0])**2 * 4.0
+			loss = th.sum((new_board - new_board_pred)**2, (1,2))*0.15 + \
+						th.sum((actions - actions_pred)**2, (1,2)) + \
+						(rewards[:,0,0] - rewards_pred[:,0,0])**2 * 4.0
 			lossall = th.sum(loss)
 			lossall.backward()
 			# th.nn.utils.clip_grad_norm_(model.parameters(), 1.0) -- doesn't work!?
@@ -537,19 +624,19 @@ if __name__ == '__main__':
 			wqkv1 = th.sum(model.xfrmr.layer1.wqkv.weight).cpu().detach().item()
 			wqkv2 = th.sum(model.xfrmr.layer2.wqkv.weight).cpu().detach().item()
 			print(lossall.cpu().item(), wqkv1, wqkv2)
-			fd_losslog.write(f'{uu}\t{lossall.cpu().item()}\n')
+			fd_losslog.write(f'{total_epochs_run}\t{lossall.cpu().item()}\n')
 			fd_losslog.flush()
-			uu = uu + 1
+			total_epochs_run += 1
 
-			if uu % 24 == 0: 
+			if total_epochs_run % 24 == 0: 
 				write_mmap(fd_board, board.cpu())
 				write_mmap(fd_new_board, new_board.cpu())
 				write_mmap(fd_action, actions.cpu())
 				write_mmap(fd_reward, rewards.cpu())
 				
-				write_mmap(fd_worldp, wp.cpu().detach())
-				write_mmap(fd_actionp, ap.cpu().detach())
-				write_mmap(fd_rewardp, rp.cpu().detach())
+				write_mmap(fd_worldp, new_board_pred.cpu().detach())
+				write_mmap(fd_actionp, actions_pred.cpu().detach())
+				write_mmap(fd_rewardp, rewards_pred.cpu().detach())
 				lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
 				write_mmap(fd_latent, th.cat((latents, lslow), 2).cpu().detach())
 				write_mmap(fd_attention, th.stack((a1, a2), 0))
@@ -559,7 +646,7 @@ if __name__ == '__main__':
 				r = rewards[i,0,0].cpu().item()
 				# num,act = decodeAction(actions[0,0,:].cpu())
 				# rd = model.decodeBoard(board[0,:,:].cpu().numpy(), num,act,r) # positive control!
-				rd = rp[i,0,0].cpu().item()
+				rd = rewards_pred[i,0,0].cpu().item()
 				
 				fd = open('rewardlog.txt', 'a')
 				fd.write(f'{r}\t{rd}\n')
@@ -573,13 +660,13 @@ if __name__ == '__main__':
 			prio_new_board[indx:indy, :, :] = new_board
 			prio_actions[indx:indy, :, :] = actions
 			prio_rewards[indx:indy, :, :] = rewards
-			prio_rewardp[indx:indy, :, :] = rp
+			prio_rewardp[indx:indy, :, :] = rewards_pred
 			prio_loss[indx:indy] = loss.detach()
 			prio_valid[indx:indy] = 1.0
 			
 		# run over the whole prioritized repaly buffer, update the loss. 
 		# allow for warm-up to find the challenging examples. 
-		qrange = 1 + uu // 3500
+		qrange = 1 + total_epochs_run // 3500
 		qrange = min(qrange, 3)
 		print(f'q range {qrange}')
 		for q in range(qrange): 
@@ -609,12 +696,12 @@ if __name__ == '__main__':
 				latents = actions[:,:,:] # "cheat" to generate structure.
 				
 				model.zero_grad()
-				wp, ap, rp, a1,a2,w1,w2 = model.forward(board, latents, uu)
+				new_board_pred, actions_pred, rewards_pred, a1,a2,w1,w2 = model.forward(board, latents, total_epochs_run)
 				
 				# keep the batch dim
-				loss = th.sum((new_board - wp)**2, (1,2))*0.15 + \
-							th.sum((actions - ap)**2, (1,2)) + \
-							(rewards[:,0,0] - rp[:,0,0])**2
+				loss = th.sum((new_board - new_board_pred)**2, (1,2))*0.15 + \
+							th.sum((actions - actions_pred)**2, (1,2)) + \
+							(rewards[:,0,0] - rewards_pred[:,0,0])**2
 				lossall = th.sum(loss)
 				lossall.backward()
 				#th.nn.utils.clip_grad_norm_(model.parameters(), 0.025)
@@ -628,9 +715,9 @@ if __name__ == '__main__':
 					write_mmap(fd_action, actions.cpu())
 					write_mmap(fd_reward, rewards.cpu())
 					
-					write_mmap(fd_worldp, wp.cpu().detach())
-					write_mmap(fd_actionp, ap.cpu().detach())
-					write_mmap(fd_rewardp, rp.cpu().detach())
+					write_mmap(fd_worldp, new_board_pred.cpu().detach())
+					write_mmap(fd_actionp, actions_pred.cpu().detach())
+					write_mmap(fd_rewardp, rewards_pred.cpu().detach())
 					lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
 					write_mmap(fd_latent, th.cat((latents, lslow), 2).cpu().detach())
 					write_mmap(fd_attention, th.stack((a1, a2), 0))
@@ -639,7 +726,7 @@ if __name__ == '__main__':
 					r = rewards[0,0,0].cpu().item()
 					# num,act = decodeAction(actions[0,0,:].cpu())
 					# rd = model.decodeBoard(board[0,:,:].cpu().numpy(), num,act,r) # positive control!
-					rd = rp[0,0,0].cpu().item()
+					rd = rewards_pred[0,0,0].cpu().item()
 					
 					fd = open('rewardlog.txt', 'a')
 					fd.write(f'{r}\t{rd}\n')

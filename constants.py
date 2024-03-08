@@ -14,5 +14,5 @@ latent_dim = xfrmr_dim - world_dim - action_dim
 reward_dim = 2 # immediate and infinite-horizon
 token_cnt = 96
 latent_cnt = token_cnt - 82 # 14
-
 batch_size = 32
+sudoku_width = 9
