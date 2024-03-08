@@ -607,12 +607,12 @@ if __name__ == '__main__':
 			model.zero_grad()
 			# Input the initial board state, the actions (embedded as latents) that cause the
 			# final board state, and the total number of epochs run
-			final_board_pred, actions_pred, rewards_pred, a1, a2, w1, w2 = model.forward(board, latents, total_epochs_run)
+			new_board_pred, actions_pred, rewards_pred, a1, a2, w1, w2 = model.forward(board, latents, total_epochs_run)
 			
 			# Loss objective: predict the final board state, actions latents that cause the final board state, and 
 			# the rewards that occur due to the actions. Note that action latents are given as input.
 			# keep the batch dim
-			loss = th.sum((new_board - final_board_pred)**2, (1,2))*0.15 + \
+			loss = th.sum((new_board - new_board_pred)**2, (1,2))*0.15 + \
 						th.sum((actions - actions_pred)**2, (1,2)) + \
 						(rewards[:,0,0] - rewards_pred[:,0,0])**2 * 4.0
 			lossall = th.sum(loss)
@@ -634,7 +634,7 @@ if __name__ == '__main__':
 				write_mmap(fd_action, actions.cpu())
 				write_mmap(fd_reward, rewards.cpu())
 				
-				write_mmap(fd_worldp, final_board_pred.cpu().detach())
+				write_mmap(fd_worldp, new_board_pred.cpu().detach())
 				write_mmap(fd_actionp, actions_pred.cpu().detach())
 				write_mmap(fd_rewardp, rewards_pred.cpu().detach())
 				lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
@@ -696,10 +696,10 @@ if __name__ == '__main__':
 				latents = actions[:,:,:] # "cheat" to generate structure.
 				
 				model.zero_grad()
-				final_board_pred, actions_pred, rewards_pred, a1,a2,w1,w2 = model.forward(board, latents, total_epochs_run)
+				new_board_pred, actions_pred, rewards_pred, a1,a2,w1,w2 = model.forward(board, latents, total_epochs_run)
 				
 				# keep the batch dim
-				loss = th.sum((new_board - final_board_pred)**2, (1,2))*0.15 + \
+				loss = th.sum((new_board - new_board_pred)**2, (1,2))*0.15 + \
 							th.sum((actions - actions_pred)**2, (1,2)) + \
 							(rewards[:,0,0] - rewards_pred[:,0,0])**2
 				lossall = th.sum(loss)
@@ -715,7 +715,7 @@ if __name__ == '__main__':
 					write_mmap(fd_action, actions.cpu())
 					write_mmap(fd_reward, rewards.cpu())
 					
-					write_mmap(fd_worldp, final_board_pred.cpu().detach())
+					write_mmap(fd_worldp, new_board_pred.cpu().detach())
 					write_mmap(fd_actionp, actions_pred.cpu().detach())
 					write_mmap(fd_rewardp, rewards_pred.cpu().detach())
 					lslow = model.latent_slow.unsqueeze(0).expand(batch_size, -1, -1)
