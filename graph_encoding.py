@@ -5,25 +5,16 @@ from enum import Enum
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
 from constants import SuN, SuH, SuK
+from type_file import Types, Axes, Action 
 import pdb
 
-class Types(Enum): 
-	CURSOR = 1
-	POSITION = 2 # value is the axis
-	LEAF = 3 # bare value
-	BOX = 4
-	ACTION = 5
-	
-class Axes(float, Enum): 
-	X_AX = 1
-	Y_AX = 2
-	B_AX = 3 # block
-	H_AX = 4 # highlight
+
 	
 class Node: 
 	def __init__(self, typ, val):
 		self.typ = typ
-		self.value = float(val) # payload
+		# Payload. -1 for null, also holds Axes values.
+		self.value = float(val)
 		self.loc = 0
 		self.kids = []
 		self.parents = []
@@ -50,19 +41,32 @@ class Node:
 # let's start with a DAG for simplicity?
 # how to encode a variable number of edges then? 
 
-def sudokuActionNodes(action_type): 
+def sudokuActionNodes(action_type: int): 
+	'''
+	Creates an action node, which is a parent of a position node, which is a parent of a leaf node.
+		action node -> position node -> leaf node
+		The value of the position node depends on the kind of action being made. 
+		The value of the leaf node is -1 for left, 1 for right, 0 otherwise.
+	'''
+
 	na = Node(Types.ACTION, 0) 
-	# action type = left right up down, 0 -- 3
 	# -1 = null
-	ax = Axes.X_AX
-	if action_type > 1: 
+	if action_type == Action.LEFT.value or action_type == Action.RIGHT.value:
+		ax = Axes.X_AX
+		v = -1
+	elif action_type == Action.UP.value or action_type == Action.DOWN.value:
 		ax = Axes.Y_AX
-	v = -1 # reserve zero for zero motion
-	if action_type == 1 or action_type == 3: 
-		v = 1
-	if action_type < 0:
-		ax = 0
+		v = 1 
+	elif action_type == Action.SET_GUESS.value or action_type == Action.UNSET_GUESS.value:
+		ax = Axes.B_AX
 		v = 0
+	elif action_type == Action.SET_NOTE.value or action_type == Action.UNSET_NOTE.value:
+		ax = Axes.H_AX
+		v = 0
+	else:
+		ax = Axes.N_AX #N_AX==0. represents null or nop
+		v = 0
+		
 	nax = Node(Types.POSITION, ax)
 	naxx = Node(Types.LEAF, v)
 	
@@ -70,18 +74,23 @@ def sudokuActionNodes(action_type):
 	nax.add_child(naxx)
 	return [na]
 
-def sudoku_to_nodes(puzzle, curs_pos, action_type): 
+def sudoku_to_nodes(puzzle, curs_pos, action_type: int): 
+	'''
+	Returns a [cursor_node], list of action_nodes
+	'''
 	nodes = []
 	
 	nc = Node(Types.CURSOR, 0)
 	posOffset = (SuN - 1) / 2.0
+
 	ncx = Node(Types.POSITION, Axes.X_AX) # x = column
 	ncxx = Node(Types.LEAF, curs_pos[0] - posOffset) # -4 -> 0 4 -> 8 
+	ncx.add_child(ncxx)
+
 	ncy = Node(Types.POSITION, Axes.Y_AX)
 	ncyy = Node(Types.LEAF, curs_pos[1] - posOffset)
-	
-	ncx.add_child(ncxx)
 	ncy.add_child(ncyy)
+
 	nc.add_child(ncx)
 	nc.add_child(ncy)
 	

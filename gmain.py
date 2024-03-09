@@ -11,58 +11,40 @@ from sudoku_gen import Sudoku
 from plot_mmap import make_mmf, write_mmap
 from netdenoise import NetDenoise
 from constants import *
+from type_file import Action
 import psgd 
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
-
-def actionName(act): 
-	sact = '-'
-	if act == 0: 
-		sact = 'up'
-	if act == 1: 
-		sact = 'right'
-	if act == 2:
-		sact = 'down'
-	if act == 3: 
-		sact = 'left'
-	if act == 4: 
-		sact = 'set guess'
-	if act == 5:
-		sact = 'unset guess'
-	if act == 6:
-		sact = 'set note'
-	if act == 7:
-		sact = 'unset note'
-	if act == 8: 
-		sact = 'nop'
-	return sact
-
-
-def runAction(action, sudoku, cursPos): 
+def runAction(action: int, sudoku, cursPos): 
 	# run the action, update the world, return the reward.
-	act = action # TODO decode arguments later.
 	# act = b % 4
 	reward = -0.05
-	if act == 0: # up
+	if action == Action.UP.value : 
 		cursPos[0] -= 1
-	if act == 1: # right
+	if action == Action.RIGHT.value: 
 		cursPos[1] += 1
-	if act == 2: # down
+	if action == Action.DOWN.value: 
 		cursPos[0] += 1
-	if act == 3: # left
+	if action == Action.LEFT.value: 
 		cursPos[1] -= 1
 	cursPos[0] = cursPos[0] % SuN # wrap at the edges; 
 	cursPos[1] = cursPos[1] % SuN # works for negative nums
 			
 	if True: 
-		sact = actionName(act)
-		print(f'runAction @ {cursPos[0]},{cursPos[1]}: {sact}')
+		print(f'runAction @ {cursPos[0]},{cursPos[1]}: {action}')
 	
 	return reward
 
 
 def encodeBoard(sudoku, cursPos, action): 
+	'''
+	Encodes the current board state and encodes the given action,
+		runs the action, and then encodes the new board state
+	
+	Returns:
+	board encoding, action encoding, new board encoding, 
+	'''
 	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
 	benc,actenc,msk = graph_encoding.encode_nodes(nodes, actnodes)
 	
@@ -75,6 +57,7 @@ def encodeBoard(sudoku, cursPos, action):
 
 
 def enumerateMoves(depth, episode): 
+	# TODO: (JJ) Change to include more moves 
 	# moves = range(8)
 	moves = range(4) # only move! 
 	outlist = []
@@ -86,6 +69,9 @@ def enumerateMoves(depth, episode):
 
 
 def enumerateBoards(puzzles, n): 
+	'''
+	
+	'''
 	lst = enumerateMoves(1, [])
 	if len(lst) < n: 
 		rep = n // len(lst) + 1
@@ -120,26 +106,7 @@ if __name__ == '__main__':
 	torch.set_float32_matmul_precision('high')
 	
 	board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
-	# try: 
-	# 	fname = f'board_enc_{n}.pt'
-	# 	board_enc = torch.load(fname)
-	# 	print(f'loaded {fname}')
-	# 	# wait ... the graph never changes, just the data. 
-	# 	# only need one mask!
-	# 	fname = f'board_msk_{n}.pt'
-	# 	board_msk = torch.load(fname)
-	# 	print(f'loaded {fname}')
-	# 	fname = f'board_reward_{n}.pt'
-	# 	board_reward = torch.load(fname)
-	# 	print(f'loaded {fname}')
-	# except: 
-	# 	board_enc,board_msk,board_reward = enumerateBoards(puzzles, n)
-	# 	fname = f'board_enc_{n}.pt'
-	# 	torch.save(board_enc, fname)
-	# 	fname = f'board_msk_{n}.pt'
-	# 	torch.save(board_msk, fname)
-	# 	fname = f'board_reward_{n}.pt'
-	# 	torch.save(board_reward, fname)
+	
 	print(board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
 	
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
@@ -181,10 +148,7 @@ if __name__ == '__main__':
 	
 	if use_adamw: 
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
-		# optimizer = optim.ASGD(model.parameters(), lr=1e-4) # very slowww
-		# optimizer = optim.Adam(model.parameters(), lr=2e-4)
-		# optimizer = optim.Rprop(model.parameters(), lr=1) # does not work.
-		# optimizer = optim.Adadelta(model.parameters(), lr=0.5, weight_decay = 1e-2, foreach=True)
+		
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
 	
@@ -295,41 +259,6 @@ if __name__ == '__main__':
 			net.load_checkpoint(f"denoise_{j}.pth")
 		except: 
 			print(f"could not load denoise_{j}.pth")
-	
-	if False: 
-		print("training denoising networks")
-		K = 30000
-		losses = np.zeros((len(denoisenet),K))
-		for j,net in enumerate(denoisenet): 
-			hidden = hiddenl[j]
-			l = hidden.shape[0]
-			w = hidden.shape[1]
-			opt = denoiseopt[j]
-			std = denoisestd[j]
-			
-			for u in range(K): 
-				with torch.no_grad(): 
-					i = torch.randint(l, (batch_size,)).to(device)
-					x = hidden[i,:]
-					t = torch.rand(batch_size).to(device)
-					tx = t.unsqueeze(-1).expand(-1,w)
-					z = torch.randn(batch_size, w).to(device) * std
-					# xz = torch.sqrt(1-tx)*x + torch.sqrt(tx)*z
-					xz = x + torch.sqrt(tx)*z
-				opt.zero_grad()
-				y = net.forward(xz,t)
-				loss = torch.sum((y - x)**2)
-				loss.backward()
-				opt.step()
-				losses[j,u] = loss.cpu().detach().item()
-				
-		plt.plot(losses.T)
-		plt.title(f'denoising losses')
-		plt.show()
-		
-		for j,net in enumerate(denoisenet): 
-			net.save_checkpoint(f"denoise_{j}.pth")
-	
 	
 	if True: 
 		print("action inference")
