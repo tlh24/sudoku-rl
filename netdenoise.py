@@ -19,6 +19,7 @@ class NetDenoise(nn.Module):
 		x = self.gelu(x)
 		x = self.fc2(torch.cat((x,t), 1))
 		x = self.gelu(x)
+		# add in KL divergence here to make this variational? 
 		x = self.fc3(torch.cat((x,t), 1))
 		x = self.gelu(x)
 		x = self.fc4(torch.cat((x,t), 1))
