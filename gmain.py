@@ -120,6 +120,10 @@ if __name__ == '__main__':
 	fd_losslog = open('losslog.txt', 'w')
 	
 	# need to repack the mask to match the attention matrix, with head duplicates. 
+	# Have 4h + 1 total heads. There are four categories representing relations (1:self, 2:children, 4:parents, 8:peers)
+		# every attention head has 4 heads, one for each relation; the heads for the children relation
+		# all share the same mask for example. The last mask is all-to-all 
+
 	msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8) # try to save memory...
 	for i in range(n_heads-1): 
 		j = i % 4

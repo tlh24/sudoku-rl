@@ -43,10 +43,13 @@ class Node:
 
 def sudokuActionNodes(action_type: int): 
 	'''
-	Creates an action node, which is a parent of a position node, which is a parent of a leaf node.
-		action node -> position node -> leaf node
-		The value of the position node depends on the kind of action being made. 
-		The value of the leaf node is -1 for left, 1 for right, 0 otherwise.
+	Returns a list containing action node: [action_node]
+	
+	action_node is a tree (in fact a line)
+		action node -> category node -> leaf node
+		The value of the category node depends on the kind of action being made. 
+		The value of the leaf node can signal what direction, it can signal the value being made,
+		ect 
 	'''
 
 	na = Node(Types.ACTION, 0) 
@@ -58,7 +61,9 @@ def sudokuActionNodes(action_type: int):
 		ax = Axes.Y_AX
 		v = 1 
 	elif action_type == Action.SET_GUESS.value or action_type == Action.UNSET_GUESS.value:
+		#TODO:change axis and value 
 		ax = Axes.B_AX
+		
 		v = 0
 	elif action_type == Action.SET_NOTE.value or action_type == Action.UNSET_NOTE.value:
 		ax = Axes.H_AX
@@ -76,7 +81,10 @@ def sudokuActionNodes(action_type: int):
 
 def sudoku_to_nodes(puzzle, curs_pos, action_type: int): 
 	'''
-	Returns a [cursor_node], list of action_nodes
+	Returns a tuple of ([cursor_node], list of action_nodes)
+		cursor_node is a tree which has two children- a node representing x position
+		and a node representing y position. Each position node has a value child 
+
 	'''
 	nodes = []
 	
@@ -135,21 +143,33 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type: int):
 		
 	return nodes, actnodes
 	
-def encode_nodes(bnodes, actnodes): # board and action
+def encode_nodes(bnodes, actnodes):
+	'''
+	Given board nodes and action nodes, returns a board encoding,
+		action encoding, and a mask based on board and action nodes
+	Both the board node and action node encoding are a vector of length 20
+	'''
+
 	bcnt = sum([n.count() for n in bnodes])
 	actcnt = sum([n.count() for n in actnodes])
 	benc = np.zeros((bcnt, 20), dtype=np.float32)
 	actenc = np.zeros((actcnt, 20), dtype=np.float32)
 	
-	def encode_node(i, m, node, e): 
-		e[i, node.typ.value] = 1.0 # categorical
+	def encode_node(i, m, node, encoding): 
+		'''
+		Recursive function which populates the encoding matrix.
+		Each encoded vector of the node (a row) contains a one-hot encoding of the node type
+			(i.e curosr, position, leaf, box, action) and also contains the node value
+		The recursion is such that the order is DFS 
+		'''
+		encoding[i, node.typ.value] = 1.0 # categorical
 		# enc[i, node.value + 10] = 1.0 # categorical
-		e[i, 10] = node.value # ordinal
+		encoding[i, 10] = node.value # ordinal
 		node.loc = m # save loc for mask.
 		i = i + 1
 		m = m + 1
 		for k in node.kids: 
-			i,m = encode_node(i, m, k, e)
+			i,m = encode_node(i, m, k)
 		return i,m
 			
 	i = 0
