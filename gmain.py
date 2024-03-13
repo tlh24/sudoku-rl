@@ -177,7 +177,7 @@ if __name__ == '__main__':
 	# torch.autograd.set_detect_anomaly(True)
 	# model_opt = torch.compile(model)
 	
-	use_adamw = True
+	use_adamw = False
 	
 	if use_adamw: 
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)

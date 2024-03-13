@@ -51,24 +51,29 @@ class Node:
 # let's start with a DAG for simplicity?
 # how to encode a variable number of edges then? 
 
-def sudokuActionNodes(action_type):
-	na = Node(Types.ACTION_MOVE, 0)
-	# action type = left right up down, 0 -- 3
-	# -1 = null
-	ax = Axes.X_AX
-	if action_type > 1: 
-		ax = Axes.Y_AX
-	v = -1 # reserve zero for zero motion
-	if action_type == 1 or action_type == 3: 
-		v = 1
-	if action_type < 0:
-		ax = 0
-		v = 0
-	nax = Node(Types.POSITION, ax)
-	naxx = Node(Types.LEAF, v)
-	
-	na.add_child(nax)
-	nax.add_child(naxx)
+def sudokuActionNodes(action_type, action_value):
+	# see gmain.py for the action_type enumeration
+	# action_value is e.g. the guess.
+	if action_type <= 3:
+		na = Node(Types.ACTION_MOVE, 0)
+		# action type = left right up down, 0 -- 3
+		# -1 = null
+		ax = Axes.X_AX
+		if action_type > 1:
+			ax = Axes.Y_AX
+		v = -1 # reserve zero for zero motion
+		if action_type == 1 or action_type == 3:
+			v = 1
+		if action_type < 0: # null action!
+			ax = 0
+			v = 0
+		nax = Node(Types.POSITION, ax)
+		naxx = Node(Types.LEAF, v)
+
+		na.add_child(nax)
+		nax.add_child(naxx)
+	if action_type == 4:
+		na = Node(Types.ACTION_MOVE, 0)
 	return [na]
 
 def sudokuToNodes(puzzle, curs_pos, action_type):
