@@ -63,12 +63,12 @@ def runAction(action, sudoku, cursPos):
 
 
 def encodeBoard(sudoku, cursPos, action): 
-	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, cursPos, action)
 	benc,actenc,msk = graph_encoding.encode_nodes(nodes, actnodes)
 	
 	reward = runAction(action, sudoku, cursPos)
 	
-	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, cursPos, action)
 	newbenc,_,_ = graph_encoding.encode_nodes(nodes, actnodes)
 	
 	return benc, actenc, newbenc, msk, reward
@@ -177,7 +177,7 @@ if __name__ == '__main__':
 	# torch.autograd.set_detect_anomaly(True)
 	# model_opt = torch.compile(model)
 	
-	use_adamw = False
+	use_adamw = True
 	
 	if use_adamw: 
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
@@ -203,21 +203,25 @@ if __name__ == '__main__':
 			y = board_enc[i+1,:,:].to(device) 
 			reward = board_reward[i//2]
 			
-			# if use_adamw: 
-			# optimizer.zero_grad()
+			if use_adamw:
+				optimizer.zero_grad()
 			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-			# yp = yp * lossmask
-			# loss = torch.sum((yp - y)**2)
-			# loss.backward()
-			# optimizer.step() 
-			# else: 
-			def closure():
-				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
+			if use_adamw:
 				yp = yp * lossmask
-				loss = torch.sum((yp - y)**2) + sum( \
-                [torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
-				return loss
-			loss = optimizer.step(closure)
+				loss = torch.sum((yp - y)**2)
+				loss.backward()
+				optimizer.step()
+			else:
+				def closure():
+					yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
+					yp = yp * lossmask
+					loss = torch.sum((yp - y)**2) + sum( \
+						[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
+					# acording to the PSGD inventors, it's helpful to add a little noise into the gradient calculation.
+					# see the thread here:
+					# https://github.com/lixilinx/psgd_torch/issues/2#event-11763261430
+					return loss
+				loss = optimizer.step(closure)
             
 			# print(loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')

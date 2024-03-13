@@ -11,14 +11,15 @@ class Types(Enum):
 	CURSOR = 1
 	POSITION = 2 # value is the axis
 	LEAF = 3 # bare value
-	BOX = 4
-	ACTION = 5
+	BOX = 4 # individual clues in Sudoku board
+	HIGHLIGHT = 5 # akin sudoku.com -- independent class here
+	ACTION_MOVE = 6
+	ACTION_SET_GUESS = 7 # tbd: remove guess
 	
 class Axes(float, Enum): 
-	X_AX = 1
-	Y_AX = 2
-	B_AX = 3 # block
-	H_AX = 4 # highlight
+	X_AX = 1 # coulmn
+	Y_AX = 2 # row
+	B_AX = 3 # block = square group of SuN
 	
 class Node: 
 	def __init__(self, typ, val):
@@ -50,8 +51,8 @@ class Node:
 # let's start with a DAG for simplicity?
 # how to encode a variable number of edges then? 
 
-def sudokuActionNodes(action_type): 
-	na = Node(Types.ACTION, 0) 
+def sudokuActionNodes(action_type):
+	na = Node(Types.ACTION_MOVE, 0)
 	# action type = left right up down, 0 -- 3
 	# -1 = null
 	ax = Axes.X_AX
@@ -70,11 +71,11 @@ def sudokuActionNodes(action_type):
 	nax.add_child(naxx)
 	return [na]
 
-def sudoku_to_nodes(puzzle, curs_pos, action_type): 
+def sudokuToNodes(puzzle, curs_pos, action_type):
 	nodes = []
 	
 	nc = Node(Types.CURSOR, 0)
-	posOffset = (SuN - 1) / 2.0
+	posOffset = (SuN - 1) / 2.0 # center the encoding, middle of the board
 	ncx = Node(Types.POSITION, Axes.X_AX) # x = column
 	ncxx = Node(Types.LEAF, curs_pos[0] - posOffset) # -4 -> 0 4 -> 8 
 	ncy = Node(Types.POSITION, Axes.Y_AX)
@@ -89,9 +90,9 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 	
 	actnodes = sudokuActionNodes(action_type)
 	
-	if False: 
-		for y in range(SuN): 
-			for x in range(SuN): 
+	if False:
+		for y in range(SuN): # y = row
+			for x in range(SuN): # coulmn
 				v = puzzle[y,x]
 				nb = Node(Types.BOX, v)
 				nbx = Node(Types.POSITION, Axes.X_AX)
@@ -102,11 +103,12 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 				nbb = Node(Types.POSITION, Axes.B_AX)
 				nbbb = Node(Types.LEAF, b - posOffset)
 				
-				highlight = 0 # this is mostly icing..
-				if x == curs_pos[0] and y == curs_pos[1]: 
-					highlight = 1
-				nbh = Node(Types.POSITION, Axes.H_AX)
-				nbhh = Node(Types.LEAF, highlight)
+				# highlight the cursor position, ala sudoku.com
+				# only add this token if it's highlighted.
+				if x == curs_pos[0] and y == curs_pos[1]:
+					highlight = True
+					nbh = Node(Types.HIGHLIGHT, 0)
+					nb.add_child(nbh)
 				
 				nbx.add_child(nbxx)
 				nby.add_child(nbyy)
@@ -115,7 +117,6 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type):
 				nb.add_child(nbx)
 				nb.add_child(nby)
 				nb.add_child(nbb)
-				nb.add_child(nbh)
 				
 				nodes.append(nb)
 			
@@ -222,7 +223,7 @@ if __name__ == "__main__":
 # 	plt.colorbar(im[1], ax=axs[1])
 # 	plt.show()
 	
-	nodes, actnodes = sudoku_to_nodes(sudoku.mat, np.ones((2,))*2.0, 0)
+	nodes, actnodes = sudokuToNodes(sudoku.mat, np.ones((2,))*2.0, 0)
 	
 	benc,actenc,msk = encode_nodes(nodes, actnodes)
 	enc = np.concatenate((benc, actenc), axis=0)
