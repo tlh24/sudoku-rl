@@ -179,7 +179,7 @@ def encodeNodes(bnodes, actnodes):
 		i = i + 1
 		m = m + 1
 		for k in node.kids: 
-			i,m = encode_node(i, m, k)
+			i,m = encode_node(i, m, k, encoding)
 		return i,m
 			
 	i = 0
