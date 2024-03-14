@@ -16,28 +16,62 @@ import psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
-def runAction(action: int, sudoku, cursPos): 
+def runAction(action: int, sudoku, curs_pos): 
 	# run the action, update the world, return the reward.
 	# act = b % 4
 	reward = -0.05
 	if action == Action.UP.value : 
-		cursPos[0] -= 1
+		curs_pos[0] -= 1
 	if action == Action.RIGHT.value: 
-		cursPos[1] += 1
+		curs_pos[1] += 1
 	if action == Action.DOWN.value: 
-		cursPos[0] += 1
-	if action == Action.LEFT.value: 
-		cursPos[1] -= 1
-	cursPos[0] = cursPos[0] % SuN # wrap at the edges; 
-	cursPos[1] = cursPos[1] % SuN # works for negative nums
+		curs_pos[0] += 1
+	if action == Action.LEFT.value: 	
+		curs_pos[1] -= 1
+	curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
+	curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 			
 	if True: 
-		print(f'runAction @ {cursPos[0]},{cursPos[1]}: {action}')
+		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}')
 	
 	return reward
 
+def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int):
+	'''
+	Note: Assume that action is a movement action and that we have 2 dimensional sudoku 
+	
+	Encode the current pos as a euclidean vector [x,y],
+		encode the action (movement) displacement as a euclidean vector [dx,dy],
+		runs the action, encodes the new board state.
+	Mask is hardcoded to match the graph mask generated from one bnode and one actnode
+	'''
+	# ensure two-dim sudoku
+	if curs_pos.size(0) != 2:
+		raise ValueError(f"Must have 2d sudoku board")
 
-def encodeBoard(sudoku, cursPos, action): 
+	# ensure that action is movement action
+	if action not in [Action.DOWN.value, Action.UP.value, Action.LEFT.value, Action.RIGHT.value]:
+		raise ValueError(f"The action must be a movement action but received: {action}")
+
+	if action in [Action.DOWN.value, Action.UP.value]:
+		action_enc = np.array([0, action_val], dtype=np.float32).reshape(1,-1)
+	else:
+		action_enc = np.array([action_val, 0], dtype=np.float32).reshape(1,-1)
+	
+	curs_enc = curs_pos.numpy().astype(np.float32).reshape(1,-1)
+
+	# hard code mask to match the mask created by one board node, one action node
+	mask = np.full((2,2), 8.0, dtype=np.float32)
+	np.fill_diagonal(mask, 1.0)
+	
+	reward = runAction(action, sudoku, curs_pos)
+	
+	new_curs_enc = curs_enc + action_enc  
+	
+	return curs_enc, action_enc, new_curs_enc, mask, reward
+
+
+def encodeBoard(sudoku, curs_pos, action, action_val):  
 	'''
 	Encodes the current board state and encodes the given action,
 		runs the action, and then encodes the new board state
@@ -45,34 +79,61 @@ def encodeBoard(sudoku, cursPos, action):
 	Returns:
 	board encoding, action encoding, new board encoding, 
 	'''
-	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
-	benc,actenc,msk = graph_encoding.encode_nodes(nodes, actnodes)
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action, action_val)
+	benc,actenc,msk = graph_encoding.encodeNodes(nodes, actnodes)
 	
-	reward = runAction(action, sudoku, cursPos)
+	reward = runAction(action, sudoku, curs_pos)
 	
-	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
-	newbenc,_,_ = graph_encoding.encode_nodes(nodes, actnodes)
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action)
+	newbenc,_,_ = graph_encoding.encodeNodes(nodes, actnodes)
 	
 	return benc, actenc, newbenc, msk, reward
 
 
-def enumerateMoves(depth, episode): 
-	# TODO: (JJ) Change to include more moves 
-	# moves = range(8)
-	moves = range(4) # only move! 
+def enumerateMoves(depth, episode, possible_actions=[]): 
+	if not possible_actions:
+		possible_actions = range(4) # only move! 
 	outlist = []
 	if depth > 0: 
-		for m in moves:
-			outlist.append(episode + [m])
-			outlist = outlist + enumerateMoves(depth-1, episode + [m])
+		for action in possible_actions:
+			outlist.append(episode + [action])
+			outlist = outlist + enumerateMoves(depth-1, episode + [action], possible_actions)
 	return outlist
 
+def generateActionValue(action: int, min_dist: int, max_dist: int):
+	'''
+	Generates an action value corresponding to the action.
+	For movement actions, samples a dist unif on [min_dist, max_dist] and 
+		chooses - or + direction evenly.
 
-def enumerateBoards(puzzles, n): 
+	min_dist: (int) Represents the min distance travelled.
+	max_dist: (int) Represents the max distance travelled.
+	'''
+	# movement action
+	if action in [Action.DOWN.value, Action.UP.value, Action.LEFT.value, Action.RIGHT.value]:
+		dist = np.random.randint(low=min_dist, high=max_dist+1)
+		direction = np.random.choice([-1,1])
+		displacement = dist * direction 
+		return displacement
+
+	# guess or set note action
+	if action in [Action.SET_GUESS.value, Action.UNSET_GUESS.value, Action.SET_NOTE.value,\
+						Action.UNSET_NOTE.value]:
+		digit = np.random.randint(1,10)
+		return digit 
+
+	# nop
+	return 0
+	
+
+def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1): 
 	'''
 	
+	min_dist: (int) Represents the min distance travelled.
+	max_dist: (int) Represents the max distance travelled (inclusive)
 	'''
-	lst = enumerateMoves(1, [])
+	# TODO: (JJ) update to handle multiple action episodes
+	lst = enumerateMoves(1, [], possible_actions)
 	if len(lst) < n: 
 		rep = n // len(lst) + 1
 		lst = lst * rep
@@ -85,9 +146,12 @@ def enumerateBoards(puzzles, n):
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
 		sudoku.setMat(puzzl.numpy())
-		cursPos = torch.randint(SuN, (2,))
-		# cursPos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
-		benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, cursPos, ep[0])
+		curs_pos = torch.randint(SuN, (2,))
+		action_val = generateActionValue(ep[0], min_dist, max_dist)
+
+		# curs_pos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
+		benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
+		#benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, curs_pos, ep[0], action_val)
 		boards.append(torch.tensor(benc))
 		boards.append(torch.tensor(newbenc))
 		actions.append(torch.tensor(actenc))
@@ -105,6 +169,8 @@ if __name__ == '__main__':
 	device = torch.device(type='cuda', index=0)
 	torch.set_float32_matmul_precision('high')
 	
+	#TODO: (JJ) Create train, val, test data split 
+
 	board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
 	
 	print(board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
@@ -148,7 +214,7 @@ if __name__ == '__main__':
 	# torch.autograd.set_detect_anomaly(True)
 	# model_opt = torch.compile(model)
 	
-	use_adamw = False
+	use_adamw = True 
 	
 	if use_adamw: 
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
@@ -159,33 +225,38 @@ if __name__ == '__main__':
 	uu = 0
 	beshape = board_enc.shape
 	lossmask = torch.ones(batch_size,beshape[1],beshape[2], device=device)
-	for i in range(11,20):
-		lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
+	#for i in range(11,20):
+	#	lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
 
 	if True:
 		for u in range(100000): 
 			# model.zero_grad() enabled later
+			# (TODO: JJ) figure out why we exclude the last 2000 encodings
 			i = torch.randint(N-2000, (batch_size,)) * 2
 			x = board_enc[i,:,:].to(device)
 			a = action_enc[i//2,:,:].to(device)
 			y = board_enc[i+1,:,:].to(device) 
 			reward = board_reward[i//2]
 			
-			# if use_adamw: 
-			# optimizer.zero_grad()
-			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-			# yp = yp * lossmask
-			# loss = torch.sum((yp - y)**2)
-			# loss.backward()
-			# optimizer.step() 
-			# else: 
-			def closure():
+			if use_adamw: 
+				optimizer.zero_grad()
 				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-				yp = yp * lossmask
-				loss = torch.sum((yp - y)**2) + sum( \
-                [torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
-				return loss
-			loss = optimizer.step(closure)
+				#yp = yp * lossmask
+				loss = torch.sum((yp - y)**2)
+				loss.backward()
+				optimizer.step() 
+			else: 
+				def closure():
+					yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
+					#TODO: (JJ) confirm no optimizer zero grad
+					#optimizer.zero_grad()
+					#yp = yp * lossmask
+					loss = torch.sum((yp - y)**2) + sum( \
+						[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
+					#TODO: (JJ) confirm no loss backwards
+					#loss.backward()
+					return loss
+				loss = optimizer.step(closure)
             
 			# print(loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
@@ -215,7 +286,7 @@ if __name__ == '__main__':
 		# yp = yp - 4.5 * (yp > 4.5)
 		# yp = yp + 4.5 * (yp < -4.5)
 		# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
-		yp = yp * lossmask
+		#yp = yp * lossmask
 		
 		loss = torch.sum((yp - y)**2)
 		print('v', loss.cpu().item())

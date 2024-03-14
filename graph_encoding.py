@@ -9,7 +9,6 @@ from type_file import Types, Axes, Action
 import pdb
 
 
-	
 class Node: 
 	def __init__(self, typ, val):
 		self.typ = typ
@@ -41,50 +40,46 @@ class Node:
 # let's start with a DAG for simplicity?
 # how to encode a variable number of edges then? 
 
-def sudokuActionNodes(action_type: int): 
+def sudokuActionNodes(action_type: int, action_val: int): 
 	'''
 	Returns a list containing action node: [action_node]
-	
-	action_node is a tree (in fact a line)
-		action node -> category node -> leaf node
-		The value of the category node depends on the kind of action being made. 
-		The value of the leaf node can signal what direction, it can signal the value being made,
-		ect 
-	'''
 
-	na = Node(Types.ACTION, 0) 
-	# -1 = null
+	action_node is a linear tree of size three
+		action flag node -> axis node -> val 
+
+	Input:
+	action_val: (int) Represents either the magnitude+direction to travel along an axis (ex: +2, -2)
+							or the digit corresponding to guess or set note
+	'''
+	#TODO: (JJ) expand integration for more actions
+	na = Node(Types.ACTION, 0)
 	if action_type == Action.LEFT.value or action_type == Action.RIGHT.value:
 		ax = Axes.X_AX
-		v = -1
-	elif action_type == Action.UP.value or action_type == Action.DOWN.value:
+	if action_type == Action.UP.value or action_type == Action.DOWN.value:
 		ax = Axes.Y_AX
-		v = 1 
-	elif action_type == Action.SET_GUESS.value or action_type == Action.UNSET_GUESS.value:
-		#TODO:change axis and value 
-		ax = Axes.B_AX
-		
-		v = 0
-	elif action_type == Action.SET_NOTE.value or action_type == Action.UNSET_NOTE.value:
-		ax = Axes.H_AX
-		v = 0
-	else:
-		ax = Axes.N_AX #N_AX==0. represents null or nop
-		v = 0
-		
+	
+
 	nax = Node(Types.POSITION, ax)
-	naxx = Node(Types.LEAF, v)
+	
+	if action_type == Action.LEFT.value or action_type == Action.DOWN.value or\
+		action_type == Action.RIGHT.value or action_type == Action.UP.value:
+		naxx = Node(Types.LEAF, action_val)
+	else: 
+			raise ValueError(f'Unexpected non-movement action: {action_type}')
 	
 	na.add_child(nax)
 	nax.add_child(naxx)
 	return [na]
 
-def sudoku_to_nodes(puzzle, curs_pos, action_type: int): 
+def sudokuToNodes(puzzle, curs_pos, action_type: int, action_val: int): 
 	'''
 	Returns a tuple of ([cursor_node], list of action_nodes)
 		cursor_node is a tree which has two children- a node representing x position
 		and a node representing y position. Each position node has a value child 
 
+	Input:
+	action_val: (int) Represents either the mag+direction to travel along an axis (ex: +2, -2)
+							or the digit corresponding to guess or set note
 	'''
 	nodes = []
 	
@@ -104,7 +99,7 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type: int):
 	
 	nodes.append(nc)
 	
-	actnodes = sudokuActionNodes(action_type)
+	actnodes = sudokuActionNodes(action_type, action_val)
 	
 	if False: 
 		for y in range(SuN): 
@@ -142,8 +137,23 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type: int):
 			n.print("")
 		
 	return nodes, actnodes
+
+# in the mask: 
+# 1 = attend to self (so .. just project + nonlinearity)
+# 2 = attend to children
+# 4 = attend to parents
+# 8 = attend to peers
+# -- assume softmax is over columns.
+def maskNode(node, msk):
+	msk[node.loc, node.loc] = 1.0
+	for kid in node.kids: 
+		msk[kid.loc, node.loc] = 2.0
+	for parent in node.parents: 
+		msk[parent.loc, node.loc] = 4.0
+	for kid in node.kids: 
+		maskNode(kid, msk)	
 	
-def encode_nodes(bnodes, actnodes):
+def encodeNodes(bnodes, actnodes):
 	'''
 	Given board nodes and action nodes, returns a board encoding,
 		action encoding, and a mask based on board and action nodes
@@ -159,7 +169,7 @@ def encode_nodes(bnodes, actnodes):
 		'''
 		Recursive function which populates the encoding matrix.
 		Each encoded vector of the node (a row) contains a one-hot encoding of the node type
-			(i.e curosr, position, leaf, box, action) and also contains the node value
+			(i.e cursor, position, leaf, box, action) and also contains the node value
 		The recursion is such that the order is DFS 
 		'''
 		encoding[i, node.typ.value] = 1.0 # categorical
@@ -183,23 +193,9 @@ def encode_nodes(bnodes, actnodes):
 	nodes = bnodes + actnodes
 	cnt = bcnt + actcnt
 	msk = np.zeros((cnt,cnt), dtype=np.float32)
-	# in the mask: 
-	# 1 = attend to self (so .. just project + nonlinearity)
-	# 2 = attend to children
-	# 4 = attend to parents
-	# 8 = attend to peers
-	# -- assume softmax is over columns.
-	def mask_node(node):
-		msk[node.loc, node.loc] = 1.0
-		for kid in node.kids: 
-			msk[kid.loc, node.loc] = 2.0
-		for parent in node.parents: 
-			msk[parent.loc, node.loc] = 4.0
-		for kid in node.kids: 
-			mask_node(kid)
 	
 	for n in nodes: 
-		mask_node(n)
+		maskNode(n, msk)
 	# let all top-level nodes communicate. 
 	for n in nodes: 
 		for m in nodes: 
@@ -243,7 +239,7 @@ if __name__ == "__main__":
 	sudoku.printSudoku()
 	
 # 	nodes = test_nodes()
-# 	enc,aenc,msk = encode_nodes(nodes, [])
+# 	enc,aenc,msk = encodeNodes(nodes, [])
 # 	
 # 	im[0] = axs[0].imshow(enc.T)
 # 	plt.colorbar(im[0], ax=axs[0])
@@ -251,9 +247,9 @@ if __name__ == "__main__":
 # 	plt.colorbar(im[1], ax=axs[1])
 # 	plt.show()
 	
-	nodes, actnodes = sudoku_to_nodes(sudoku.mat, np.ones((2,))*2.0, 0)
+	nodes, actnodes = sudokuToNodes(sudoku.mat, np.ones((2,))*2.0, 0)
 	
-	benc,actenc,msk = encode_nodes(nodes, actnodes)
+	benc,actenc,msk = encodeNodes(nodes, actnodes)
 	enc = np.concatenate((benc, actenc), axis=0)
 	print(enc.shape, actenc.shape, msk.shape)
 	im[0] = axs[0].imshow(enc.T)
