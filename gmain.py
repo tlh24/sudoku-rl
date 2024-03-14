@@ -36,7 +36,7 @@ def runAction(action: int, sudoku, curs_pos):
 	
 	return reward
 
-def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int):
+def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int, enc_dim: int = 20):
 	'''
 	Note: Assume that action is a movement action and that we have 2 dimensional sudoku 
 	
@@ -59,6 +59,11 @@ def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int):
 		action_enc = np.array([action_val, 0], dtype=np.float32).reshape(1,-1)
 	
 	curs_enc = curs_pos.numpy().astype(np.float32).reshape(1,-1)
+
+	# right pad with zeros to encoding dimension
+	action_enc = np.pad(action_enc, ((0,0), (0, enc_dim-action_enc.shape[1])))
+	curs_enc = np.pad(curs_enc, ((0,0), (0, enc_dim - curs_enc.shape[1])))
+	assert(enc_dim == action_enc.shape[1] == curs_enc.shape[1])
 
 	# hard code mask to match the mask created by one board node, one action node
 	mask = np.full((2,2), 8.0, dtype=np.float32)
