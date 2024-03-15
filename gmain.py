@@ -314,14 +314,18 @@ if __name__ == '__main__':
 	print("validation")
 	model.eval()
 	with torch.no_grad():
-		x = test_orig_board_enc.to(device)
-		a = test_action_enc.to(device)
-		y = test_new_board_enc.to(device)
-		yp,rp,a1,a2,w1,w2 = model.forward(x,a,msk, uu, None)
-		loss = criterion(yp, y)
-		print('v', loss.cpu().item())
-		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
-		fd_losslog.flush()
+		test_N = test_orig_board_enc.size(0)
+		for start_idx in range(0, (test_N//batch_size)*batch_size, batch_size):
+			batch_idxs = torch.arange(start_idx, start_idx+batch_size)
+			x = test_orig_board_enc[batch_idxs,:,:].to(device)
+			a = test_action_enc[batch_idxs, :, :].to(device)
+			y = test_new_board_enc[batch_idxs,:,:].to(device)
+			reward = test_reward[batch_idxs]
+			yp,rp,a1,a2,w1,w2 = model.forward(x,a,msk, uu, None)
+			loss = criterion(yp, y)
+			print('v', loss.cpu().item())
+			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
+			fd_losslog.flush()
 	
 	# need to allocate hidden activations for denoising
 	record = []
