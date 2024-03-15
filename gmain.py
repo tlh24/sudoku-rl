@@ -360,8 +360,7 @@ if __name__ == '__main__':
 			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
 			for j,h in enumerate(record): 
 				stride = stridel[j]
-				i = torch.arange(0,batch_size) + u*batch_size
-				hiddenl[j][i, :] = torch.reshape(h.detach(), (batch_size, stride))
+				hiddenl[j][batch_idxs, :] = torch.reshape(h.detach(), (batch_size, stride))
 			for h in hiddenl: 
 				std = torch.std(h) / 2.0
 				denoisestd.append(std)
