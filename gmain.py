@@ -110,15 +110,21 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	'''
 	Generates an action value corresponding to the action.
 	For movement actions, samples a dist unif on [min_dist, max_dist] and 
-		chooses - or + direction evenly.
+		chooses - or + direction based on the action (ex: -1 for left, +1 for right).
 
 	min_dist: (int) Represents the min distance travelled.
 	max_dist: (int) Represents the max distance travelled.
 	'''
 	# movement action
-	if action in [Action.DOWN.value, Action.UP.value, Action.LEFT.value, Action.RIGHT.value]:
+	if action in [Action.DOWN.value,Action.LEFT.value]:
 		dist = np.random.randint(low=min_dist, high=max_dist+1)
-		direction = np.random.choice([-1,1])
+		direction = -1
+		displacement = dist * direction 
+		return displacement
+
+	if action in [Action.UP.value, Action.RIGHT.value]:
+		dist = np.random.randint(low=min_dist, high=max_dist+1)
+		direction = 1
 		displacement = dist * direction 
 		return displacement
 
@@ -157,10 +163,10 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		sudoku.setMat(puzzl.numpy())
 		curs_pos = torch.randint(SuN, (2,))
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
-
+		
 		# curs_pos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
-		#benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
-		benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, curs_pos, ep[0], action_val)
+		benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
+		#benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, curs_pos, ep[0], action_val)
 		orig_boards.append(torch.tensor(benc))
 		new_boards.append(torch.tensor(newbenc))
 		actions.append(torch.tensor(actenc))
@@ -199,9 +205,6 @@ if __name__ == '__main__':
 	device = torch.device(type='cuda', index=0)
 	torch.set_float32_matmul_precision('high')
 	
-	#TODO: (JJ) Create train, val, test data split 
-
-
 	orig_board_enc, new_board_enc, action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
 	print(orig_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
 
@@ -209,9 +212,6 @@ if __name__ == '__main__':
 	train_new_board_enc, test_new_board_enc = trainValSplit(new_board_enc, num_eval=2000)
 	train_action_enc, test_action_enc = trainValSplit(action_enc, num_eval=2000)
 	train_reward, test_reward = trainValSplit(board_reward, num_eval=2000)
-	assert(test_reward.size(0) == test_new_board_enc.size(0) == 2000)
-	
-
 	
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
 	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
@@ -228,13 +228,16 @@ if __name__ == '__main__':
 		# every attention head has 4 heads, one for each relation; the heads for the children relation
 		# all share the same mask for example. The last mask is all-to-all 
 
-	msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8) # try to save memory...
+	msk = torch.ones((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8)
+	#msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8) # try to save memory...
+	'''
 	for i in range(n_heads-1): 
 		j = i % 4
 		msk[:, :, i] = ( board_msk == (2**j) )
 	# add one all-too-all mask
 	if g_globalatten: 
 		msk[:,:,-1] = 1.0
+	'''
 	msk = msk.unsqueeze(0).expand([batch_size, -1, -1, -1])
 	if g_l1atten: 
 		msk = torch.permute(msk, (0,3,1,2)).contiguous() # L1 atten is bhts order
@@ -252,11 +255,12 @@ if __name__ == '__main__':
 	# torch.autograd.set_detect_anomaly(True)
 	# model_opt = torch.compile(model)
 	
-	use_adamw = True 
+	optimizer_name = "adam"
 	
-	if use_adamw: 
-		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
-		
+	if optimizer_name == "adam": 
+		optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay = 0)
+	elif optimizer_name == 'adamw':
+		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-3)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
 	
@@ -272,12 +276,12 @@ if __name__ == '__main__':
 		for u in range(100000): 
 			# model.zero_grad() enabled later
 			batch_idxs = torch.randint(train_N, (batch_size,))
-			x = train_orig_board_enc[batch_idxs,:,:].to(device)
-			a = train_action_enc[batch_idxs,:,:].to(device)
-			y = train_new_board_enc[batch_idxs,:,:].to(device) 
+			x = train_orig_board_enc[batch_idxs].to(device)
+			a = train_action_enc[batch_idxs].to(device)
+			y = train_new_board_enc[batch_idxs].to(device) 
 			reward = train_reward[batch_idxs]
 			
-			if use_adamw: 
+			if optimizer_name != 'psgd': 
 				optimizer.zero_grad()
 				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
 				loss = criterion(yp, y)
