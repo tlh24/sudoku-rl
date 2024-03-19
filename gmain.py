@@ -141,7 +141,7 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1): 
 	'''
 	Parameters:
-
+	n: (int) Number of samples to generate
 	min_dist: (int) Represents the min distance travelled.
 	max_dist: (int) Represents the max distance travelled (inclusive)
 
@@ -184,35 +184,43 @@ def trainValSplit(data_matrix: torch.Tensor, num_eval=None, eval_ratio: float = 
 	data_matrix: (torch.tensor) Containing rows of data
 	num_eval: (int) If provided, is the number of rows in the val matrix
 	'''
-	N = data_matrix.size(0)
-	if N <= 1:
+	num_samples = data_matrix.size(0)
+	if num_samples <= 1:
 		raise ValueError(f"data_matrix needs to be a tensor with more than 1 row")
 
-	shuffled_data = data_matrix[torch.randperm(N)]
+	shuffled_data = data_matrix[torch.randperm(num_samples)]
 	if not num_eval:
-		num_eval = int(N * eval_ratio)
+		num_eval = int(num_samples * eval_ratio)
 	
 	training_data = shuffled_data[:-num_eval]
 	eval_data = shuffled_data[-num_eval:]
 	return training_data, eval_data
-	
 
 
-
-if __name__ == '__main__':
-	puzzles = torch.load('puzzles_500000.pt')
-	N = 12000
-	device = torch.device(type='cuda', index=0)
-	torch.set_float32_matmul_precision('high')
-	
-	orig_board_enc, new_board_enc, action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
+def getDataDict(puzzles, num_samples, num_eval=2000):
+	'''
+	Returns a dictionary containing training and test data
+	'''
+	orig_board_enc, new_board_enc, action_enc, board_msk, board_reward = enumerateBoards(puzzles, num_samples)
 	print(orig_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
+	train_orig_board_enc, test_orig_board_enc = trainValSplit(orig_board_enc, num_eval=num_eval)
+	train_new_board_enc, test_new_board_enc = trainValSplit(new_board_enc, num_eval=num_eval)
+	train_action_enc, test_action_enc = trainValSplit(action_enc, num_eval=num_eval)
+	train_reward, test_reward = trainValSplit(board_reward, num_eval=num_eval)
+	dataDict = {
+		'board_msk' : board_msk,
+		'train_orig_board_enc': train_orig_board_enc,
+		'test_orig_board_enc': test_orig_board_enc,
+		'train_new_board_enc': train_new_board_enc,
+		'test_new_board_enc': test_new_board_enc,
+		'train_action_enc': train_action_enc,
+		'test_action_enc': test_action_enc,
+		'train_reward': train_reward,
+		'test_reward': test_reward
+    }
+	return dataDict
 
-	train_orig_board_enc, test_orig_board_enc = trainValSplit(orig_board_enc, num_eval=2000)
-	train_new_board_enc, test_new_board_enc = trainValSplit(new_board_enc, num_eval=2000)
-	train_action_enc, test_action_enc = trainValSplit(action_enc, num_eval=2000)
-	train_reward, test_reward = trainValSplit(board_reward, num_eval=2000)
-	
+def getMemoryDict():
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
 	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
 	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
@@ -220,20 +228,28 @@ if __name__ == '__main__':
 	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, reward_dim])
 	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
 	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
+	memory_dict = {'fd_board':fd_board, 'fd_new_board':fd_new_board, 'fd_boardp':fd_boardp,
+					 'fd_reward': fd_reward, 'fd_rewardp': fd_rewardp, 'fd_attention': fd_attention,
+					  'fd_wqkv':fd_wqkv }
+	return memory_dict
 
-	fd_losslog = open('losslog.txt', 'w')
+def getAttentionMask(board_msk, device):
+	'''
+	Returns an attention mask based on the graph node relations. 
+
+	Need to repack the mask to match the attention matrix, with head duplicates. 
+		Have 4h + 1 total heads. There are four categories representing relations (1:self, 2:children, 4:parents, 8:peers)
+		every attention head has 4 heads, one for each relation; the heads for the children relation
+		all share the same mask for example. The last mask is all-to-all 
+	'''
 	
-	# need to repack the mask to match the attention matrix, with head duplicates. 
-	# Have 4h + 1 total heads. There are four categories representing relations (1:self, 2:children, 4:parents, 8:peers)
-		# every attention head has 4 heads, one for each relation; the heads for the children relation
-		# all share the same mask for example. The last mask is all-to-all 
-
 	msk = torch.ones((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8)
 	#msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8) # try to save memory...
 	'''
 	for i in range(n_heads-1): 
 		j = i % 4
 		msk[:, :, i] = ( board_msk == (2**j) )
+	
 	# add one all-too-all mask
 	if g_globalatten: 
 		msk[:,:,-1] = 1.0
@@ -244,78 +260,81 @@ if __name__ == '__main__':
 	# msk = msk.to_sparse() # idk if you can have views of sparse tensors.. ??
 	# sparse tensors don't work with einsum, alas.
 	msk = msk.to(device)
-	
-	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
-	model.printParamCount()
-	try: 
-		model.load_checkpoint()
-		print("loaded model checkpoint")
-	except : 
-		print("could not load model checkpoint")
-	# torch.autograd.set_detect_anomaly(True)
-	# model_opt = torch.compile(model)
-	
-	optimizer_name = "adam"
-	
+	return msk 
+
+def getLossMask(board_enc, device):
+	loss_mask = torch.ones(1, board_enc.shape[1], board_enc.shape[2], device=device)
+	#for i in range(11,20):
+	#	loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
+	return loss_mask 
+
+def getOptimizer(optimizer_name, model, lr=1e-3, weight_decay=0):
 	if optimizer_name == "adam": 
-		optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay = 0)
+		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 	elif optimizer_name == 'adamw':
-		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-3)
+		optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
-	
-	uu = 0
-	lossmask = torch.ones(1, train_orig_board_enc.shape[1], train_orig_board_enc.shape[2], device=device)
+	return optimizer 
 
-	#for i in range(11,20):
-	#	lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
+def updateMemory(memory_dict, pred_dict): 
+	'''
+	Updates memory map with predictions.
 
-	criterion = nn.MSELoss()
-	if True:
-		train_N = train_orig_board_enc.size(0)
-		for u in range(100000): 
-			# model.zero_grad() enabled later
-			batch_idxs = torch.randint(train_N, (batch_size,))
-			x = train_orig_board_enc[batch_idxs].to(device)
-			a = train_action_enc[batch_idxs].to(device)
-			y = train_new_board_enc[batch_idxs].to(device) 
-			reward = train_reward[batch_idxs]
-			
-			if optimizer_name != 'psgd': 
-				optimizer.zero_grad()
-				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-				loss = criterion(yp, y)
-				loss.backward()
-				optimizer.step() 
-			else: 
-				def closure():
-					yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-					#TODO: (JJ) confirm no optimizer zero grad
-					#optimizer.zero_grad()
-					#yp = yp * lossmask
-					loss = torch.sum((yp - y)**2) + sum( \
-						[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
-					#TODO: (JJ) confirm no loss backwards
-					#loss.backward()
-					return loss
-				loss = optimizer.step(closure)
-            
-			# print(loss.cpu().item())
-			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
-			fd_losslog.flush()
-			uu = uu+1
-			
-			if u % 25 == 0: 
-				write_mmap(fd_board, x[0:4,:,:].cpu())
-				write_mmap(fd_new_board, y[0:4,:,:].cpu())
-				write_mmap(fd_boardp, yp[0:4,:,:].cpu().detach())
-				write_mmap(fd_reward, reward[0:4].cpu())
-				write_mmap(fd_rewardp, rp[0:4].cpu().detach())
-				write_mmap(fd_attention, torch.stack((a1, a2), 0))
-				write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
-		model.save_checkpoint()
+	Args:
+	memory_dict (dict): Dictionary containing memory map file descriptors.
+	pred_dict (dict): Dictionary containing predictions.
+
+	Returns:
+	None
+	'''
+	write_mmap(memory_dict.fd_board, pred_dict.x[0:4,:,:].cpu())
+	write_mmap(memory_dict.fd_new_board, pred_dict.y[0:4,:,:].cpu())
+	write_mmap(memory_dict.fd_boardp, pred_dict.yp[0:4,:,:].cpu().detach())
+	write_mmap(memory_dict.fd_reward, pred_dict.reward[0:4].cpu())
+	write_mmap(memory_dict.fd_rewardp, pred_dict.rp[0:4].cpu().detach())
+	write_mmap(memory_dict.fd_attention, torch.stack((pred_dict.a1, pred_dict.a2), 0))
+	write_mmap(memory_dict.fd_wqkv, torch.stack((pred_dict.w1, pred_dict.w2), 0))
+	return 
+
+def train(args, data_dict, memory_dict, loss_mask, model, train_loader, optimizer, criterion, epoch):
+	model.train()
+	num_train_samples = data_dict.train_orig_board_enc.size(0)
+	# model.zero_grad() enabled later
+	batch_idxs = torch.randint(num_train_samples, (batch_size,))
+	old_state = data_dict.train_orig_board_enc[batch_idxs].to(args.device)
+	action = data_dict.train_action_enc[batch_idxs].to(args.device)
+	new_state = data_dict.train_new_board_enc[batch_idxs].to(args.device) 
+	pred_data = {}
+	if optimizer_name != 'psgd': 
+		optimizer.zero_grad()
+		new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, action, attn_mask, epoch, None)
+		pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
+						'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+		loss = criterion(new_state_pred, new_state)
+		loss.backward()
+		optimizer.step() 
+	else: 
+		# psgd library already does loss backwards and zero grad
+		def closure():
+			nonlocal pred_data
+			new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, action, attn_mask, epoch, None)
+			pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
+						'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+			new_state_pred = new_state_pred * loss_mask
+			loss = torch.sum((new_state_pred - new_state)**2) + sum( \
+				[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
+			return loss
+		loss = optimizer.step(closure)
+		
+	# print(loss.cpu().item())
+	args.fd_losslog.write(f'{epoch}\t{loss.cpu().item()}\n')
+	args.fd_losslog.flush()
+
+	if epoch % 25 == 0:
+		updateMemory(memory_dict, pred_data)
 	
-	print("validation")
+def validate(args,data_dict, loss_mask, model, test_loader, criterion, epoch):
 	model.eval()
 	with torch.no_grad():
 		test_N = test_orig_board_enc.size(0)
@@ -325,15 +344,60 @@ if __name__ == '__main__':
 			a = test_action_enc[batch_idxs, :, :].to(device)
 			y = test_new_board_enc[batch_idxs,:,:].to(device)
 			reward = test_reward[batch_idxs]
-			yp,rp,a1,a2,w1,w2 = model.forward(x,a,msk, uu, None)
+			yp,rp,a1,a2,w1,w2 = model.forward(x,a,attn_mask, uu, None)
 			loss = criterion(yp, y)
 			print('v', loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 			fd_losslog.flush()
+	return 
+
+if __name__ == '__main__':
+	puzzles = torch.load('puzzles_500000.pt')
+	NUM_SAMPLES = 12000
+	NUM_EPOCHS = 100000
+	device = torch.device(type='cuda', index=0)
+	fd_losslog = open('losslog.txt', 'w')
+	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS,\
+			 "device": device, "fd_losslog": fd_losslog}
+	optimizer_name = "adam"
+	
+	torch.set_float32_matmul_precision('high')
+	torch.manual_seed(42)
+	
+	# get our train and test data
+	data_dict = getDataDict(puzzles, args.NUM_SAMPLES, 2000)
+	
+	# allocate memory
+	memory_dict = getMemoryDict()
+
+	attn_mask = getAttentionMask(data_dict['board_msk'], args.device)
+	loss_mask = getLossMask(data_dict['train_orig_board_enc'], args.device)
+	
+	# define model 
+	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
+	model.printParamCount()
+	try: 
+		model.load_checkpoint()
+		print("loaded model checkpoint")
+	except : 
+		print("could not load model checkpoint")
+	
+	optimizer = getOptimizer(optimizer_name, model)
+	criterion = nn.MSELoss()
+
+	epoch_num = 0
+	for _ in range(0, args.NUM_EPOCHS):
+		train(args, data_dict, memory_dict, loss_mask, model, TODOADD, optimizer, criterion, epoch_num)
+		epoch_num += 1
+	
+	# save after training
+	model.save_checkpoint()
+
+	print("validation")
 	
 	# need to allocate hidden activations for denoising
 	record = []
-	yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record) # dummy
+	yp,rp,a1,a2,w1,w2 = model.forward(x, a, attn_mask, uu, record) # dummy
 	denoisenet = []
 	denoiseopt = []
 	denoisestd = []
@@ -361,7 +425,7 @@ if __name__ == '__main__':
 			reward = board_reward[batch_idxs]
 
 			record = []
-			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
+			yp,rp,a1,a2,w1,w2 = model.forward(x, a, attn_mask, uu, record)
 			for j,h in enumerate(record): 
 				stride = stridel[j]
 				hiddenl[j][batch_idxs, :] = torch.reshape(h.detach(), (batch_size, stride))
@@ -384,7 +448,7 @@ if __name__ == '__main__':
 			a = action_enc[i,:,:].to(device)
 			y = board_enc[i*2+1,:,:].to(device) 
 			
-			ap = model.backAction(x, msk, uu, y, a, lossmask, denoisenet, denoisestd)
+			ap = model.backAction(x, attn_mask, uu, y, a, loss_mask, denoisenet, denoisestd)
 			
 			loss = torch.sum((ap - a)**2)
 			print('a', loss.cpu().item())
