@@ -5,11 +5,12 @@ class Types(Enum): # these are categorical one-hot encoded.
 	POSITION = 2 # value is the axis
 	LEAF = 3 # bare value
 	BOX = 4
-	MOVE_ACTION = 5
-	GUESS_ACTION = 6  # 0 is unset guess
-	NOTE_ACTION = 7
+	GUESS = 5 # penciled-in guess.
+	MOVE_ACTION = 6
+	GUESS_ACTION = 7  # 0 is unset guess
+	NOTE_ACTION = 8
 	
-# this encoding could be one-hot or integer:
+# this encoding could be one-hot, integer, or both:
 # need to experiment! 
 class Axes(float, Enum): 
 	N_AX = 0 #null, nop

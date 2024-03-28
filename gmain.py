@@ -16,7 +16,7 @@ import psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
-def runAction(action:int, action_val:int, sudoku, curs_pos): 
+def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int): 
 	# run the action, update the world, return the reward.
 	# act = b % 4
 	reward = -0.05
@@ -31,7 +31,21 @@ def runAction(action:int, action_val:int, sudoku, curs_pos):
 	curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
 	curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 	
-	# TODO: add in guessing from main branch. 
+	if action == Action.SET_GUESS.value:
+		clue = sudoku.mat[cursPos[0], cursPos[1]]
+		curr = guess_mat[cursPos[0], cursPos[1]]
+		if clue == 0 and curr == 0 and sudoku.checkIfSafe(curs_pos[0], curs_pos[1], num):
+			# updateNotes(cursPos, num, notes)
+			reward = 1
+			guess_mat[cursPos[0], cursPos[1]] = num
+		else:
+			reward = -1
+	if action == Action.UNSET_GUESS.value:
+		curr = guess_mat[cursPos[0], cursPos[1]]
+		if curr != 0: 
+			guess_mat[cursPos[0], cursPos[1]] = 0
+		else:
+			reward = -0.25
 			
 	if True: 
 		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}')
@@ -78,20 +92,20 @@ def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int, enc_dim: i
 	return curs_enc, action_enc, new_curs_enc, mask, reward
 
 	
-def encodeBoard(sudoku, curs_pos, action, action_val):  
+def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):  
 	'''
 	Encodes the current board state and encodes the given action,
 		runs the action, and then encodes the new board state
 	
 	Returns:
-	board encoding, action encoding, new board encoding, 
+	board encoding, action encoding, new board encoding
 	'''
-	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action, action_val)
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val)
 	benc,actenc,msk = graph_encoding.encodeNodes(nodes, actnodes)
 	
-	reward = runAction(action, sudoku, curs_pos)
+	reward = runAction(sudoku, guess_mat, curs_pos, action, action_val)
 	
-	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action, -1) # action_val doesn't matter
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, -1) # action_val doesn't matter
 	newbenc,_,_ = graph_encoding.encodeNodes(nodes, actnodes)
 	
 	return benc, actenc, newbenc, msk, reward
@@ -118,23 +132,18 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	max_dist: (int) Represents the max distance travelled.
 	'''
 	# movement action
+	dist = np.random.randint(low=min_dist, high=max_dist+1)
 	if action in [Action.DOWN.value,Action.LEFT.value]:
-		dist = np.random.randint(low=min_dist, high=max_dist+1)
 		direction = -1
-		displacement = dist * direction 
-		return displacement
+		return dist * direction 
 
 	if action in [Action.UP.value, Action.RIGHT.value]:
-		dist = np.random.randint(low=min_dist, high=max_dist+1)
 		direction = 1
-		displacement = dist * direction 
-		return displacement
+		return dist * direction 
 
 	# guess or set note action
-	if action in [Action.SET_GUESS.value, Action.UNSET_GUESS.value, Action.SET_NOTE.value,\
-						Action.UNSET_NOTE.value]:
-		digit = np.random.randint(1,10)
-		return digit 
+	if action in [Action.SET_GUESS.value, Action.SET_NOTE.value]:
+		return np.random.randint(1,10)
 
 	# nop
 	return 0
@@ -148,7 +157,6 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	max_dist: (int) Represents the max distance travelled (inclusive)
 
 	'''
-	# TODO: (JJ) update to handle multiple action episodes
 	lst = enumerateMoves(1, [], possible_actions)
 	if len(lst) < n: 
 		rep = n // len(lst) + 1
@@ -160,6 +168,7 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	new_boards = []
 	actions = []
 	rewards = torch.zeros(n)
+	guess_mat = np.zeros((SuN, SuN))
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
 		sudoku.setMat(puzzl.numpy())
@@ -167,8 +176,8 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
 		
 		# curs_pos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
-		benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
-		#benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, curs_pos, ep[0], action_val)
+		# benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
+		benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
 		orig_boards.append(torch.tensor(benc))
 		new_boards.append(torch.tensor(newbenc))
 		actions.append(torch.tensor(actenc))
@@ -180,36 +189,6 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	board_msk = torch.tensor(msk)
 	return orig_board_enc, new_board_enc, action_enc,board_msk,rewards
 
-def enumerateBoards(puzzles, n): 
-	'''
-	
-	'''
-	lst = enumerateMoves(1, [])
-	if len(lst) < n: 
-		rep = n // len(lst) + 1
-		lst = lst * rep
-	if len(lst) > n: 
-		lst = random.sample(lst, n)
-	sudoku = Sudoku(SuN, SuK)
-	boards = [] # collapse to one tensor afterward. 
-	actions = []
-	rewards = torch.zeros(n)
-	for i, ep in enumerate(lst): 
-		puzzl = puzzles[i, :, :]
-		sudoku.setMat(puzzl.numpy())
-		cursPos = torch.randint(SuN, (2,))
-		# cursPos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
-		benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, cursPos, ep[0])
-		boards.append(torch.tensor(benc))
-		boards.append(torch.tensor(newbenc))
-		actions.append(torch.tensor(actenc))
-		rewards[i] = reward
-		
-	board_enc = torch.stack(boards) # note! alternating old and new. 
-	action_enc = torch.stack(actions)
-	board_msk = torch.tensor(msk)
-	return board_enc,action_enc,board_msk,rewards
-
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
@@ -217,9 +196,9 @@ if __name__ == '__main__':
 	device = torch.device(type='cuda', index=0)
 	torch.set_float32_matmul_precision('high')
 	
-	board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
+	orig_board_enc,new_board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
 	
-	print(board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
+	print(orig_board_enc.shape, new_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
 	
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
 	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
@@ -269,7 +248,7 @@ if __name__ == '__main__':
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
 	
 	uu = 0
-	beshape = board_enc.shape
+	beshape = orig_board_enc.shape
 	lossmask = torch.ones(batch_size,beshape[1],beshape[2], device=device)
 	for i in range(11,20):
 		lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
@@ -277,11 +256,11 @@ if __name__ == '__main__':
 	if True:
 		for u in range(100000): 
 			# model.zero_grad() enabled later
-			i = torch.randint(N-2000, (batch_size,)) * 2
-			x = board_enc[i,:,:].to(device)
-			a = action_enc[i//2,:,:].to(device)
-			y = board_enc[i+1,:,:].to(device) 
-			reward = board_reward[i//2]
+			i = torch.randint(N-2000, (batch_size,))
+			x = orig_board_enc[i,:,:].to(device)
+			a = action_enc[i,:,:].to(device)
+			y = new_board_enc[i,:,:].to(device) 
+			reward = board_reward[i]
 			
 			# if use_adamw: 
 			# optimizer.zero_grad()
@@ -299,7 +278,7 @@ if __name__ == '__main__':
 				return loss
 			loss = optimizer.step(closure)
             
-			# print(loss.cpu().item())
+			print(loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
 			fd_losslog.flush()
 			uu = uu+1
@@ -315,13 +294,12 @@ if __name__ == '__main__':
 		model.save_checkpoint()
 	
 	print("validation")
-	for u in range( (2000-batch_size*2) // (batch_size*2) ): 
+	for u in range( (2000-batch_size) // batch_size ): 
 		i = torch.arange(0,batch_size) + u*batch_size + (N-2000)
-		i = i*2
-		x = board_enc[i,:,:].to(device)
-		a = action_enc[i//2,:,:].to(device)
-		y = board_enc[i+1,:,:].to(device) 
-		reward = board_reward[i//2]
+		x = orig_board_enc[i,:,:].to(device)
+		a = action_enc[i,:,:].to(device)
+		y = new_board_enc[i,:,:].to(device) 
+		reward = board_reward[i]
 		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, None)
 		
 		# yp = yp - 4.5 * (yp > 4.5)
@@ -354,12 +332,12 @@ if __name__ == '__main__':
 		hiddenl.append(hidden)
 		
 	print("gathering denoising data")
-	for u in range( (N - batch_size*2) // (batch_size*2) ): 
+	for u in range( (N - batch_size) // batch_size ): 
 		i = torch.arange(0,batch_size) + u*batch_size
-		x = board_enc[i*2,:,:].to(device)
+		x = orig_board_enc[i,:,:].to(device)
 		a = action_enc[i,:,:].to(device)
-		y = board_enc[i*2+1,:,:].to(device) 
-		reward = board_reward[i//2]
+		y = new_board_enc[i,:,:].to(device) 
+		reward = board_reward[i]
 		record = []
 		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
 		for j,h in enumerate(record): 
@@ -380,9 +358,9 @@ if __name__ == '__main__':
 		print("action inference")
 		for u in range(3): 
 			i = torch.arange(0, batch_size) + u*batch_size
-			x = board_enc[i*2,:,:].to(device)
+			x = orig_board_enc[i,:,:].to(device)
 			a = action_enc[i,:,:].to(device)
-			y = board_enc[i*2+1,:,:].to(device) 
+			y = new_board_enc[i,:,:].to(device) 
 			
 			ap = model.backAction(x, msk, uu, y, a, lossmask, denoisenet, denoisestd)
 			

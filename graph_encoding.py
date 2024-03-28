@@ -85,7 +85,7 @@ def sudokuActionNodes(action_type: int, action_value:int):
 	return [na]
 
 
-def sudokuToNodes(puzzle, curs_pos, action_type:int, action_val:int): 
+def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_val:int): 
 	'''
 	Returns a tuple of ([cursor + board nodes],[action_nodes])
 		cursor_node is a tree which has two children- a node representing x position
@@ -114,7 +114,7 @@ def sudokuToNodes(puzzle, curs_pos, action_type:int, action_val:int):
 	
 	actnodes = sudokuActionNodes(action_type, action_val)
 	
-	if False: 
+	if True: 
 		for y in range(SuN): 
 			for x in range(SuN): 
 				v = puzzle[y,x]
@@ -127,20 +127,22 @@ def sudokuToNodes(puzzle, curs_pos, action_type:int, action_val:int):
 				nbb = Node(Types.POSITION, Axes.B_AX)
 				nbbb = Node(Types.LEAF, b - posOffset)
 				
-				highlight = 0 # this is mostly icing..
-				if x == curs_pos[0] and y == curs_pos[1]: 
-					highlight = 1
-				nbh = Node(Types.POSITION, Axes.H_AX)
-				nbhh = Node(Types.LEAF, highlight)
-				
-				nbx.add_child(nbxx)
+				nbx.add_child(nbxx) 
 				nby.add_child(nbyy)
 				nbb.add_child(nbbb)
-				nbh.add_child(nbhh)
 				nb.add_child(nbx)
 				nb.add_child(nby)
 				nb.add_child(nbb)
-				nb.add_child(nbh)
+				
+				if x == curs_pos[0] and y == curs_pos[1]: 
+					nbh = Node(Types.POSITION, Axes.H_AX)
+					nbhh = Node(Types.LEAF, 1) # redundant, but ok
+					nbh.add_child(nbhh)
+					nb.add_child(nbh)
+				
+				if guess_mat[y,x] != 0: 
+					nbg = Node(Types.GUESS, guess_mat[y,x])
+					nb.add_child(nbg)
 				
 				nodes.append(nb)
 			
@@ -163,7 +165,7 @@ def encodeNodes(bnodes, actnodes):
 	benc = np.zeros((bcnt, 20), dtype=np.float32)
 	actenc = np.zeros((actcnt, 20), dtype=np.float32)
 	
-	def encodeNode(i, m, node, encoding): 
+	def encodeNode(i, node, encoding): 
 		'''
 		Recursive function which populates the encoding matrix.
 		Each encoded vector of the node (a row) contains a one-hot encoding of the node type
@@ -173,7 +175,7 @@ def encodeNodes(bnodes, actnodes):
 		encoding[i, node.typ.value] = 1.0 # categorical
 		# enc[i, node.value + 10] = 1.0 # categorical
 		encoding[i, 10] = node.value # ordinal 
-		node.loc = m # save loc for mask.
+		node.loc = i # save loc for mask.
 		i = i + 1
 		for k in node.kids: 
 			i = encodeNode(i, k, encoding)
@@ -202,10 +204,10 @@ def encodeNodes(bnodes, actnodes):
 		for parent in node.parents: 
 			msk[parent.loc, node.loc] = 4.0
 		for kid in node.kids: 
-			mask_node(kid)
+			maskNode(kid)
 	
 	for n in nodes: 
-		mask_node(n)
+		maskNode(n)
 	# let all top-level nodes communicate. 
 	for n in nodes: 
 		for m in nodes: 
@@ -257,14 +259,20 @@ if __name__ == "__main__":
 # 	plt.colorbar(im[1], ax=axs[1])
 # 	plt.show()
 	
-	nodes, actnodes = sudoku_to_nodes(sudoku.mat, np.ones((2,))*2.0, 0)
+	guess_mat = np.zeros((SuN,SuN))
+	
+	nodes, actnodes = sudokuToNodes(sudoku.mat, guess_mat, np.ones((2,))*2.0, 0, 0)
 	
 	benc,actenc,msk = encodeNodes(nodes, actnodes)
 	enc = np.concatenate((benc, actenc), axis=0)
-	print(enc.shape, actenc.shape, msk.shape)
+	print("board encoding shape:", enc.shape)
+	print("action encoding shape:", actenc.shape)
+	print("mask encoding shape:", msk.shape)
 	im[0] = axs[0].imshow(enc.T)
 	plt.colorbar(im[0], ax=axs[0])
+	axs[0].set_title('board encoding')
 	im[1] = axs[1].imshow(msk)
 	plt.colorbar(im[1], ax=axs[1])
+	axs[1].set_title('mask encoding')
 	plt.show()
 

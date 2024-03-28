@@ -24,8 +24,10 @@ def make_mmf(fname, dims):
 def read_mmap(mmf, dims): 
 	mmf.seek(0)
 	mmb = mmf.read()
-	# siz = len(mmb)
+	fsiz = len(mmb)
 	siz = math.prod(dims) * 4
+	if fsiz < siz:
+		print('memory-mapped file too small.  rm *.mmap files and try again.')
 	mmb2 = (c_char * siz).from_buffer_copy(mmb)
 	x = th.frombuffer(mmb2, dtype=th.float).clone()
 	x = th.reshape(x, dims)
