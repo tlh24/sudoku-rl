@@ -55,9 +55,9 @@ if __name__ == "__main__":
 	
 	print(f"batch_size:{batch_size}")
 
-	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
-	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
-	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
+	fd_board = make_mmf("board.mmap", [batch_size, board_cnt, world_dim])
+	fd_new_board = make_mmf("new_board.mmap", [batch_size, board_cnt, world_dim])
+	fd_boardp = make_mmf("boardp.mmap", [batch_size, board_cnt, world_dim])
 	fd_reward = make_mmf("reward.mmap", [batch_size, reward_dim])
 	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, reward_dim])
 	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
@@ -109,9 +109,9 @@ if __name__ == "__main__":
 		cl = 40
 			
 		if mode == 0: 
-			board = read_mmap(fd_board, [batch_size, token_cnt, world_dim])
-			new_board = read_mmap(fd_new_board, [batch_size, token_cnt, world_dim])
-			boardp = read_mmap(fd_boardp, [batch_size, token_cnt, world_dim])
+			board = read_mmap(fd_board, [batch_size, board_cnt, world_dim])
+			new_board = read_mmap(fd_new_board, [batch_size, board_cnt, world_dim])
+			boardp = read_mmap(fd_boardp, [batch_size, board_cnt, world_dim])
 			reward = read_mmap(fd_reward, [batch_size, reward_dim])
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			

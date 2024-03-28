@@ -142,9 +142,9 @@ if __name__ == '__main__':
 	# 	torch.save(board_reward, fname)
 	print(board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
 	
-	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
-	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
-	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
+	fd_board = make_mmf("board.mmap", [batch_size, board_cnt, world_dim])
+	fd_new_board = make_mmf("new_board.mmap", [batch_size, board_cnt, world_dim])
+	fd_boardp = make_mmf("boardp.mmap", [batch_size, board_cnt, world_dim])
 	fd_reward = make_mmf("reward.mmap", [batch_size, reward_dim])
 	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, reward_dim])
 	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
@@ -177,7 +177,7 @@ if __name__ == '__main__':
 	# torch.autograd.set_detect_anomaly(True)
 	# model_opt = torch.compile(model)
 	
-	use_adamw = True
+	use_adamw = False
 	
 	if use_adamw: 
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
