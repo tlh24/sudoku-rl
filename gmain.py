@@ -16,59 +16,169 @@ import psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
-def runAction(action: int, sudoku, cursPos): 
+def runAction(action:int, action_va:int, sudoku, curs_pos): 
 	# run the action, update the world, return the reward.
 	# act = b % 4
 	reward = -0.05
 	if action == Action.UP.value : 
-		cursPos[0] -= 1
+		curs_pos[0] -= 1
 	if action == Action.RIGHT.value: 
-		cursPos[1] += 1
+		curs_pos[1] += 1
 	if action == Action.DOWN.value: 
-		cursPos[0] += 1
-	if action == Action.LEFT.value: 
-		cursPos[1] -= 1
-	cursPos[0] = cursPos[0] % SuN # wrap at the edges; 
-	cursPos[1] = cursPos[1] % SuN # works for negative nums
+		curs_pos[0] += 1
+	if action == Action.LEFT.value: 	
+		curs_pos[1] -= 1
+	curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
+	curs_pos[1] = curs_pos[1] % SuN # works for negative nums
+	
+	# TODO: add in guessing from main branch. 
 			
 	if True: 
-		print(f'runAction @ {cursPos[0]},{cursPos[1]}: {action}')
-		
-	# TODO: extend this with guess actions. 
+		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}')
 	
 	return reward
 
+def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int, enc_dim: int = 20):
+	'''
+	Note: Assume that action is a movement action and that we have 2 dimensional sudoku 
+	
+	Encode the current pos as a euclidean vector [x,y],
+		encode the action (movement) displacement as a euclidean vector [dx,dy],
+		runs the action, encodes the new board state.
+	Mask is hardcoded to match the graph mask generated from one bnode and one actnode
+	'''
+	# ensure two-dim sudoku
+	if curs_pos.size(0) != 2:
+		raise ValueError(f"Must have 2d sudoku board")
 
-def encodeBoard(sudoku, cursPos, action): 
+	# ensure that action is movement action
+	if action not in [Action.DOWN.value, Action.UP.value, Action.LEFT.value, Action.RIGHT.value]:
+		raise ValueError(f"The action must be a movement action but received: {action}")
+
+	if action in [Action.DOWN.value, Action.UP.value]:
+		action_enc = np.array([0, action_val], dtype=np.float32).reshape(1,-1)
+	else:
+		action_enc = np.array([action_val, 0], dtype=np.float32).reshape(1,-1)
+	
+	curs_enc = curs_pos.numpy().astype(np.float32).reshape(1,-1)
+
+	# right pad with zeros to encoding dimension
+	action_enc = np.pad(action_enc, ((0,0), (0, enc_dim-action_enc.shape[1])))
+	curs_enc = np.pad(curs_enc, ((0,0), (0, enc_dim - curs_enc.shape[1])))
+	assert(enc_dim == action_enc.shape[1] == curs_enc.shape[1])
+
+	# hard code mask to match the mask created by one board node, one action node
+	mask = np.full((2,2), 8.0, dtype=np.float32)
+	np.fill_diagonal(mask, 1.0)
+	
+	reward = runAction(action, sudoku, curs_pos)
+	
+	new_curs_enc = curs_enc + action_enc  
+	
+	return curs_enc, action_enc, new_curs_enc, mask, reward
+
+	
+def encodeBoard(sudoku, curs_pos, action, action_val):  
 	'''
 	Encodes the current board state and encodes the given action,
 		runs the action, and then encodes the new board state
 	
 	Returns:
-	board encoding, action encoding, new board encoding, mask, and reward.
+	board encoding, action encoding, new board encoding, 
 	'''
-	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
-	benc,actenc,msk = graph_encoding.encode_nodes(nodes, actnodes)
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action, action_val)
+	benc,actenc,msk = graph_encoding.encodeNodes(nodes, actnodes)
 	
-	reward = runAction(action, sudoku, cursPos)
+	reward = runAction(action, sudoku, curs_pos)
 	
-	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
-	newbenc,_,_ = graph_encoding.encode_nodes(nodes, actnodes)
+	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action, -1) # action_val doesn't matter
+	newbenc,_,_ = graph_encoding.encodeNodes(nodes, actnodes)
 	
 	return benc, actenc, newbenc, msk, reward
 
-
-def enumerateMoves(depth, episode): 
-	# TODO: (JJ) Change to include more moves 
-	# moves = range(8)
-	moves = range(4) # only move! 
+	
+def enumerateMoves(depth, episode, possible_actions=[]): 
+	if not possible_actions:
+		possible_actions = range(4) # only move! 
 	outlist = []
 	if depth > 0: 
-		for m in moves:
-			outlist.append(episode + [m])
-			outlist = outlist + enumerateMoves(depth-1, episode + [m])
+		for action in possible_actions:
+			outlist.append(episode + [action])
+			outlist = outlist + enumerateMoves(depth-1, episode + [action], possible_actions)
 	return outlist
 
+
+def generateActionValue(action: int, min_dist: int, max_dist: int):
+	'''
+	Generates an action value corresponding to the action.
+	For movement actions, samples a dist unif on [min_dist, max_dist] and 
+		chooses - or + direction based on the action (ex: -1 for left, +1 for right).
+
+	min_dist: (int) Represents the min distance travelled.
+	max_dist: (int) Represents the max distance travelled.
+	'''
+	# movement action
+	if action in [Action.DOWN.value,Action.LEFT.value]:
+		dist = np.random.randint(low=min_dist, high=max_dist+1)
+		direction = -1
+		displacement = dist * direction 
+		return displacement
+
+	if action in [Action.UP.value, Action.RIGHT.value]:
+		dist = np.random.randint(low=min_dist, high=max_dist+1)
+		direction = 1
+		displacement = dist * direction 
+		return displacement
+
+	# guess or set note action
+	if action in [Action.SET_GUESS.value, Action.UNSET_GUESS.value, Action.SET_NOTE.value,\
+						Action.UNSET_NOTE.value]:
+		digit = np.random.randint(1,10)
+		return digit 
+
+	# nop
+	return 0
+
+
+def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1): 
+	'''
+	Parameters:
+	n: (int) Number of samples to generate
+	min_dist: (int) Represents the min distance travelled.
+	max_dist: (int) Represents the max distance travelled (inclusive)
+
+	'''
+	# TODO: (JJ) update to handle multiple action episodes
+	lst = enumerateMoves(1, [], possible_actions)
+	if len(lst) < n: 
+		rep = n // len(lst) + 1
+		lst = lst * rep
+	if len(lst) > n: 
+		lst = random.sample(lst, n)
+	sudoku = Sudoku(SuN, SuK)
+	orig_boards = [] 
+	new_boards = []
+	actions = []
+	rewards = torch.zeros(n)
+	for i, ep in enumerate(lst): 
+		puzzl = puzzles[i, :, :]
+		sudoku.setMat(puzzl.numpy())
+		curs_pos = torch.randint(SuN, (2,))
+		action_val = generateActionValue(ep[0], min_dist, max_dist)
+		
+		# curs_pos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
+		benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
+		#benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, curs_pos, ep[0], action_val)
+		orig_boards.append(torch.tensor(benc))
+		new_boards.append(torch.tensor(newbenc))
+		actions.append(torch.tensor(actenc))
+		rewards[i] = reward
+		
+	orig_board_enc = torch.stack(orig_boards)
+	new_board_enc = torch.stack(new_boards)
+	action_enc = torch.stack(actions)
+	board_msk = torch.tensor(msk)
+	return orig_board_enc, new_board_enc, action_enc,board_msk,rewards
 
 def enumerateBoards(puzzles, n): 
 	'''

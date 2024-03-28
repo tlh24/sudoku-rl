@@ -141,7 +141,7 @@ class ResidualAttentionBlock(nn.Module):
 		else: 
 			self.soft = torch.nn.Softmax(dim=2)
 		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
-		self.fanout_stn = StraightThroughNormal() # try this again?
+		#self.fanout_stn = StraightThroughNormal() # try this again?
 		self.gelu = QuickGELU()
 		# self.fanin = nn.Linear(d_model * 3, d_model)
 		# self.fanin_stn = StraightThroughNormal()

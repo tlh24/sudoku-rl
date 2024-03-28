@@ -55,7 +55,7 @@ class Gracoonizer(nn.Module):
 
 	def encodeBoard(self, cursPos, board, action): 
 		nodes, actnodes = sudoku_to_nodes(board, cursPos, action_type)
-		benc, actenc, msk = encode_nodes(nodes, nodes_act)
+		benc, actenc, msk = encodeNodes(nodes, nodes_act)
 		return benc, actenc, msk
 		
 	
@@ -76,7 +76,7 @@ class Gracoonizer(nn.Module):
 		
 		batch_size = benc.shape[0]
 		actnodes = graph_encoding.sudokuActionNodes(-1) # null move.
-		_,actenc,_ = graph_encoding.encode_nodes([], actnodes) 
+		_,actenc,_ = graph_encoding.encodeNodes([], actnodes) 
 		actenc = np.tile(actenc, [batch_size, 1, 1]) # tile the null move
 		action = th.tensor(actenc, requires_grad=True, device=benc.device)
 		opt = optim.AdamW([action], lr=1e-3, weight_decay = 5e-2)

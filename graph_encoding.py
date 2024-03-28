@@ -44,12 +44,13 @@ class Node:
 def sudokuActionNodes(action_type: int, action_value:int): 
 	'''
 	Returns a list containing action node: [action_node]
-	
-	action_node is a tree (in fact a line)
-		action node -> category node -> leaf node
-		The value of the category node depends on the kind of action being made. 
-		The value of the leaf node can signal what direction, it can signal the value being made,
-		ect 
+
+	action_node is a linear tree of size three
+		action flag node -> axis node -> val 
+
+	Input:
+	action_val: (int) Represents either the magnitude+direction to travel along an axis (ex: +2, -2)
+							or the digit corresponding to guess or set note
 	'''
 
 	def makeAction(ax,v):
@@ -84,12 +85,14 @@ def sudokuActionNodes(action_type: int, action_value:int):
 	return [na]
 
 
-def sudokuToNodes(puzzle, curs_pos, action_type: int): 
+def sudokuToNodes(puzzle, curs_pos, action_type:int, action_val:int): 
 	'''
 	Returns a tuple of ([cursor + board nodes],[action_nodes])
 		cursor_node is a tree which has two children- a node representing x position
 		and a node representing y position. Each position node has a value child 
-
+	Input:
+		action_val: (int) Represents either the mag+direction to travel along an axis (ex: +2, -2)
+		or the digit corresponding to guess or set note
 	'''
 	nodes = []
 	
@@ -109,7 +112,7 @@ def sudokuToNodes(puzzle, curs_pos, action_type: int):
 	
 	nodes.append(nc)
 	
-	actnodes = sudokuActionNodes(action_type)
+	actnodes = sudokuActionNodes(action_type, action_val)
 	
 	if False: 
 		for y in range(SuN): 
@@ -164,7 +167,7 @@ def encodeNodes(bnodes, actnodes):
 		'''
 		Recursive function which populates the encoding matrix.
 		Each encoded vector of the node (a row) contains a one-hot encoding of the node type
-			(i.e curosr, position, leaf, box, action) and also contains the node value
+			(i.e cursor, position, leaf, box, action) and also contains the node value
 		The recursion is such that the order is DFS 
 		'''
 		encoding[i, node.typ.value] = 1.0 # categorical
@@ -173,7 +176,7 @@ def encodeNodes(bnodes, actnodes):
 		node.loc = m # save loc for mask.
 		i = i + 1
 		for k in node.kids: 
-			i = encodeNode(i, k)
+			i = encodeNode(i, k, encoding)
 		return i
 			
 	i = 0
@@ -192,7 +195,7 @@ def encodeNodes(bnodes, actnodes):
 	# 4 = attend to parents
 	# 8 = attend to peers
 	# -- assume softmax is over *columns*.
-	def mask_node(node):
+	def maskNode(node):
 		msk[node.loc, node.loc] = 1.0
 		for kid in node.kids: 
 			msk[kid.loc, node.loc] = 2.0
