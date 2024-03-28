@@ -16,7 +16,7 @@ import psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
-def runAction(action:int, action_va:int, sudoku, curs_pos): 
+def runAction(action:int, action_val:int, sudoku, curs_pos): 
 	# run the action, update the world, return the reward.
 	# act = b % 4
 	reward = -0.05
@@ -71,7 +71,7 @@ def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int, enc_dim: i
 	mask = np.full((2,2), 8.0, dtype=np.float32)
 	np.fill_diagonal(mask, 1.0)
 	
-	reward = runAction(action, sudoku, curs_pos)
+	reward = runAction(action, action_val, sudoku, curs_pos)
 	
 	new_curs_enc = curs_enc + action_enc  
 	
