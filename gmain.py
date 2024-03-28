@@ -33,6 +33,8 @@ def runAction(action: int, sudoku, cursPos):
 			
 	if True: 
 		print(f'runAction @ {cursPos[0]},{cursPos[1]}: {action}')
+		
+	# TODO: extend this with guess actions. 
 	
 	return reward
 
@@ -43,7 +45,7 @@ def encodeBoard(sudoku, cursPos, action):
 		runs the action, and then encodes the new board state
 	
 	Returns:
-	board encoding, action encoding, new board encoding, 
+	board encoding, action encoding, new board encoding, mask, and reward.
 	'''
 	nodes,actnodes = graph_encoding.sudoku_to_nodes(sudoku.mat, cursPos, action)
 	benc,actenc,msk = graph_encoding.encode_nodes(nodes, actnodes)

@@ -41,7 +41,7 @@ class Node:
 # let's start with a DAG for simplicity?
 # how to encode a variable number of edges then? 
 
-def sudokuActionNodes(action_type: int): 
+def sudokuActionNodes(action_type: int, action_value:int): 
 	'''
 	Returns a list containing action node: [action_node]
 	
@@ -52,36 +52,41 @@ def sudokuActionNodes(action_type: int):
 		ect 
 	'''
 
-	na = Node(Types.ACTION, 0) 
-	# -1 = null
-	if action_type == Action.LEFT.value or action_type == Action.RIGHT.value:
-		ax = Axes.X_AX
-		v = -1
-	elif action_type == Action.UP.value or action_type == Action.DOWN.value:
-		ax = Axes.Y_AX
-		v = 1 
-	elif action_type == Action.SET_GUESS.value or action_type == Action.UNSET_GUESS.value:
-		#TODO:change axis and value 
-		ax = Axes.B_AX
+	def makeAction(ax,v):
+		na = Node(Types.MOVE_ACTION, 0)
+		nax = Node(Types.POSITION, ax)
+		naxx = Node(Types.LEAF, v)
+		na.add_child(nax)
+		nax.add_child(naxx)
+		return na
 		
-		v = 0
-	elif action_type == Action.SET_NOTE.value or action_type == Action.UNSET_NOTE.value:
-		ax = Axes.H_AX
-		v = 0
-	else:
-		ax = Axes.N_AX #N_AX==0. represents null or nop
-		v = 0
+	# note: assumes matrix coordinates: (0,0) is at the top left.
+	match action_type: 
+		case Action.LEFT.value:
+			na = makeAction(Axes.X_AX, -1)
+		case Action.RIGHT.value:
+			na = makeAction(Axes.X_AX, 1)
+		case Action.UP.value:
+			na = makeAction(Axes.Y_AX, -1)
+		case Action.DOWN.value:
+			na = makeAction(Axes.Y_AX, 1)
 		
-	nax = Node(Types.POSITION, ax)
-	naxx = Node(Types.LEAF, v)
-	
-	na.add_child(nax)
-	nax.add_child(naxx)
+		case Action.SET_GUESS.value: 
+			na = Node(Types.GUESS_ACTION, action_value)
+		case Action.UNSET_GUESS.value:
+			na = Node(Types.GUESS_ACTION, 0)
+			
+		case Action.SET_NOTE.value: 
+			na = Node(Types.NOTE_ACTION, action_value)
+		case Action.UNSET_NOTE.value:
+			na = Node(Types.NOTE_ACTION, 0)
+			
 	return [na]
 
-def sudoku_to_nodes(puzzle, curs_pos, action_type: int): 
+
+def sudokuToNodes(puzzle, curs_pos, action_type: int): 
 	'''
-	Returns a tuple of ([cursor_node], list of action_nodes)
+	Returns a tuple of ([cursor + board nodes],[action_nodes])
 		cursor_node is a tree which has two children- a node representing x position
 		and a node representing y position. Each position node has a value child 
 
@@ -143,7 +148,7 @@ def sudoku_to_nodes(puzzle, curs_pos, action_type: int):
 		
 	return nodes, actnodes
 	
-def encode_nodes(bnodes, actnodes):
+def encodeNodes(bnodes, actnodes):
 	'''
 	Given board nodes and action nodes, returns a board encoding,
 		action encoding, and a mask based on board and action nodes
@@ -155,7 +160,7 @@ def encode_nodes(bnodes, actnodes):
 	benc = np.zeros((bcnt, 20), dtype=np.float32)
 	actenc = np.zeros((actcnt, 20), dtype=np.float32)
 	
-	def encode_node(i, m, node, encoding): 
+	def encodeNode(i, m, node, encoding): 
 		'''
 		Recursive function which populates the encoding matrix.
 		Each encoded vector of the node (a row) contains a one-hot encoding of the node type
@@ -164,21 +169,19 @@ def encode_nodes(bnodes, actnodes):
 		'''
 		encoding[i, node.typ.value] = 1.0 # categorical
 		# enc[i, node.value + 10] = 1.0 # categorical
-		encoding[i, 10] = node.value # ordinal
+		encoding[i, 10] = node.value # ordinal 
 		node.loc = m # save loc for mask.
 		i = i + 1
-		m = m + 1
 		for k in node.kids: 
-			i,m = encode_node(i, m, k)
-		return i,m
+			i = encodeNode(i, k)
+		return i
 			
 	i = 0
-	m = 0
 	for n in bnodes: 
-		i,m = encode_node(i, m, n, benc)
+		i = encodeNode(i, n, benc)
 	i = 0
 	for n in actnodes: 
-		i,m = encode_node(i, m, n, actenc)
+		i = encodeNode(i, n, actenc)
 	
 	nodes = bnodes + actnodes
 	cnt = bcnt + actcnt
@@ -188,7 +191,7 @@ def encode_nodes(bnodes, actnodes):
 	# 2 = attend to children
 	# 4 = attend to parents
 	# 8 = attend to peers
-	# -- assume softmax is over columns.
+	# -- assume softmax is over *columns*.
 	def mask_node(node):
 		msk[node.loc, node.loc] = 1.0
 		for kid in node.kids: 
@@ -208,7 +211,7 @@ def encode_nodes(bnodes, actnodes):
 	
 	return benc, actenc, msk
 
-def test_nodes(): 
+def testNodes(): 
 	na = Node(Types.BOX, 0)
 	naa = Node(Types.LEAF, 1)
 	nab = Node(Types.LEAF, 2)
@@ -242,8 +245,8 @@ if __name__ == "__main__":
 	sudoku.fillValues()
 	sudoku.printSudoku()
 	
-# 	nodes = test_nodes()
-# 	enc,aenc,msk = encode_nodes(nodes, [])
+# 	nodes = testNodes()
+# 	enc,aenc,msk = encodeNodes(nodes, [])
 # 	
 # 	im[0] = axs[0].imshow(enc.T)
 # 	plt.colorbar(im[0], ax=axs[0])
@@ -253,7 +256,7 @@ if __name__ == "__main__":
 	
 	nodes, actnodes = sudoku_to_nodes(sudoku.mat, np.ones((2,))*2.0, 0)
 	
-	benc,actenc,msk = encode_nodes(nodes, actnodes)
+	benc,actenc,msk = encodeNodes(nodes, actnodes)
 	enc = np.concatenate((benc, actenc), axis=0)
 	print(enc.shape, actenc.shape, msk.shape)
 	im[0] = axs[0].imshow(enc.T)
