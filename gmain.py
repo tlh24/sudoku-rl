@@ -3,6 +3,7 @@ import random
 import numpy as np
 import torch
 from torch import nn, optim
+from torch.utils.data import DataLoader, Dataset
 import pdb
 import matplotlib.pyplot as plt
 import graph_encoding
@@ -79,16 +80,24 @@ def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int, enc_dim: i
 def encodeBoard(sudoku, curs_pos, action, action_val):  
 	'''
 	Encodes the current board state and encodes the given action,
-		runs the action, and then encodes the new board state
+		runs the action, and then encodes the new board state.
+		Also returns a mask matrix (#nodes by #nodes) which represents parent/child relationships
+		which defines the attention mask used in the transformer heads
+	# TODO: support multiple actions
+
+	The board and action nodes have the same encoding- contains one hot of node type and node value
 	
 	Returns:
-	board encoding, action encoding, new board encoding, 
+	board encoding: Shape (#board nodes x 20)
+	action encoding: Shape (#action nodes x 20)
+	new board encoding: Shape (#newboard nodes x 20)
+	msk: Shape (#board&action nodes x #board&action) represents nodes parent/child relationships
+		which defines the attention mask used in the transformer heads
 	'''
 	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action, action_val)
 	benc,actenc,msk = graph_encoding.encodeNodes(nodes, actnodes)
 	
 	reward = runAction(action, sudoku, curs_pos)
-	
 	
 	nodes,actnodes = graph_encoding.sudokuToNodes(sudoku.mat, curs_pos, action, -1) #action_val doesn't matter
 	newbenc,_,_ = graph_encoding.encodeNodes(nodes, actnodes)
@@ -145,6 +154,14 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	min_dist: (int) Represents the min distance travelled.
 	max_dist: (int) Represents the max distance travelled (inclusive)
 
+	Returns:
+	orig_board_enc: (tensor) Shape (N x #board nodes x 20), all the initial board encodings
+	new_board_enc: (tensor) Shape (N x #board nodes x 20), all of the resulting board encodings due to actions
+	action_enc: (tensor) Shape (N x #action nodes x 20), all of the episode encodings
+	graph_mask: (tensor) Shape (N x #board&action nodes x #board&action nodes) all of the masks defined
+		by the board and action node relations, to be used for attention head
+	rewards: (tensor) Shape (N,) Rewards of each episode 
+
 	'''
 	# TODO: (JJ) update to handle multiple action episodes
 	lst = enumerateMoves(1, [], possible_actions)
@@ -157,6 +174,7 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	orig_boards = [] 
 	new_boards = []
 	actions = []
+	masks = []
 	rewards = torch.zeros(n)
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
@@ -170,13 +188,14 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		orig_boards.append(torch.tensor(benc))
 		new_boards.append(torch.tensor(newbenc))
 		actions.append(torch.tensor(actenc))
+		masks.append(torch.tensor(msk))
 		rewards[i] = reward
 		
 	orig_board_enc = torch.stack(orig_boards)
 	new_board_enc = torch.stack(new_boards)
 	action_enc = torch.stack(actions)
-	board_msk = torch.tensor(msk)
-	return orig_board_enc, new_board_enc, action_enc,board_msk,rewards
+	graph_mask = torch.stack(masks)
+	return orig_board_enc, new_board_enc, action_enc, graph_mask, rewards
 
 def trainValSplit(data_matrix: torch.Tensor, num_eval=None, eval_ratio: float = 0.2):
 	'''
@@ -197,26 +216,75 @@ def trainValSplit(data_matrix: torch.Tensor, num_eval=None, eval_ratio: float = 
 	return training_data, eval_data
 
 
+class SudokuDataset(Dataset):
+	'''
+	Dataset where the ith element is a sample containing orig_board_enc,
+		new_board_enc, action_enc, graph_mask, board_reward
+	'''
+	def __init__(self,orig_boards_enc, new_boards_enc, actions_enc, graph_masks, rewards):
+		self.orig_boards_enc = orig_boards_enc
+		self.new_boards_enc = new_boards_enc
+		self.actions_enc = actions_enc
+		self.graph_masks = graph_masks
+
+		self.rewards = rewards 
+
+	def __len__(self):
+		return self.orig_boards_enc.size(0)
+
+	def __getitem__(self, idx):
+		sample = {
+			'orig_board' : self.orig_boards_enc[idx],
+			'new_board' : self.new_boards_enc[idx], 
+			'action_enc' : self.actions_enc[idx],
+			'graph_mask' : self.graph_masks[idx],
+			'reward' : self.rewards[idx].item(),
+		}
+		return sample
+			
+
+def getDataLoaders(puzzles, num_samples, num_eval=2000):
+	'''
+	Returns a pytorch train and test dataloader
+	'''
+	data_dict = getDataDict(puzzles, num_samples, num_eval)
+	train_dataset = SudokuDataset(data_dict.train_orig_board_encs, data_dict.train_new_board_encs,
+										  data_dict.train_action_encs, data_dict.train_graph_masks,
+										  data_dict.train_rewards)
+	
+	test_dataset = SudokuDataset(data_dict.test_orig_board_encs, data_dict.test_new_board_encs,
+										  data_dict.test_action_encs, data_dict.test_graph_masks,
+										  data_dict.test_rewards)
+
+	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+
+	return train_dataloader, test_dataloader
+
+
 def getDataDict(puzzles, num_samples, num_eval=2000):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board_enc, new_board_enc, action_enc, board_msk, board_reward = enumerateBoards(puzzles, num_samples)
-	print(orig_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
-	train_orig_board_enc, test_orig_board_enc = trainValSplit(orig_board_enc, num_eval=num_eval)
-	train_new_board_enc, test_new_board_enc = trainValSplit(new_board_enc, num_eval=num_eval)
-	train_action_enc, test_action_enc = trainValSplit(action_enc, num_eval=num_eval)
-	train_reward, test_reward = trainValSplit(board_reward, num_eval=num_eval)
+	orig_board_encs, new_board_encs, action_encs, graph_masks, rewards = enumerateBoards(puzzles, num_samples)
+	print(orig_board_encs.shape, action_encs.shape, graph_masks.shape, rewards.shape)
+	train_graph_masks, test_graph_masks = trainValSplit(graph_masks, num_eval)
+	train_orig_board_encs, test_orig_board_encs = trainValSplit(orig_board_encs, num_eval=num_eval)
+	train_new_board_encs, test_new_board_encs = trainValSplit(new_board_encs, num_eval=num_eval)
+	train_action_encs, test_action_encs = trainValSplit(action_encs, num_eval=num_eval)
+	train_rewards, test_rewards = trainValSplit(rewards, num_eval=num_eval)
+
 	dataDict = {
-		'board_msk' : board_msk,
-		'train_orig_board_enc': train_orig_board_enc,
-		'test_orig_board_enc': test_orig_board_enc,
-		'train_new_board_enc': train_new_board_enc,
-		'test_new_board_enc': test_new_board_enc,
-		'train_action_enc': train_action_enc,
-		'test_action_enc': test_action_enc,
-		'train_reward': train_reward,
-		'test_reward': test_reward
+		'train_graph_masks' : train_graph_masks,
+		'test_graph_masks' : test_graph_masks,
+		'train_orig_board_encs': train_orig_board_encs,
+		'test_orig_board_encs': test_orig_board_encs,
+		'train_new_board_encs': train_new_board_encs,
+		'test_new_board_encs': test_new_board_encs,
+		'train_action_encs': train_action_encs,
+		'test_action_encs': test_action_encs,
+		'train_rewards': train_rewards,
+		'test_rewards': test_rewards
     }
 	return dataDict
 
@@ -233,36 +301,47 @@ def getMemoryDict():
 					  'fd_wqkv':fd_wqkv }
 	return memory_dict
 
-def getAttentionMask(board_msk, device):
+def getAttentionMasks(graph_masks, device):
 	'''
-	Returns an attention mask based on the graph node relations. 
+	Returns a tensor of attention masks based on graph masks
+
+	graph_masks: (Torch.tensor) Shape (num_samples x #nodes x #nodes) Graph mask based on action and board node 
+	relations
+
+	Return:
+	(Torch.tensor) Shape (num_samples x #nodes x #nodes x n_heads)
+
 
 	Need to repack the mask to match the attention matrix, with head duplicates. 
 		Have 4h + 1 total heads. There are four categories representing relations (1:self, 2:children, 4:parents, 8:peers)
 		every attention head has 4 heads, one for each relation; the heads for the children relation
 		all share the same mask for example. The last mask is all-to-all 
 	'''
-	
-	msk = torch.ones((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8)
-	#msk = torch.zeros((board_msk.shape[0], board_msk.shape[1], n_heads), dtype=torch.int8) # try to save memory...
-	'''
-	for i in range(n_heads-1): 
-		j = i % 4
-		msk[:, :, i] = ( board_msk == (2**j) )
-	
+	assert len(graph_masks.size()) == 3, f"Expect graph_masks to be shape (num_samples x #nodes x #nodes)"
+
+	attention_masks = torch.ones((graph_masks.shape[0], graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8)
+	#attention_masks = torch.zeros((graph_masks.shape[0],graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8) # try to save memory...
+
+	for sample_idx in range(graph_masks.size(0)):	
+		for i in range(n_heads-1): 
+			j = i % 4
+			attention_masks[sample_idx,:, :, i] = ( graph_masks[sample_idx] == (2**j) )
+		
 	# add one all-too-all mask
 	if g_globalatten: 
-		msk[:,:,-1] = 1.0
-	'''
-	msk = msk.unsqueeze(0).expand([batch_size, -1, -1, -1])
+		attention_masks[:,:,:,-1] = 1.0
+	
 	if g_l1atten: 
-		msk = torch.permute(msk, (0,3,1,2)).contiguous() # L1 atten is bhts order
+		attention_masks = torch.permute(attention_masks, (0,3,1,2)).contiguous() # L1 atten is bhts order
 	# msk = msk.to_sparse() # idk if you can have views of sparse tensors.. ??
 	# sparse tensors don't work with einsum, alas.
-	msk = msk.to(device)
-	return msk 
+	attention_masks = attention_masks.to(device)
+	return attention_masks 
 
 def getLossMask(board_enc, device):
+	'''
+	TODO: (JJ) Confirm deprecation. Transformer should be able to adapt to useless zero padding
+	'''
 	loss_mask = torch.ones(1, board_enc.shape[1], board_enc.shape[2], device=device)
 	#for i in range(11,20):
 	#	loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
@@ -297,42 +376,43 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict.fd_wqkv, torch.stack((pred_dict.w1, pred_dict.w2), 0))
 	return 
 
-def train(args, data_dict, memory_dict, loss_mask, model, train_loader, optimizer, criterion, epoch):
+def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 	model.train()
-	num_train_samples = data_dict.train_orig_board_enc.size(0)
-	# model.zero_grad() enabled later
-	batch_idxs = torch.randint(num_train_samples, (batch_size,))
-	old_state = data_dict.train_orig_board_enc[batch_idxs].to(args.device)
-	action = data_dict.train_action_enc[batch_idxs].to(args.device)
-	new_state = data_dict.train_new_board_enc[batch_idxs].to(args.device) 
-	pred_data = {}
-	if optimizer_name != 'psgd': 
-		optimizer.zero_grad()
-		new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, action, attn_mask, epoch, None)
-		pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
-						'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-		loss = criterion(new_state_pred, new_state)
-		loss.backward()
-		optimizer.step() 
-	else: 
-		# psgd library already does loss backwards and zero grad
-		def closure():
-			nonlocal pred_data
-			new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, action, attn_mask, epoch, None)
-			pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
-						'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-			new_state_pred = new_state_pred * loss_mask
-			loss = torch.sum((new_state_pred - new_state)**2) + sum( \
-				[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
-			return loss
-		loss = optimizer.step(closure)
-		
-	# print(loss.cpu().item())
-	args.fd_losslog.write(f'{epoch}\t{loss.cpu().item()}\n')
-	args.fd_losslog.flush()
+	sum_batch_loss = 0.0
 
-	if epoch % 25 == 0:
-		updateMemory(memory_dict, pred_data)
+	for batch_idx, batch_data in enumerate(train_loader):
+		(old_state, new_state, actions, graph_masks, rewards) = batch_data.to(device)
+		attention_masks = getAttentionMasks(graph_masks, args.device)
+
+		pred_data = {}
+		if optimizer_name != 'psgd': 
+			optimizer.zero_grad()
+			new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, actions, attention_masks, epoch, None)
+			pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
+							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+			loss = criterion(new_state_pred, new_state)
+			loss.backward()
+			optimizer.step() 
+		else: 
+			# psgd library already does loss backwards and zero grad
+			def closure():
+				nonlocal pred_data
+				new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, actions, attention_masks, epoch, None)
+				pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
+							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+				loss = torch.sum((new_state_pred - new_state)**2) + sum( \
+					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
+				return loss
+			loss = optimizer.step(closure)
+
+		sum_batch_loss += loss.cpu().item()
+		if batch_idx % 25 == 0:
+			updateMemory(memory_dict, pred_data)
+	
+	# add epoch loss
+	avg_batch_loss = sum_batch_loss / len(train_loader)
+	args.fd_losslog.write(f'{epoch}\t{avg_batch_loss}\n')
+	args.fd_losslog.flush()
 	
 def validate(args,data_dict, loss_mask, model, test_loader, criterion, epoch):
 	model.eval()
@@ -344,7 +424,7 @@ def validate(args,data_dict, loss_mask, model, test_loader, criterion, epoch):
 			a = test_action_enc[batch_idxs, :, :].to(device)
 			y = test_new_board_enc[batch_idxs,:,:].to(device)
 			reward = test_reward[batch_idxs]
-			yp,rp,a1,a2,w1,w2 = model.forward(x,a,attn_mask, uu, None)
+			yp,rp,a1,a2,w1,w2 = model.forward(x,a,attn_mask, epoch, None)
 			loss = criterion(yp, y)
 			print('v', loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
@@ -355,23 +435,21 @@ if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
 	NUM_SAMPLES = 12000
 	NUM_EPOCHS = 100000
+	NUM_EVAL = 2000
 	device = torch.device(type='cuda', index=0)
 	fd_losslog = open('losslog.txt', 'w')
-	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS,\
+	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL,\
 			 "device": device, "fd_losslog": fd_losslog}
 	optimizer_name = "adam"
 	
 	torch.set_float32_matmul_precision('high')
 	torch.manual_seed(42)
 	
-	# get our train and test data
-	data_dict = getDataDict(puzzles, args.NUM_SAMPLES, 2000)
+	# get our train and test dataloaders
+	train_dataloader, test_dataloader = getDataLoaders(puzzles, args.NUM_SAMPLES, args.NUM_EVAL)
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
-
-	attn_mask = getAttentionMask(data_dict['board_msk'], args.device)
-	loss_mask = getLossMask(data_dict['train_orig_board_enc'], args.device)
 	
 	# define model 
 	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
@@ -387,13 +465,17 @@ if __name__ == '__main__':
 
 	epoch_num = 0
 	for _ in range(0, args.NUM_EPOCHS):
-		train(args, data_dict, memory_dict, loss_mask, model, TODOADD, optimizer, criterion, epoch_num)
+		train(args, memory_dict, model, TODOADD, optimizer, criterion, epoch_num)
 		epoch_num += 1
 	
 	# save after training
 	model.save_checkpoint()
 
 	print("validation")
+
+	validate(args, data_dict, loss_mask, model, test_loader, criterion, epoch)
+
+
 	
 	# need to allocate hidden activations for denoising
 	record = []
