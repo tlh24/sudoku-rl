@@ -486,7 +486,7 @@ if __name__ == '__main__':
 	
 	mp.set_start_method('spawn')
 	puzzles = th.load('puzzles_500000.pt')
-	n = 44000 # no notes.
+	n = 14000 # no notes.
 	# Reads saved replay buffer file if exists, else generates a replay buffer
 	try: 
 		fname = f'replay_buffer_{n}.pkl'
