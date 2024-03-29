@@ -1,9 +1,9 @@
-n_heads = (1*4)+1
+n_heads = (2*4)+1
 world_dim = 20 # 36, must be even!
 xfrmr_dim = 20 # default: 128
 reward_dim = 1 # immediate and infinite-horizon
-token_cnt = 122 # run graph_encoding to determine this. 
-g_zeroinit = True
+token_cnt = 152 # run graph_encoding to determine this. 
+g_zeroinit = False
 g_l1atten = True
 g_globalatten = False
 

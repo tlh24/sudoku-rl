@@ -134,11 +134,13 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_val:int):
 				nb.add_child(nby)
 				nb.add_child(nbb)
 				
+				highlight = 0
 				if x == curs_pos[0] and y == curs_pos[1]: 
-					nbh = Node(Types.POSITION, Axes.H_AX)
-					nbhh = Node(Types.LEAF, 1) # redundant, but ok
-					nbh.add_child(nbhh)
-					nb.add_child(nbh)
+					highlight = 1
+				nbh = Node(Types.POSITION, Axes.H_AX)
+				nbhh = Node(Types.LEAF, highlight) # redundant, but ok
+				nbh.add_child(nbhh)
+				nb.add_child(nbh)
 				
 				if guess_mat[y,x] != 0: 
 					nbg = Node(Types.GUESS, guess_mat[y,x])
@@ -165,28 +167,33 @@ def encodeNodes(bnodes, actnodes):
 	benc = np.zeros((bcnt, 20), dtype=np.float32)
 	actenc = np.zeros((actcnt, 20), dtype=np.float32)
 	
-	def encodeNode(i, node, encoding): 
+	def encodeNode(i, m, node, encoding): 
 		'''
 		Recursive function which populates the encoding matrix.
 		Each encoded vector of the node (a row) contains a one-hot encoding of the node type
 			(i.e cursor, position, leaf, box, action) and also contains the node value
 		The recursion is such that the order is DFS 
+		note: 
+			i is reset between passes 
+			m is not (gobal index to the mask)
 		'''
 		encoding[i, node.typ.value] = 1.0 # categorical
 		# enc[i, node.value + 10] = 1.0 # categorical
 		encoding[i, 10] = node.value # ordinal 
-		node.loc = i # save loc for mask.
+		node.loc = m # save loc for mask.
 		i = i + 1
+		m = m + 1
 		for k in node.kids: 
-			i = encodeNode(i, k, encoding)
-		return i
+			i,m = encodeNode(i, m, k, encoding)
+		return i,m
 			
 	i = 0
+	m = 0
 	for n in bnodes: 
-		i = encodeNode(i, n, benc)
+		i,m = encodeNode(i, m, n, benc)
 	i = 0
 	for n in actnodes: 
-		i = encodeNode(i, n, actenc)
+		i,m = encodeNode(i, m, n, actenc)
 	
 	nodes = bnodes + actnodes
 	cnt = bcnt + actcnt

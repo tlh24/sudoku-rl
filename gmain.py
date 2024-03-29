@@ -242,7 +242,7 @@ if __name__ == '__main__':
 	use_adamw = False
 	
 	if use_adamw: 
-		optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay = 5e-2)
+		optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 5e-2)
 		
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
@@ -262,21 +262,25 @@ if __name__ == '__main__':
 			y = new_board_enc[i,:,:].to(device) 
 			reward = board_reward[i]
 			
-			# if use_adamw: 
-			# optimizer.zero_grad()
-			yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-			# yp = yp * lossmask
-			# loss = torch.sum((yp - y)**2)
-			# loss.backward()
-			# optimizer.step() 
-			# else: 
+			
 			def closure():
 				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
 				yp = yp * lossmask
 				loss = torch.sum((yp - y)**2) + sum( \
                 [torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 				return loss
-			loss = optimizer.step(closure)
+			
+			if use_adamw: 
+				optimizer.zero_grad()
+				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
+				yp = yp * lossmask
+				loss = torch.sum((yp - y)**2)
+				loss.backward()
+				optimizer.step() 
+			else:
+				loss = optimizer.step(closure)
+				if u % 25 == 0: 
+					yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
             
 			print(loss.cpu().item())
 			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')

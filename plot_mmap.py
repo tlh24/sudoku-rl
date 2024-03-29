@@ -108,7 +108,7 @@ if __name__ == "__main__":
 	while True:
 		# i = np.random.randint(batch_size) # checking
 		i = 0
-		cl = 40
+		cl = token_cnt
 			
 		if mode == 0: 
 			board = read_mmap(fd_board, [batch_size, token_cnt, world_dim])
