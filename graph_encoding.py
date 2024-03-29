@@ -41,6 +41,7 @@ class Node:
 # how to encode a variable number of edges then? 
 
 def sudokuActionNodes(action_type: int, action_val: int): 
+	#TODO: Support multiple actions
 	'''
 	Returns a list containing action node: [action_node]
 
@@ -51,7 +52,6 @@ def sudokuActionNodes(action_type: int, action_val: int):
 	action_val: (int) Represents either the magnitude+direction to travel along an axis (ex: +2, -2)
 							or the digit corresponding to guess or set note
 	'''
-	#TODO: (JJ) expand integration for more actions
 	na = Node(Types.ACTION, 0)
 	if action_type == Action.LEFT.value or action_type == Action.RIGHT.value:
 		ax = Axes.X_AX
@@ -73,6 +73,7 @@ def sudokuActionNodes(action_type: int, action_val: int):
 
 def sudokuToNodes(puzzle, curs_pos, action_type: int, action_val: int): 
 	'''
+	#TODO: Support multiple actions
 	Returns a tuple of ([cursor_node], list of action_nodes)
 		cursor_node is a tree which has two children- a node representing x position
 		and a node representing y position. Each position node has a value child 
@@ -155,9 +156,14 @@ def maskNode(node, msk):
 	
 def encodeNodes(bnodes, actnodes):
 	'''
-	Given board nodes and action nodes, returns a board encoding,
-		action encoding, and a mask based on board and action nodes
-	Both the board node and action node encoding are a vector of length 20
+	Given board nodes and action nodes, returns a board encoding which encodes every board node,
+		action encoding which encodes every action node, and a mask based on board and action nodes
+	The board and action nodes have the same encoding- contains one hot of node type and node value
+
+	Returns:
+	benc: Shape (#board nodes x 20)
+	actenc: Shape (#action nodes x 20)
+	msk: Shape (#board+action nodes x #board+action)  
 	'''
 
 	bcnt = sum([n.count() for n in bnodes])

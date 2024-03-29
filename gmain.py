@@ -13,6 +13,7 @@ from plot_mmap import make_mmf, write_mmap
 from netdenoise import NetDenoise
 from constants import *
 from type_file import Action
+from tqdm import tqdm
 import psgd 
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
@@ -248,13 +249,14 @@ def getDataLoaders(puzzles, num_samples, num_eval=2000):
 	Returns a pytorch train and test dataloader
 	'''
 	data_dict = getDataDict(puzzles, num_samples, num_eval)
-	train_dataset = SudokuDataset(data_dict.train_orig_board_encs, data_dict.train_new_board_encs,
-										  data_dict.train_action_encs, data_dict.train_graph_masks,
-										  data_dict.train_rewards)
-	
-	test_dataset = SudokuDataset(data_dict.test_orig_board_encs, data_dict.test_new_board_encs,
-										  data_dict.test_action_encs, data_dict.test_graph_masks,
-										  data_dict.test_rewards)
+	train_dataset = SudokuDataset(data_dict['train_orig_board_encs'], data_dict['train_new_board_encs'],
+                              data_dict['train_action_encs'], data_dict['train_graph_masks'],
+                              data_dict['train_rewards'])
+
+	test_dataset = SudokuDataset(data_dict['test_orig_board_encs'], data_dict['test_new_board_encs'],
+										data_dict['test_action_encs'], data_dict['test_graph_masks'],
+										data_dict['test_rewards'])
+
 
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
@@ -320,13 +322,16 @@ def getAttentionMasks(graph_masks, device):
 	assert len(graph_masks.size()) == 3, f"Expect graph_masks to be shape (num_samples x #nodes x #nodes)"
 
 	attention_masks = torch.ones((graph_masks.shape[0], graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8)
-	#attention_masks = torch.zeros((graph_masks.shape[0],graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8) # try to save memory...
+	#TODO: (JJ) Change to non-trivial attention mask
+	'''
+	attention_masks = torch.zeros((graph_masks.shape[0],graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8) # try to save memory...
 
 	for sample_idx in range(graph_masks.size(0)):	
 		for i in range(n_heads-1): 
 			j = i % 4
 			attention_masks[sample_idx,:, :, i] = ( graph_masks[sample_idx] == (2**j) )
-		
+	'''
+
 	# add one all-too-all mask
 	if g_globalatten: 
 		attention_masks[:,:,:,-1] = 1.0
@@ -367,13 +372,13 @@ def updateMemory(memory_dict, pred_dict):
 	Returns:
 	None
 	'''
-	write_mmap(memory_dict.fd_board, pred_dict.x[0:4,:,:].cpu())
-	write_mmap(memory_dict.fd_new_board, pred_dict.y[0:4,:,:].cpu())
-	write_mmap(memory_dict.fd_boardp, pred_dict.yp[0:4,:,:].cpu().detach())
-	write_mmap(memory_dict.fd_reward, pred_dict.reward[0:4].cpu())
-	write_mmap(memory_dict.fd_rewardp, pred_dict.rp[0:4].cpu().detach())
-	write_mmap(memory_dict.fd_attention, torch.stack((pred_dict.a1, pred_dict.a2), 0))
-	write_mmap(memory_dict.fd_wqkv, torch.stack((pred_dict.w1, pred_dict.w2), 0))
+	write_mmap(memory_dict['fd_board'], pred_dict['old_states'][0:4,:,:].cpu())
+	write_mmap(memory_dict['fd_new_board'], pred_dict['new_states'][0:4,:,:].cpu())
+	write_mmap(memory_dict['fd_boardp'], pred_dict['new_state_preds'][0:4,:,:].cpu().detach())
+	write_mmap(memory_dict['fd_reward'], pred_dict['rewards'][0:4].cpu())
+	write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'][0:4].cpu().detach())
+	write_mmap(memory_dict['fd_attention'], torch.stack((pred_dict['a1'], pred_dict['a2']), 0))
+	write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
 	return 
 
 def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
@@ -381,26 +386,28 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 	sum_batch_loss = 0.0
 
 	for batch_idx, batch_data in enumerate(train_loader):
-		(old_state, new_state, actions, graph_masks, rewards) = batch_data.to(device)
-		attention_masks = getAttentionMasks(graph_masks, args.device)
+		old_states, new_states, actions, graph_masks, rewards = [t.to(args["device"]) for t in batch_data.values()]
+		attention_masks = getAttentionMasks(graph_masks, args["device"])
 
 		pred_data = {}
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()
-			new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, actions, attention_masks, epoch, None)
-			pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
+			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
+			pred_data = {'old_states':old_states, 'new_states':new_states, 'new_state_preds':new_state_preds,
+					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-			loss = criterion(new_state_pred, new_state)
+			loss = criterion(new_state_preds, new_states)
 			loss.backward()
 			optimizer.step() 
 		else: 
 			# psgd library already does loss backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_pred, reward_pred, a1,a2,w1,w2 = model.forward(old_state, actions, attention_masks, epoch, None)
-				pred_data = {'new_state_pred':new_state_pred, 'reward_pred': reward_pred,
+				new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
+				pred_data = {'old_states':old_states, 'new_states':new_states, 'new_state_preds':new_state_preds,
+					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_pred - new_state)**2) + sum( \
+				loss = torch.sum((new_state_preds - new_states)**2) + sum( \
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 				return loss
 			loss = optimizer.step(closure)
@@ -411,32 +418,32 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 	
 	# add epoch loss
 	avg_batch_loss = sum_batch_loss / len(train_loader)
-	args.fd_losslog.write(f'{epoch}\t{avg_batch_loss}\n')
-	args.fd_losslog.flush()
+	args["fd_losslog"].write(f'{epoch}\t{avg_batch_loss}\n')
+	args["fd_losslog"].flush()
 	
-def validate(args,data_dict, loss_mask, model, test_loader, criterion, epoch):
+def validate(args, model, test_loader, criterion, epoch):
 	model.eval()
+	sum_batch_loss = 0.0
 	with torch.no_grad():
-		test_N = test_orig_board_enc.size(0)
-		for start_idx in range(0, (test_N//batch_size)*batch_size, batch_size):
-			batch_idxs = torch.arange(start_idx, start_idx+batch_size)
-			x = test_orig_board_enc[batch_idxs,:,:].to(device)
-			a = test_action_enc[batch_idxs, :, :].to(device)
-			y = test_new_board_enc[batch_idxs,:,:].to(device)
-			reward = test_reward[batch_idxs]
-			yp,rp,a1,a2,w1,w2 = model.forward(x,a,attn_mask, epoch, None)
-			loss = criterion(yp, y)
-			print('v', loss.cpu().item())
-			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
-			fd_losslog.flush()
+		for batch_data in test_loader:
+			old_states, new_states, actions, graph_masks, rewards = [t.to(args["device"]) for t in batch_data.values()]
+			attention_masks = getAttentionMasks(graph_masks, args["device"])
+			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
+			loss = criterion(new_state_preds, new_states)
+			sum_batch_loss += loss.cpu().item()
+	
+	avg_batch_loss = sum_batch_loss / len(test_loader)
+			
+	fd_losslog.write(f'{epoch}\t{avg_batch_loss}\n')
+	fd_losslog.flush()
 	return 
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
 	NUM_SAMPLES = 12000
-	NUM_EPOCHS = 100000
 	NUM_EVAL = 2000
-	device = torch.device(type='cuda', index=0)
+	NUM_EPOCHS = 50
+	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL,\
 			 "device": device, "fd_losslog": fd_losslog}
@@ -446,7 +453,7 @@ if __name__ == '__main__':
 	torch.manual_seed(42)
 	
 	# get our train and test dataloaders
-	train_dataloader, test_dataloader = getDataLoaders(puzzles, args.NUM_SAMPLES, args.NUM_EVAL)
+	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
@@ -464,73 +471,12 @@ if __name__ == '__main__':
 	criterion = nn.MSELoss()
 
 	epoch_num = 0
-	for _ in range(0, args.NUM_EPOCHS):
-		train(args, memory_dict, model, TODOADD, optimizer, criterion, epoch_num)
+	for _ in tqdm(range(0, args["NUM_EPOCHS"])):
+		train(args, memory_dict, model, train_dataloader, optimizer, criterion, epoch_num)
 		epoch_num += 1
 	
 	# save after training
 	model.save_checkpoint()
 
 	print("validation")
-
-	validate(args, data_dict, loss_mask, model, test_loader, criterion, epoch)
-
-
-	
-	# need to allocate hidden activations for denoising
-	record = []
-	yp,rp,a1,a2,w1,w2 = model.forward(x, a, attn_mask, uu, record) # dummy
-	denoisenet = []
-	denoiseopt = []
-	denoisestd = []
-	hiddenl = []
-	stridel = []
-	for i,h in enumerate(record): 
-		stride = h.shape[1]*h.shape[2]
-		stridel.append(stride)
-		net = NetDenoise(stride).to(device)
-		opt = optim.AdamW(net.parameters(), lr=2e-4, weight_decay = 5e-2)
-		denoisenet.append(net)
-		denoiseopt.append(opt)
-		hidden = torch.zeros(N, stride, device=device)
-		hiddenl.append(hidden)
-		
-	print("gathering denoising data")
-	# Gather denoising data on the entire dataset (excluding the few remainders modulu batch_size)
-	with torch.no_grad():
-		all_N = orig_board_enc.size(0)
-		for start_idx in range(0, (all_N//batch_size)*batch_size, batch_size):
-			batch_idxs = torch.arange(start_idx, start_idx+batch_size)
-			x = orig_board_enc[batch_idxs,:,:].to(device)
-			a = action_enc[batch_idxs, :, :].to(device)
-			y = new_board_enc[batch_idxs,:,:].to(device)
-			reward = board_reward[batch_idxs]
-
-			record = []
-			yp,rp,a1,a2,w1,w2 = model.forward(x, a, attn_mask, uu, record)
-			for j,h in enumerate(record): 
-				stride = stridel[j]
-				hiddenl[j][batch_idxs, :] = torch.reshape(h.detach(), (batch_size, stride))
-			for h in hiddenl: 
-				std = torch.std(h) / 2.0
-				denoisestd.append(std)
-		
-	
-	for j,net in enumerate(denoisenet): 
-		try: 
-			net.load_checkpoint(f"denoise_{j}.pth")
-		except: 
-			print(f"could not load denoise_{j}.pth")
-	
-	if False: 
-		print("action inference")
-		for u in range(3): 
-			i = torch.arange(0, batch_size) + u*batch_size
-			x = board_enc[i*2,:,:].to(device)
-			a = action_enc[i,:,:].to(device)
-			y = board_enc[i*2+1,:,:].to(device) 
-			
-			ap = model.backAction(x, attn_mask, uu, y, a, loss_mask, denoisenet, denoisestd)
-			
-			loss = torch.sum((ap - a)**2)
-			print('a', loss.cpu().item())
+	validate(args, model, test_dataloader, criterion, epoch_num)
