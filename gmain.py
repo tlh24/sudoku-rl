@@ -298,20 +298,6 @@ def getDataDict(puzzles, num_samples, num_eval=2000):
 	return dataDict
 
 def getMemoryDict():
-	board_msk = torch.tensor(msk)
-	return orig_board_enc, new_board_enc, action_enc,board_msk,rewards
-
-
-if __name__ == '__main__':
-	puzzles = torch.load('puzzles_500000.pt')
-	N = 12000
-	device = torch.device(type='cuda', index=0)
-	torch.set_float32_matmul_precision('high')
-	
-	orig_board_enc,new_board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
-	
-	print(orig_board_enc.shape, new_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
-	
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
 	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
 	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
@@ -323,6 +309,7 @@ if __name__ == '__main__':
 					 'fd_reward': fd_reward, 'fd_rewardp': fd_rewardp, 'fd_attention': fd_attention,
 					  'fd_wqkv':fd_wqkv }
 	return memory_dict
+
 
 def getAttentionMasks(graph_masks, device):
 	'''
@@ -366,11 +353,11 @@ def getAttentionMasks(graph_masks, device):
 
 def getLossMask(board_enc, device):
 	'''
-	TODO: (JJ) Confirm deprecation. Transformer should be able to adapt to useless zero padding
+	mask off extra space for passing info between layers
 	'''
 	loss_mask = torch.ones(1, board_enc.shape[1], board_enc.shape[2], device=device)
-	#for i in range(11,20):
-	#	loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
+	for i in range(11,20):
+		loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
 	return loss_mask 
 
 def getOptimizer(optimizer_name, model, lr=1e-3, weight_decay=0):
@@ -422,6 +409,7 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 			loss = criterion(new_state_preds, new_states)
 			loss.backward()
 			optimizer.step() 
+			print(loss.detach().cpu().item())
 		else: 
 			# psgd library already does loss backwards and zero grad
 			def closure():
@@ -434,6 +422,7 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 				return loss
 			loss = optimizer.step(closure)
+			print(loss.detach().cpu().item())
 
 		sum_batch_loss += loss.cpu().item()
 		if batch_idx % 25 == 0:
@@ -462,6 +451,20 @@ def validate(args, model, test_loader, criterion, epoch):
 	fd_losslog.flush()
 	return 
 
+# if __name__ == '__main__':
+# 	puzzles = torch.load('puzzles_500000.pt')
+# 	N = 12000
+# 	device = torch.device(type='cuda', index=0)
+# 	torch.set_float32_matmul_precision('high')
+# 	
+# 	orig_board_enc,new_board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
+# 	
+# 	print(orig_board_enc.shape, new_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
+# 	
+# 	
+# 	
+# 	return memory_dict
+
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
 	NUM_SAMPLES = 12000
@@ -469,12 +472,9 @@ if __name__ == '__main__':
 	NUM_EPOCHS = 100
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
-	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL,\
-			 "device": device, "fd_losslog": fd_losslog}
-	optimizer_name = "adam"
+	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
-	torch.set_float32_matmul_precision('high')
-	torch.manual_seed(42)
+	optimizer_name = "adam" # or psgd
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
