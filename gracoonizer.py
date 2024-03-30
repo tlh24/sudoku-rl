@@ -36,7 +36,7 @@ class Gracoonizer(nn.Module):
 			d_model = xfrmr_dim, 
 			layers = 2, # was 2
 			n_head = self.n_head, 
-			repeat = 1, # was 3
+			repeat = 2, # was 3
 			init_zeros = g_zeroinit
 			)
 		
