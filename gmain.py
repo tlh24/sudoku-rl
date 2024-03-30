@@ -328,17 +328,14 @@ def getAttentionMasks(graph_masks, device):
 		all share the same mask for example. The last mask is all-to-all 
 	'''
 	assert len(graph_masks.size()) == 3, f"Expect graph_masks to be shape (num_samples x #nodes x #nodes)"
-
-	attention_masks = torch.ones((graph_masks.shape[0], graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8)
-	#TODO: (JJ) Change to non-trivial attention mask
-	'''
+	
 	attention_masks = torch.zeros((graph_masks.shape[0],graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8) # try to save memory...
 
 	for sample_idx in range(graph_masks.size(0)):	
 		for i in range(n_heads-1): 
 			j = i % 4
 			attention_masks[sample_idx,:, :, i] = ( graph_masks[sample_idx] == (2**j) )
-	'''
+
 
 	# add one all-too-all mask
 	if g_globalatten: 
@@ -474,7 +471,7 @@ if __name__ == '__main__':
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
-	optimizer_name = "adam" # or psgd
+	optimizer_name = "psgd" # or psgd
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
