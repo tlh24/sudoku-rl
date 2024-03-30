@@ -36,7 +36,7 @@ class Gracoonizer(nn.Module):
 			d_model = xfrmr_dim, 
 			layers = 2, # was 2
 			n_head = self.n_head, 
-			repeat = 1, # was 3
+			repeat = 2, # was 3
 			init_zeros = g_zeroinit
 			)
 		
@@ -51,6 +51,16 @@ class Gracoonizer(nn.Module):
 		# self.critic_to_reward = graph_transformer.LinearM(xfrmr_dim, 2, True) # suck in everything. 
 		# with th.no_grad(): 
 		# 	self.critic_to_reward.w.copy_( th.ones(2, xfrmr_dim+1) / xfrmr_dim )
+<<<<<<< HEAD
+=======
+
+
+	def encodeBoard(self, cursPos, board, action): 
+		nodes, actnodes = sudoku_to_nodes(board, cursPos, action_type)
+		benc, actenc, msk = encodeNodes(nodes, nodes_act)
+		return benc, actenc, msk
+		
+>>>>>>> graph-more-actions
 	
 	def forward(self, benc, actenc, msk, n, record): 
 		batch_size = benc.shape[0]
