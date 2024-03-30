@@ -386,7 +386,7 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
 	return 
 
-def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
+def train(args, memory_dict, model, train_loader, optimizer, criterion, uu):
 	model.train()
 	sum_batch_loss = 0.0
 
@@ -408,10 +408,10 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 			optimizer.step() 
 			print(loss.detach().cpu().item())
 		else: 
-			# psgd library already does loss backwards and zero grad
+			# psgd library internally does loss.backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
+				new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, uu, None)
 				pred_data = {'old_states':old_states, 'new_states':new_states, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
@@ -419,59 +419,53 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 				return loss
 			loss = optimizer.step(closure)
-			print(loss.detach().cpu().item())
+		
+		lloss = loss.detach().cpu().item()
+		print(lloss)
+		args["fd_losslog"].write(f'{uu}\t{lloss}\n')
+		args["fd_losslog"].flush()
+		uu = uu + 1
 
-		sum_batch_loss += loss.cpu().item()
+		sum_batch_loss += lloss
 		if batch_idx % 25 == 0:
 			updateMemory(memory_dict, pred_data)
 			pass 
 	
 	# add epoch loss
 	avg_batch_loss = sum_batch_loss / len(train_loader)
-	args["fd_losslog"].write(f'{epoch}\t{avg_batch_loss}\n')
-	args["fd_losslog"].flush()
+	return uu
 	
-def validate(args, model, test_loader, criterion, epoch):
+	
+def validate(args, model, test_loader, criterion, uu):
 	model.eval()
 	sum_batch_loss = 0.0
 	with torch.no_grad():
 		for batch_data in test_loader:
 			old_states, new_states, actions, graph_masks, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			attention_masks = getAttentionMasks(graph_masks, args["device"])
-			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
+			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, uu, None)
 			loss = criterion(new_state_preds, new_states)
+			lloss = loss.detach().cpu().item()
+			print(f'v{lloss}')
+			fd_losslog.write(f'{uu}\t{lloss}\n')
+			fd_losslog.flush()
 			sum_batch_loss += loss.cpu().item()
 	
 	avg_batch_loss = sum_batch_loss / len(test_loader)
 			
-	fd_losslog.write(f'{epoch}\t{avg_batch_loss}\n')
-	fd_losslog.flush()
+	
 	return 
-
-# if __name__ == '__main__':
-# 	puzzles = torch.load('puzzles_500000.pt')
-# 	N = 12000
-# 	device = torch.device(type='cuda', index=0)
-# 	torch.set_float32_matmul_precision('high')
-# 	
-# 	orig_board_enc,new_board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
-# 	
-# 	print(orig_board_enc.shape, new_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
-# 	
-# 	
-# 	
-# 	return memory_dict
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
-	NUM_SAMPLES = 12000
-	NUM_EVAL = 2000
-	NUM_EPOCHS = 100
+	NUM_SAMPLES = batch_size * 120 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_EVAL = batch_size * 25
+	NUM_EPOCHS = 200
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
-	optimizer_name = "psgd" # or psgd
+	optimizer_name = "psgd" # adam or psgd
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
@@ -492,13 +486,12 @@ if __name__ == '__main__':
 	optimizer = getOptimizer(optimizer_name, model)
 	criterion = nn.MSELoss()
 
-	epoch_num = 0
-	for _ in tqdm(range(0, args["NUM_EPOCHS"])):
-		train(args, memory_dict, model, train_dataloader, optimizer, criterion, epoch_num)
-		epoch_num += 1
+	uu = 0
+	for _ in range(0, args["NUM_EPOCHS"]):
+		uu = train(args, memory_dict, model, train_dataloader, optimizer, criterion, uu)
 	
 	# save after training
 	model.save_checkpoint()
 
 	print("validation")
-	validate(args, model, test_dataloader, criterion, epoch_num)
+	validate(args, model, test_dataloader, criterion, uu)
