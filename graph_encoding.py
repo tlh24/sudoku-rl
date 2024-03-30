@@ -114,7 +114,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_val:int):
 	
 	actnodes = sudokuActionNodes(action_type, action_val)
 	
-	if True: 
+	if False: 
 		for y in range(SuN): 
 			for x in range(SuN): 
 				v = puzzle[y,x]

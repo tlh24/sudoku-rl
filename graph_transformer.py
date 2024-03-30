@@ -240,9 +240,8 @@ class Transformer(nn.Module):
 
 	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, record:list):
 		for i in range(self.repeat): 
-			# # one-hot encode the layer position on all tokens. 
-			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
-			# x[:,:,self.d_model - i - 1] = 1.0
+			# encode the layer position on all tokens. 
+			x[:,:,-1] = i
 			x,a1,w1 = self.layer1(x,msk,n,0,i,record)
 			x,a2,w2 = self.layer2(x,msk,n,1,i,record)
 			# x,a3,w3 = self.layer3(x,msk,n,1)
