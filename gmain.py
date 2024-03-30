@@ -11,6 +11,7 @@ from gracoonizer import Gracoonizer
 from sudoku_gen import Sudoku
 from plot_mmap import make_mmf, write_mmap
 from netdenoise import NetDenoise
+from test_gtrans import getTestDataLoaders, SimpleMLP
 from constants import *
 from type_file import Action
 from tqdm import tqdm
@@ -33,7 +34,7 @@ def runAction(action: int, sudoku, curs_pos):
 	curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
 	curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 			
-	if True: 
+	if False: 
 		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}')
 	
 	return reward
@@ -208,12 +209,11 @@ def trainValSplit(data_matrix: torch.Tensor, num_eval=None, eval_ratio: float = 
 	if num_samples <= 1:
 		raise ValueError(f"data_matrix needs to be a tensor with more than 1 row")
 
-	shuffled_data = data_matrix[torch.randperm(num_samples)]
 	if not num_eval:
 		num_eval = int(num_samples * eval_ratio)
 	
-	training_data = shuffled_data[:-num_eval]
-	eval_data = shuffled_data[-num_eval:]
+	training_data = data_matrix[:-num_eval]
+	eval_data = data_matrix[-num_eval:]
 	return training_data, eval_data
 
 
@@ -227,7 +227,6 @@ class SudokuDataset(Dataset):
 		self.new_boards_enc = new_boards_enc
 		self.actions_enc = actions_enc
 		self.graph_masks = graph_masks
-
 		self.rewards = rewards 
 
 	def __len__(self):
@@ -256,7 +255,6 @@ def getDataLoaders(puzzles, num_samples, num_eval=2000):
 	test_dataset = SudokuDataset(data_dict['test_orig_board_encs'], data_dict['test_new_board_encs'],
 										data_dict['test_action_encs'], data_dict['test_graph_masks'],
 										data_dict['test_rewards'])
-
 
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
@@ -387,6 +385,8 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 
 	for batch_idx, batch_data in enumerate(train_loader):
 		old_states, new_states, actions, graph_masks, rewards = [t.to(args["device"]) for t in batch_data.values()]
+		#print(f"old state {old_states.shape} new state {new_states.shape} actions {actions.shape}\
+		#  			garph_masks {graph_masks.shape} rewards {rewards.shape}")
 		attention_masks = getAttentionMasks(graph_masks, args["device"])
 
 		pred_data = {}
@@ -415,6 +415,7 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 		sum_batch_loss += loss.cpu().item()
 		if batch_idx % 25 == 0:
 			updateMemory(memory_dict, pred_data)
+			pass 
 	
 	# add epoch loss
 	avg_batch_loss = sum_batch_loss / len(train_loader)
@@ -442,7 +443,7 @@ if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
 	NUM_SAMPLES = 12000
 	NUM_EVAL = 2000
-	NUM_EPOCHS = 50
+	NUM_EPOCHS = 100
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL,\
@@ -462,8 +463,9 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
 	model.printParamCount()
 	try: 
-		model.load_checkpoint()
-		print("loaded model checkpoint")
+		#model.load_checkpoint()
+		#print("loaded model checkpoint")
+		pass 
 	except : 
 		print("could not load model checkpoint")
 	

@@ -1,5 +1,3 @@
-import math
-import random
 import numpy as np
 import torch
 from torch import nn, optim
@@ -7,15 +5,44 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 import pdb
 import matplotlib.pyplot as plt
-import graph_encoding
 from gracoonizer import Gracoonizer
-from sudoku_gen import Sudoku
-from plot_mmap import make_mmf, write_mmap
-from netdenoise import NetDenoise
 from constants import *
-from type_file import Action
 from tqdm import tqdm
 import psgd 
+
+class SimpleMLP(nn.Module):
+	def __init__(self, enc_dim):
+		super().__init__()
+		self.input_fc = nn.Linear(enc_dim*2, 250)
+		self.hidden_fc = nn.Linear(250, 100)
+		self.output_fc = nn.Linear(100, enc_dim) 
+
+	def forward(self, old_states, actions, masks,epoch,_):
+		# old_states shape [batch size, 1, enc_dim]
+		# actions shape [batch size, 1, enc_dim]
+		
+		batch_size = old_states.shape[0]
+		#combine state and action and flatten
+		x = torch.cat((old_states, actions), 1).view(batch_size,-1)
+
+		x = F.relu(self.input_fc(x))
+		x = F.relu(self.hidden_fc(x))
+		# y shape [batch size, 1, output_dim]
+		y = self.output_fc(x).unsqueeze(1)
+
+		return y, None, None, None, None, None 
+
+		
+
+
+
+
+
+
+
+		
+
+
 
 
 class BinaryDataset(Dataset):
@@ -25,14 +52,14 @@ class BinaryDataset(Dataset):
       If int is zero, needs to predict zeros vector; else ones vector
 	'''
 	def __init__(self, num_samples, enc_dim=20):
-		self.orig_boards_enc = torch.randint(low=0,high=10, size=(num_samples,enc_dim))    
-      actions = torch.randint(low=0, high=2, size=(num_samples, 1))
-      new_state = actions.repeat(1,20)
+		self.orig_boards_enc = torch.randint(low=0,high=10,size=(num_samples,enc_dim)).unsqueeze(1).float()    
+		actions = torch.randint(low=0, high=2, size=(num_samples, 1))
+		new_state = actions.expand(num_samples, enc_dim).unsqueeze(1).float()    
       # zero pad action enc to be length enc_dim
-      actions = F.pad(actions, (0, enc_dim-1), "constant", 0)
-		self.actions_enc = actions 
-      self.new_boards_enc = new_state
-		self.graph_masks = graph_masks
+		actions_enc = F.pad(actions, (0, enc_dim-1), "constant", 0).unsqueeze(1).float()    
+		self.actions_enc = actions_enc 
+		self.new_boards_enc = new_state
+		self.graph_masks = torch.ones((num_samples, 2,2))
 		self.rewards = torch.zeros(num_samples) 
 
 	def __len__(self):
@@ -54,6 +81,12 @@ def getTestDataLoaders(num_samples, num_eval=2000):
 	an 2d vector, a binary number (0 or 1), and corresponding vector of 
    zeros or ones
 	'''
+	train_dataset = BinaryDataset(num_samples-num_eval)
+	test_dataset = BinaryDataset(num_eval)
+	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+
+	return train_dataloader, test_dataloader
 	
 	
 
