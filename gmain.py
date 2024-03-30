@@ -194,13 +194,8 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
 		
 		# curs_pos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
-<<<<<<< HEAD
-		benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
-		#benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, curs_pos, ep[0], action_val)
-=======
 		# benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
 		benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
->>>>>>> graph-more-actions
 		orig_boards.append(torch.tensor(benc))
 		new_boards.append(torch.tensor(newbenc))
 		actions.append(torch.tensor(actenc))
@@ -210,7 +205,6 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	orig_board_enc = torch.stack(orig_boards)
 	new_board_enc = torch.stack(new_boards)
 	action_enc = torch.stack(actions)
-<<<<<<< HEAD
 	graph_mask = torch.stack(masks)
 	return orig_board_enc, new_board_enc, action_enc, graph_mask, rewards
 
@@ -304,7 +298,6 @@ def getDataDict(puzzles, num_samples, num_eval=2000):
 	return dataDict
 
 def getMemoryDict():
-=======
 	board_msk = torch.tensor(msk)
 	return orig_board_enc, new_board_enc, action_enc,board_msk,rewards
 
@@ -319,7 +312,6 @@ if __name__ == '__main__':
 	
 	print(orig_board_enc.shape, new_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
 	
->>>>>>> graph-more-actions
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
 	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
 	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
@@ -500,7 +492,6 @@ if __name__ == '__main__':
 	except : 
 		print("could not load model checkpoint")
 	
-<<<<<<< HEAD
 	optimizer = getOptimizer(optimizer_name, model)
 	criterion = nn.MSELoss()
 
@@ -508,143 +499,9 @@ if __name__ == '__main__':
 	for _ in tqdm(range(0, args["NUM_EPOCHS"])):
 		train(args, memory_dict, model, train_dataloader, optimizer, criterion, epoch_num)
 		epoch_num += 1
-=======
-	use_adamw = True
-	
-	if use_adamw: 
-		optimizer = optim.AdamW(model.parameters(), lr=1e-2, weight_decay = 5e-2)
-		
-	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
-	
-	uu = 0
-	beshape = orig_board_enc.shape
-	lossmask = torch.ones(batch_size,beshape[1],beshape[2], device=device)
-	for i in range(11,20):
-		lossmask[:,:,i] *= 0.001 # semi-ignore the "latents"
-
-	if True:
-		for u in range(100000): 
-			# model.zero_grad() enabled later
-			i = torch.randint(N-2000, (batch_size,))
-			x = orig_board_enc[i,:,:].to(device)
-			a = action_enc[i,:,:].to(device)
-			y = new_board_enc[i,:,:].to(device) 
-			reward = board_reward[i]
-			
-			
-			def closure():
-				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-				yp = yp * lossmask
-				loss = torch.sum((yp - y)**2) + sum( \
-                [torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
-				return loss
-			
-			if use_adamw: 
-				optimizer.zero_grad()
-				yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-				yp = yp * lossmask
-				loss = torch.sum((yp - y)**2)
-				loss.backward()
-				optimizer.step() 
-			else:
-				loss = optimizer.step(closure)
-				if u % 25 == 0: 
-					yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, u, None)
-            
-			print(loss.cpu().item())
-			fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
-			fd_losslog.flush()
-			uu = uu+1
-			
-			if u % 25 == 0: 
-				write_mmap(fd_board, x[0:4,:,:].cpu())
-				write_mmap(fd_new_board, y[0:4,:,:].cpu())
-				write_mmap(fd_boardp, yp[0:4,:,:].cpu().detach())
-				write_mmap(fd_reward, reward[0:4].cpu())
-				write_mmap(fd_rewardp, rp[0:4].cpu().detach())
-				write_mmap(fd_attention, torch.stack((a1, a2), 0))
-				write_mmap(fd_wqkv, torch.stack((w1, w2), 0))
-		model.save_checkpoint()
->>>>>>> graph-more-actions
 	
 	# save after training
 	model.save_checkpoint()
 
 	print("validation")
-<<<<<<< HEAD
 	validate(args, model, test_dataloader, criterion, epoch_num)
-=======
-	for u in range( (2000-batch_size) // batch_size ): 
-		i = torch.arange(0,batch_size) + u*batch_size + (N-2000)
-		x = orig_board_enc[i,:,:].to(device)
-		a = action_enc[i,:,:].to(device)
-		y = new_board_enc[i,:,:].to(device) 
-		reward = board_reward[i]
-		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, None)
-		
-		# yp = yp - 4.5 * (yp > 4.5)
-		# yp = yp + 4.5 * (yp < -4.5)
-		# yp = torch.remainder(yp + 4.5, 9) - 4.5 # this diverges.
-		yp = yp * lossmask
-		
-		loss = torch.sum((yp - y)**2)
-		print('v', loss.cpu().item())
-		fd_losslog.write(f'{uu}\t{loss.cpu().item()}\n')
-		fd_losslog.flush()
-		uu = uu+1
-	
-	# need to allocate hidden activations for denoising
-	record = []
-	yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record) # dummy
-	denoisenet = []
-	denoiseopt = []
-	denoisestd = []
-	hiddenl = []
-	stridel = []
-	for i,h in enumerate(record): 
-		stride = h.shape[1]*h.shape[2]
-		stridel.append(stride)
-		net = NetDenoise(stride).to(device)
-		opt = optim.AdamW(net.parameters(), lr=2e-4, weight_decay = 5e-2)
-		denoisenet.append(net)
-		denoiseopt.append(opt)
-		hidden = torch.zeros(N, stride, device=device)
-		hiddenl.append(hidden)
-		
-	print("gathering denoising data")
-	for u in range( (N - batch_size) // batch_size ): 
-		i = torch.arange(0,batch_size) + u*batch_size
-		x = orig_board_enc[i,:,:].to(device)
-		a = action_enc[i,:,:].to(device)
-		y = new_board_enc[i,:,:].to(device) 
-		reward = board_reward[i]
-		record = []
-		yp,rp,a1,a2,w1,w2 = model.forward(x, a, msk, uu, record)
-		for j,h in enumerate(record): 
-			stride = stridel[j]
-			i = torch.arange(0,batch_size) + u*batch_size
-			hiddenl[j][i, :] = torch.reshape(h.detach(), (batch_size, stride))
-		for h in hiddenl: 
-			std = torch.std(h) / 2.0
-			denoisestd.append(std)
-	
-	for j,net in enumerate(denoisenet): 
-		try: 
-			net.load_checkpoint(f"denoise_{j}.pth")
-		except: 
-			print(f"could not load denoise_{j}.pth")
-	
-	if True: 
-		print("action inference")
-		for u in range(3): 
-			i = torch.arange(0, batch_size) + u*batch_size
-			x = orig_board_enc[i,:,:].to(device)
-			a = action_enc[i,:,:].to(device)
-			y = new_board_enc[i,:,:].to(device) 
-			
-			ap = model.backAction(x, msk, uu, y, a, lossmask, denoisenet, denoisestd)
-			
-			loss = torch.sum((ap - a)**2)
-			print('a', loss.cpu().item())
->>>>>>> graph-more-actions
