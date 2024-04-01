@@ -89,7 +89,7 @@ def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int, enc_dim: i
 	mask = np.full((2,2), 8.0, dtype=np.float32)
 	np.fill_diagonal(mask, 1.0)
 	
-	reward = runAction(action, action_val, sudoku, curs_pos)
+	reward = runAction(sudoku, None, curs_pos, action, action_val)
 	
 	new_curs_enc = curs_enc + action_enc  
 	
@@ -195,8 +195,8 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
 		
 		# curs_pos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
-		# benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
-		benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
+		benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
+		#benc,actenc,newbenc,msk,reward = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
 		orig_boards.append(torch.tensor(benc))
 		new_boards.append(torch.tensor(newbenc))
 		actions.append(torch.tensor(actenc))
