@@ -331,13 +331,16 @@ def getAttentionMasks(graph_masks, device):
 		all share the same mask for example. The last mask is all-to-all 
 	'''
 	assert len(graph_masks.size()) == 3, f"Expect graph_masks to be shape (num_samples x #nodes x #nodes)"
-	
-	attention_masks = torch.zeros((graph_masks.shape[0],graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8) # try to save memory...
 
-	for sample_idx in range(graph_masks.size(0)):	
-		for i in range(n_heads-1): 
-			j = i % 4
-			attention_masks[sample_idx,:, :, i] = ( graph_masks[sample_idx] == (2**j) )
+	j = torch.arange(n_heads) % 4
+	j = j.to(device)
+	attention_masks = (graph_masks.unsqueeze(-1) == (2**j)).int()
+	attention_masks[:,:,:,-1] = 0
+	#attention_masks = torch.zeros((graph_masks.shape[0],graph_masks.shape[1], graph_masks.shape[2], n_heads), dtype=torch.int8) # try to save memory...
+	#for sample_idx in range(graph_masks.size(0)):	
+	#		for i in range(n_heads-1): 
+	#			j = i % 4
+	#			attention_masks[sample_idx,:, :, i] = ( graph_masks[sample_idx] == (2**j) )
 
 
 	# add one all-too-all mask
