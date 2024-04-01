@@ -36,6 +36,7 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 	curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 	
 	if action == Action.SET_GUESS.value:
+		raise ValueError("We should not get set guess value")
 		clue = sudoku.mat[cursPos[0], cursPos[1]]
 		curr = guess_mat[cursPos[0], cursPos[1]]
 		if clue == 0 and curr == 0 and sudoku.checkIfSafe(curs_pos[0], curs_pos[1], num):
@@ -45,6 +46,7 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 		else:
 			reward = -1
 	if action == Action.UNSET_GUESS.value:
+		raise ValueError("We should not get unset guess value")
 		curr = guess_mat[cursPos[0], cursPos[1]]
 		if curr != 0: 
 			guess_mat[cursPos[0], cursPos[1]] = 0
