@@ -15,6 +15,7 @@ from test_gtrans import getTestDataLoaders, SimpleMLP
 from constants import *
 from type_file import Action
 from tqdm import tqdm
+import time 
 import psgd 
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
@@ -406,7 +407,7 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 			loss = criterion(new_state_preds, new_states)
 			loss.backward()
 			optimizer.step() 
-			print(loss.detach().cpu().item())
+			#print(loss.detach().cpu().item())
 		else: 
 			# psgd library already does loss backwards and zero grad
 			def closure():
@@ -419,7 +420,7 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 				return loss
 			loss = optimizer.step(closure)
-			print(loss.detach().cpu().item())
+			#print(loss.detach().cpu().item())
 
 		sum_batch_loss += loss.cpu().item()
 		if batch_idx % 25 == 0:
@@ -448,30 +449,19 @@ def validate(args, model, test_loader, criterion, epoch):
 	fd_losslog.flush()
 	return 
 
-# if __name__ == '__main__':
-# 	puzzles = torch.load('puzzles_500000.pt')
-# 	N = 12000
-# 	device = torch.device(type='cuda', index=0)
-# 	torch.set_float32_matmul_precision('high')
-# 	
-# 	orig_board_enc,new_board_enc,action_enc,board_msk,board_reward = enumerateBoards(puzzles, N)
-# 	
-# 	print(orig_board_enc.shape, new_board_enc.shape, action_enc.shape, board_msk.shape, board_reward.shape)
-# 	
-# 	
-# 	
-# 	return memory_dict
 
 if __name__ == '__main__':
+	start_time = time.time() 
 	puzzles = torch.load('puzzles_500000.pt')
 	NUM_SAMPLES = 12000
 	NUM_EVAL = 2000
-	NUM_EPOCHS = 100
+	NUM_EPOCHS = 25
 	device = torch.device('cuda:0')
+	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
-	optimizer_name = "psgd" # or psgd
+	optimizer_name = "adam" # or psgd
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
@@ -502,3 +492,6 @@ if __name__ == '__main__':
 
 	print("validation")
 	validate(args, model, test_dataloader, criterion, epoch_num)
+	end_time = time.time()
+	program_duration = end_time - start_time
+	print(f"Program duration: {program_duration} sec")
