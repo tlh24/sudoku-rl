@@ -457,11 +457,12 @@ if __name__ == '__main__':
 	NUM_EVAL = 2000
 	NUM_EPOCHS = 25
 	device = torch.device('cuda:0')
-	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
 	optimizer_name = "adam" # or psgd
+	torch.set_float32_matmul_precision('high')
+	torch.manual_seed(42)
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
