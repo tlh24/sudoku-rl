@@ -3,6 +3,7 @@ import csv
 import pdb
 import matplotlib.pyplot as plt
 import time
+import os 
 # import sklearn
 
 # remove menubar buttons
@@ -28,6 +29,11 @@ def slidingWindowR2(x, y, window_size, stride):
 	return r2_values
 
 
+def isFileEmpty(file_path):
+    # Check if file exist and it is empty
+    return os.path.exists(file_path) and os.path.getsize(file_path) == 0
+
+
 while True: 
 	with open("losslog.txt", 'r') as x:
 		data = list(csv.reader(x, delimiter="\t"))
@@ -39,24 +45,25 @@ while True:
 	ax[0,0].set(xlabel='iteration')
 	ax[0,0].set_title('log loss')
 	
-	with open("rewardlog.txt", 'r') as x:
-		data = list(csv.reader(x, delimiter="\t"))
-	data = np.array(data)
-	data = data.astype(float)
+	if not isFileEmpty("rewardlog.txt"):
+		with open("rewardlog.txt", 'r') as x:
+			data = list(csv.reader(x, delimiter="\t"))
+		data = np.array(data)
+		data = data.astype(float)
 
-	ax[0,1].cla()
-	r2 = slidingWindowR2(data[:,0], data[:,1], 100, 10)
-	ax[0,1].plot(r2)
-	ax[0,1].set(xlabel='time')
-	ax[0,1].set_title('r^2 of actual vs predicted')
-	ax[0,1].tick_params(bottom=True, top=True, left=True, right=True)
-	ax[0,1].set_ylim(-0.1, 1.1)
-	
-	ax[1,1].cla()
-	ax[1,1].scatter(data[:,0], data[:, 1], c=range(data.shape[0]), cmap='viridis', s=100)
-	ax[1,1].set(xlabel='actual reward')
-	ax[1,1].set(ylabel='predicted reward')
-	ax[1,1].set_title('reward')
+		ax[0,1].cla()
+		r2 = slidingWindowR2(data[:,0], data[:,1], 100, 10)
+		ax[0,1].plot(r2)
+		ax[0,1].set(xlabel='time')
+		ax[0,1].set_title('r^2 of actual vs predicted')
+		ax[0,1].tick_params(bottom=True, top=True, left=True, right=True)
+		ax[0,1].set_ylim(-0.1, 1.1)
+		
+		ax[1,1].cla()
+		ax[1,1].scatter(data[:,0], data[:, 1], c=range(data.shape[0]), cmap='viridis', s=100)
+		ax[1,1].set(xlabel='actual reward')
+		ax[1,1].set(ylabel='predicted reward')
+		ax[1,1].set_title('reward')
 	
 	try: 
 		ax[1,0].cla()
@@ -73,4 +80,4 @@ while True:
 	fig.canvas.flush_events()
 	time.sleep(0.5)
 	print("tock")
-	#plt.show()
+	plt.show()
