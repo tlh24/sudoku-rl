@@ -16,9 +16,13 @@ from constants import *
 from type_file import Action
 from tqdm import tqdm
 import time 
+import sys 
+import argparse 
 import psgd 
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
+
+from utils import set_seed
 
 def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int): 
 	# run the action, update the world, return the reward.
@@ -363,14 +367,6 @@ def getLossMask(board_enc, device):
 		loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
 	return loss_mask 
 
-def getOptimizer(optimizer_name, model, lr=1e-3, weight_decay=0):
-	if optimizer_name == "adam": 
-		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-	elif optimizer_name == 'adamw':
-		optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
-	return optimizer 
 
 def updateMemory(memory_dict, pred_dict): 
 	'''
@@ -392,112 +388,171 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
 	return 
 
-def train(args, memory_dict, model, train_loader, optimizer, criterion, epoch):
-	model.train()
-	sum_batch_loss = 0.0
 
-	for batch_idx, batch_data in enumerate(train_loader):
-		old_states, new_states, actions, graph_masks, rewards = [t.to(args["device"]) for t in batch_data.values()]
-		#print(f"old state {old_states.shape} new state {new_states.shape} actions {actions.shape}\
-		#  			garph_masks {graph_masks.shape} rewards {rewards.shape}")
-		attention_masks = getAttentionMasks(graph_masks, args["device"])
-
-		pred_data = {}
-		if optimizer_name != 'psgd': 
-			optimizer.zero_grad()
-			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
-			pred_data = {'old_states':old_states, 'new_states':new_states, 'new_state_preds':new_state_preds,
-					  		'rewards': rewards, 'reward_preds': reward_preds,
-							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-			loss = criterion(new_state_preds, new_states)
-			loss.backward()
-			optimizer.step() 
-			#print(loss.detach().cpu().item())
+class Trainer:
+	'''
+	Train and validation code. Current forwardLoop are for Gracoonizer but can be adapted for different models
+	
+	memory_dict: Used for Gracoonizer.
+	'''
+	def __init__(self, model, train_dl, test_dl, device, optimizer_name, criterion, args, memory_dict=None, loss_log_path='losslog.txt'):
+		self.device = device 
+		self.model = model.to(self.device)
+		self.train_dl = train_dl 
+		self.test_dl = test_dl 
+		self.fd_loss_log = open(loss_log_path, 'w')
+		self.optimizer_name = optimizer_name
+		self.optimizer = self.getOptimizer(optimizer_name, model)
+		self.criterion = criterion
+		self.args = args 
+		if memory_dict:
+			self.memory_dict = memory_dict
+	
+	def getOptimizer(self, optimizer_name, model, lr=1e-3, weight_decay=0):
+		if optimizer_name == "adam": 
+			optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+		elif optimizer_name == 'adamw':
+			optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 		else: 
-			# psgd library already does loss backwards and zero grad
-			def closure():
-				nonlocal pred_data
-				new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
+			optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
+		return optimizer 
+
+	def saveCheckpoint(self):
+		self.model.save_checkpoint()
+		print("Saved model checkpoint")
+
+	def forwardLoop(self, epoch, is_train, data_loader):
+		sum_batch_loss = 0.0
+
+		for batch_idx, batch_data in enumerate(data_loader):
+			old_states, new_states, actions, graph_masks, rewards = [t.to(self.device) for t in batch_data.values()]
+			#print(f"old state {old_states.shape} new state {new_states.shape} actions {actions.shape}\
+			#  			garph_masks {graph_masks.shape} rewards {rewards.shape}")
+			attention_masks = getAttentionMasks(graph_masks, self.device)
+
+			pred_data = {}
+			if self.optimizer_name != 'psgd' or not is_train:
+				new_state_preds, reward_preds, a1,a2,w1,w2 = self.model.forward(old_states, actions, attention_masks, epoch, None)
 				pred_data = {'old_states':old_states, 'new_states':new_states, 'new_state_preds':new_state_preds,
-					  		'rewards': rewards, 'reward_preds': reward_preds,
-							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds - new_states)**2) + sum( \
-					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
-				return loss
-			loss = optimizer.step(closure)
-			#print(loss.detach().cpu().item())
+								'rewards': rewards, 'reward_preds': reward_preds,
+								'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+				loss = self.criterion(new_state_preds, new_states)
+				if is_train: 
+					self.optimizer.zero_grad()
+					loss.backward()
+					self.optimizer.step() 
+			else: 
+				# psgd library already does loss backwards and zero grad
+				def closure():
+					nonlocal pred_data
+					new_state_preds, reward_preds, a1,a2,w1,w2 = self.model.forward(old_states, actions, attention_masks, epoch, None)
+					pred_data = {'old_states':old_states, 'new_states':new_states, 'new_state_preds':new_state_preds,
+								'rewards': rewards, 'reward_preds': reward_preds,
+								'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+					loss = torch.sum((new_state_preds - new_states)**2) + sum( \
+						[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in self.model.parameters()])
+					return loss
+				loss = self.optimizer.step(closure)
+				#print(loss.detach().cpu().item())
 
-		sum_batch_loss += loss.cpu().item()
-		if batch_idx % 25 == 0:
-			updateMemory(memory_dict, pred_data)
-			pass 
-	
-	# add epoch loss
-	avg_batch_loss = sum_batch_loss / len(train_loader)
-	args["fd_losslog"].write(f'{epoch}\t{avg_batch_loss}\n')
-	args["fd_losslog"].flush()
-	
-def validate(args, model, test_loader, criterion, epoch):
-	model.eval()
-	sum_batch_loss = 0.0
-	with torch.no_grad():
-		for batch_data in test_loader:
-			old_states, new_states, actions, graph_masks, rewards = [t.to(args["device"]) for t in batch_data.values()]
-			attention_masks = getAttentionMasks(graph_masks, args["device"])
-			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_states, actions, attention_masks, epoch, None)
-			loss = criterion(new_state_preds, new_states)
 			sum_batch_loss += loss.cpu().item()
-	
-	avg_batch_loss = sum_batch_loss / len(test_loader)
-			
-	fd_losslog.write(f'{epoch}\t{avg_batch_loss}\n')
-	fd_losslog.flush()
-	return 
+			if is_train and batch_idx % 25 == 0:
+				updateMemory(self.memory_dict, pred_data)
+				pass 
+		
+		# add epoch loss
+		avg_batch_loss = sum_batch_loss / len(data_loader)
+		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
+		self.fd_loss_log.flush()
+		return 
 
+	def train(self):
+		self.model.train()
+		for epoch_num in tqdm(range(0, self.args.epochs)):
+			self.forwardLoop(epoch_num, True, self.train_dl)
 
-if __name__ == '__main__':
+	def validate(self):
+		self.model.eval()
+		with torch.no_grad():
+			self.forwardLoop(self.args.epochs, False, self.test_dl)
+		
+
+def main(args):
 	start_time = time.time() 
-	puzzles = torch.load('puzzles_500000.pt')
-	NUM_SAMPLES = 12000
-	NUM_EVAL = 2000
-	NUM_EPOCHS = 25
+
+	# seed for reproducibility
+	set_seed(42)
+
 	device = torch.device('cuda:0')
-	fd_losslog = open('losslog.txt', 'w')
-	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
-	
 	optimizer_name = "adam" # or psgd
-	torch.set_float32_matmul_precision('high')
-	torch.manual_seed(42)
+
+	if args.is_gracoonizer:
+		puzzles = torch.load('puzzles_500000.pt')
+		torch.set_float32_matmul_precision('high')
+		# get our train and test dataloaders
+		train_dataloader, test_dataloader = getDataLoaders(puzzles, args.n_train + args.n_test, args.n_test)
+		
+		# allocate memory
+		memory_dict = getMemoryDict()
+		
+		# define model 
+		model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1)
+		model.printParamCount()
+		try: 
+			#model.load_checkpoint()
+			#print("loaded model checkpoint")
+			pass 
+		except : 
+			print("could not load model checkpoint")
+		
+		criterion = nn.MSELoss()
+
+		trainer = Trainer(model, train_dataloader, test_dataloader, device, optimizer_name, criterion,args, memory_dict)
 	
-	# get our train and test dataloaders
-	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
-	
-	# allocate memory
-	memory_dict = getMemoryDict()
-	
-	# define model 
-	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
-	model.printParamCount()
-	try: 
-		#model.load_checkpoint()
-		#print("loaded model checkpoint")
+	else:
 		pass 
-	except : 
-		print("could not load model checkpoint")
-	
-	optimizer = getOptimizer(optimizer_name, model)
-	criterion = nn.MSELoss()
 
-	epoch_num = 0
-	for _ in tqdm(range(0, args["NUM_EPOCHS"])):
-		train(args, memory_dict, model, train_dataloader, optimizer, criterion, epoch_num)
-		epoch_num += 1
-	
+	# training 
+	trainer.train()
+
 	# save after training
-	model.save_checkpoint()
+	trainer.saveCheckpoint()
 
+	# validation
 	print("validation")
-	validate(args, model, test_dataloader, criterion, epoch_num)
+	trainer.validate()
 	end_time = time.time()
 	program_duration = end_time - start_time
 	print(f"Program duration: {program_duration} sec")
+
+	
+
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser()
+	# Training
+	parser.add_argument('--epochs', type=int, default=200)
+	parser.add_argument('--eval_interval', type=int, default=1, help='Compute eval for how many epochs')
+	parser.add_argument('--batch_size', type=int, default=128)
+	parser.add_argument('--lr', type=float, default=6e-4)
+	parser.add_argument('--lr_decay', default=False, action='store_true')
+
+	# Model and loss
+	parser.add_argument('--n_layer', type=int, default=1, help='Number of sequential self-attention blocks.')
+	parser.add_argument('--n_recur', type=int, default=32, help='Number of recurrency of all self-attention blocks.')
+	parser.add_argument('--n_head', type=int, default=4, help='Number of heads in each self-attention block.')
+	parser.add_argument('--n_embd', type=int, default=128, help='Vector embedding size.')
+	parser.add_argument('--loss', default=[], nargs='+', help='specify regularizers in \{c1, att_c1\}')
+	parser.add_argument('--all_layers', default=False, action='store_true', help='apply losses to all self-attention layers')    
+	parser.add_argument('--hyper', default=[1, 0.1], nargs='+', type=float, help='Hyper parameters: Weights of [L_sudoku, L_attention]')
+
+	# Data
+	parser.add_argument('--n_train', type=int, default=10000, help='The number of data for training')
+	parser.add_argument('--n_test', type=int, default=2000, help='The number of data for testing')
+
+	# Other
+	parser.add_argument('--seed', type=int, default=0, help='Random seed for reproductivity.')
+	parser.add_argument('--gpu', type=int, default=-1, help='gpu index; -1 means using all GPUs or using CPU if no GPU is available')
+	parser.add_argument('--is_gracoonizer', default=True)
+	args = parser.parse_args()
+
+	main(args)
