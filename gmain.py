@@ -23,6 +23,10 @@ import psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
 from utils import set_seed
+from baseline.data import getBaselineDataloaders
+from baseline.model import GPTConfig, GPT
+
+sys.path.insert(0, "baseline/")
 
 def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int): 
 	# run the action, update the world, return the reward.
@@ -261,7 +265,7 @@ class SudokuDataset(Dataset):
 
 def getDataLoaders(puzzles, num_samples, num_eval=2000):
 	'''
-	Returns a pytorch train and test dataloader
+	Returns a pytorch train and test dataloader for gracoonizer position prediction
 	'''
 	data_dict = getDataDict(puzzles, num_samples, num_eval)
 	train_dataset = SudokuDataset(data_dict['train_orig_board_encs'], data_dict['train_new_board_encs'],
@@ -476,6 +480,45 @@ class Trainer:
 		with torch.no_grad():
 			self.forwardLoop(self.args.epochs, False, self.test_dl)
 		
+class RecurrentBaselineTrainer(Trainer):
+	'''
+	Used for the recurrent transformer baseline. 
+	'''
+	def __init__(self, model, train_dl, test_dl, device, optimizer_name, criterion, args, loss_log_path='losslog.txt'):
+		super().__init__(model, train_dl, test_dl, device, optimizer_name, criterion, args, None, loss_log_path)
+	
+	def forwardLoop(self, epoch, is_train, data_loader):
+		sum_batch_loss = 0.0
+
+		for batch_idx, (x,y) in enumerate(data_loader):
+			x = x.to(self.device)
+			y = y.to(self.device)
+
+			# forward the model
+			with torch.set_grad_enabled(is_train):
+				logits, loss, atts = self.model(x,y)
+				loss = loss.mean()
+				sum_batch_loss += loss.item()
+
+			if is_train:
+				self.model.zero_grad()
+				loss.backward()
+				torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1,0)
+				self.optimizer.step()
+		
+			sum_batch_loss += loss.cpu().item()
+		
+		# add epoch loss to file
+		avg_batch_loss = sum_batch_loss / len(data_loader)
+		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
+		self.fd_loss_log.flush()
+		return 
+			
+
+			
+			
+		
+			
 
 def main(args):
 	start_time = time.time() 
@@ -485,10 +528,11 @@ def main(args):
 
 	device = torch.device('cuda:0')
 	optimizer_name = "adam" # or psgd
+	torch.set_float32_matmul_precision('high')
 
 	if args.is_gracoonizer:
 		puzzles = torch.load('puzzles_500000.pt')
-		torch.set_float32_matmul_precision('high')
+		
 		# get our train and test dataloaders
 		train_dataloader, test_dataloader = getDataLoaders(puzzles, args.n_train + args.n_test, args.n_test)
 		
@@ -504,13 +548,23 @@ def main(args):
 			pass 
 		except : 
 			print("could not load model checkpoint")
-		
+
 		criterion = nn.MSELoss()
 
 		trainer = Trainer(model, train_dataloader, test_dataloader, device, optimizer_name, criterion,args, memory_dict)
 	
 	else:
-		pass 
+		# get our train and test dataloaders
+		train_dataloader, test_dataloader = getBaselineDataloaders(args)
+
+		# define model 
+		mconf = GPTConfig(vocab_size=10, block_size=81, n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd, 
+        num_classes=9, causal_mask=False, losses=args.loss, n_recur=args.n_recur, all_layers=args.all_layers,
+        hyper=args.hyper)
+		
+		model = GPT(mconf)
+
+		trainer = RecurrentBaselineTrainer(model, train_dataloader, test_dataloader, device, optimizer_name, criterion,args)
 
 	# training 
 	trainer.train()
