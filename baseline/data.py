@@ -1,16 +1,17 @@
 import torch 
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
-
+import os 
+import pdb 
 
 class Sudoku_Dataset_SATNet(Dataset):
     def __init__(self):
         data = {}
         data_to_path = {
-            'board': '../data/satnet/features.pt',
-            'board_img': '../data/satnet/features_img.pt',
-            'label': '../data/satnet/labels.pt',
-            'perm': '../data/satnet/perm.pt',
+            'board': 'data/satnet/features.pt',
+            'board_img': 'data/satnet/features_img.pt',
+            'label': 'data/satnet/labels.pt',
+            'perm': 'data/satnet/perm.pt',
         }
         for k in data_to_path:
             with open(data_to_path[k], 'rb') as f:

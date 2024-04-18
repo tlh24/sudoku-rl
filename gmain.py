@@ -484,8 +484,8 @@ class RecurrentBaselineTrainer(Trainer):
 	'''
 	Used for the recurrent transformer baseline. 
 	'''
-	def __init__(self, model, train_dl, test_dl, device, optimizer_name, criterion, args, loss_log_path='losslog.txt'):
-		super().__init__(model, train_dl, test_dl, device, optimizer_name, criterion, args, None, loss_log_path)
+	def __init__(self, model, train_dl, test_dl, device, optimizer_name, args, loss_log_path='losslog.txt'):
+		super().__init__(model, train_dl, test_dl, device, optimizer_name, None, args, None, loss_log_path)
 	
 	def forwardLoop(self, epoch, is_train, data_loader):
 		sum_batch_loss = 0.0
@@ -503,7 +503,7 @@ class RecurrentBaselineTrainer(Trainer):
 			if is_train:
 				self.model.zero_grad()
 				loss.backward()
-				torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1,0)
+				torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
 				self.optimizer.step()
 		
 			sum_batch_loss += loss.cpu().item()
@@ -524,13 +524,13 @@ def main(args):
 	start_time = time.time() 
 
 	# seed for reproducibility
-	set_seed(42)
+	set_seed(42)	
 
 	device = torch.device('cuda:0')
 	optimizer_name = "adam" # or psgd
 	torch.set_float32_matmul_precision('high')
 
-	if args.is_gracoonizer:
+	if args.gracoonizer:
 		puzzles = torch.load('puzzles_500000.pt')
 		
 		# get our train and test dataloaders
@@ -564,13 +564,13 @@ def main(args):
 		
 		model = GPT(mconf)
 
-		trainer = RecurrentBaselineTrainer(model, train_dataloader, test_dataloader, device, optimizer_name, criterion,args)
+		trainer = RecurrentBaselineTrainer(model, train_dataloader, test_dataloader, device, optimizer_name,args)
 
 	# training 
 	trainer.train()
 
 	# save after training
-	trainer.saveCheckpoint()
+	#trainer.saveCheckpoint()
 
 	# validation
 	print("validation")
@@ -606,7 +606,7 @@ if __name__ == '__main__':
 	# Other
 	parser.add_argument('--seed', type=int, default=0, help='Random seed for reproductivity.')
 	parser.add_argument('--gpu', type=int, default=-1, help='gpu index; -1 means using all GPUs or using CPU if no GPU is available')
-	parser.add_argument('--is_gracoonizer', default=True)
+	parser.add_argument("--gracoonizer", action=argparse.BooleanOptionalAction, default=True)
 	args = parser.parse_args()
 
 	main(args)
