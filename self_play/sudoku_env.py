@@ -9,12 +9,12 @@ from ray.rllib.examples.envs.classes.action_mask_env import ActionMaskEnv
 import numpy as np 
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from sudoku_gen import Sudoku
+from sudoku_gen import Sudoku, LoadSudoku
+import torch 
 
 
- 
 class SudokuEnv(gym.Env):
-    def __init__(self, n_blocks: int, percent_filled: float):
+    def __init__(self, n_blocks: int, percent_filled: float, puzzles_file="puzzles_500000.pt"):
         self.n_blocks = n_blocks
         self.percent_filled = percent_filled 
         self.board_width = self.n_blocks**2
@@ -22,6 +22,7 @@ class SudokuEnv(gym.Env):
         # Note that observation is a flattened matrix
         self.observation_space = spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
         self.action_space = spaces.Discrete(self.board_width**3, start=0)
+        self.puzzles_list = torch.load(puzzles_file)
         self._setupGame()
 
     def _actionTupleToAction(self, action_tuple):
@@ -47,7 +48,7 @@ class SudokuEnv(gym.Env):
     
     def _setupGame(self):
         num_cells_remove = int(self.board_width**2 * (1-self.percent_filled))
-        sudoku = Sudoku(self.board_width, num_cells_remove)
+        sudoku = LoadSudoku(self.board_width, num_cells_remove, self.puzzles_list)
         sudoku.fillValues()
         self.sudoku = sudoku
         self.getActionMask()
@@ -55,6 +56,7 @@ class SudokuEnv(gym.Env):
     def getActionMask(self):
         '''
         TODO: optimize valid action checking 
+        
         Given current board state, return a boolean action mask (vector of size board_width^3) where 
             all valid elements are 1 and invalid are 0 
         

@@ -1,3 +1,4 @@
+import cProfile
 import argparse 
 import os
 import gymnasium as gym
@@ -24,14 +25,37 @@ def get_cli_args():
     args = parser.parse_args()
     return args
 
-if __name__ == "__main__":
+def training(args, algo):
+    # manual training loop
+    for _ in range(args.stop_iters):
+        result = algo.train()
+        print(pretty_print(result))
+
+def testing(config, algo):
+    # manual test loop
+    print("Test loop")
+
+    # Note: no timestep horizon limit because number of actions in sudoku game are bounded if each action is digit placed
+    env = ActionMaskEnv(config["env_config"])
+
+    obs, info = env.reset()
+    done = False 
+
+    while not done: 
+        action = algo.compute_single_action(obs)
+        next_obs, reward, done, truncated, _ = env.step(action)
+
+        print(f"Obs: {obs} Action: {action}")
+
+        obs = next_obs 
+
+def main():
     args = get_cli_args()    
+    print(f"Running with args {args}")
+
     ray.init() 
     rlm_class = TorchActionMaskRLM
     rlm_spec = SingleAgentRLModuleSpec(module_class=rlm_class)
-
-    sudoku_env = SudokuEnv(args.n_blocks, args.percent_filled)
-
 
     # Use PPO action masking
     config = (
@@ -56,26 +80,14 @@ if __name__ == "__main__":
 
     algo = config.build()
 
-    # manual training loop
-    for _ in range(args.stop_iters):
-        result = algo.train()
-        print(pretty_print(result))
+    training(args, algo)
+    #cProfile.runctx('training(args, algo)', globals(), {'args':args, 'algo': algo})
 
-    # manual test loop
-    print("Test loop")
-
-    # Note: no timestep horizon limit because number of actions in sudoku game are bounded if each action is digit placed
-    env = ActionMaskEnv(config["env_config"])
-
-    obs, info = env.reset()
-    done = False 
-
-    while not done: 
-        action = algo.compute_single_action(obs)
-        next_obs, reward, done, truncated, _ = env.step(action)
-
-        print(f"Obs: {obs} Action: {action}")
-
-        obs = next_obs 
+    testing(config, algo)
+    
     ray.shutdown()
     
+
+
+if __name__ == "__main__":
+    main()

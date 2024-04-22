@@ -3,17 +3,14 @@ import math
 import numpy as np
 from termcolor import colored
 import pdb
+import torch 
 
-'''
-What do I need:
-I need a function to check if the board game is over 
-'''
+# TODO: Improve puzzle generation speed with https://github.com/norvig/pytudes/blob/main/ipynb/Sudoku.ipynb
 
 class Sudoku:
 	def __init__(self, N, K):
 		self.N = N # board width, ex: 9
 		self.K = K # number of cells to remove
-
 		# Compute square root of N
 		SRNd = math.sqrt(N)
 		self.SRN = int(SRNd)
@@ -146,10 +143,37 @@ class Sudoku:
 				print(colored(p, color), end=" ")
 			print()
 
+
+class LoadSudoku(Sudoku):
+	'''
+	Sudoku class but "generates" a puzzle by sampling from a file containg a list of puzzles
+	'''
+	def __init__(self, N, K, puzzles=None, file_name="puzzles_500000.pt"):
+		super().__init__(N,K)
+		if puzzles is None:
+			self.puzzles_list = torch.load(file_name)
+		else:
+			self.puzzles_list = puzzles 
+		assert N == self.puzzles_list.shape[1]
+
+	def fillValues(self):
+		#generates the board by choosing a random init board from list of puzzles
+		num_boards = self.puzzles_list.size(0)
+		rand_idx = torch.randint(num_boards, size=(1,)).item()
+		rand_board = self.puzzles_list[rand_idx].numpy()
+		assert rand_board.shape == (self.N, self.N)
+		self.mat = rand_board
+
+
+
 # Driver code
 if __name__ == "__main__":
 	N = 9
 	K = 81-37
-	sudoku = Sudoku(N, K)
+	sudoku = LoadSudoku(N, K)
 	sudoku.fillValues()
 	sudoku.printSudoku()
+
+
+
+
