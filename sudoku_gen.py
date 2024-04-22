@@ -4,15 +4,22 @@ import numpy as np
 from termcolor import colored
 import pdb
 
+'''
+What do I need:
+I need a function to check if the board game is over 
+'''
+
 class Sudoku:
 	def __init__(self, N, K):
-		self.N = N
-		self.K = K
+		self.N = N # board width, ex: 9
+		self.K = K # number of cells to remove
 
 		# Compute square root of N
 		SRNd = math.sqrt(N)
 		self.SRN = int(SRNd)
 		self.mat = np.zeros((N, N), dtype=np.int32)
+		
+
 	
 	def fillValues(self):
 		# Fill the diagonal of SRN x SRN matrices
@@ -115,7 +122,18 @@ class Sudoku:
 				self.mat[i,j] = 0
 	
 		return
-		
+	
+	def makeMove(self, i, j, num):
+		self.mat[i, j] = num
+
+	def getLegalMoveMask(self):
+		'''
+		Updates action_mask to be a binary vector where 1 for each action that is a valid move, 0 for an action 
+			that is invalid. See SudokuEnv for more context- the action space is a int in [0, board_width**3) which 
+			maps to a (i, j, digit) where i,j is the board cell location and digit is the proposed digit placement 
+		'''
+
+
 	def setMat(self, mat): 
 		self.mat = mat.astype(np.int32) # must be int!  == comparisons! 
 
