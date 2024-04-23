@@ -5,8 +5,7 @@ from termcolor import colored
 import pdb
 import torch 
 
-# TODO: Improve puzzle generation speed with https://github.com/norvig/pytudes/blob/main/ipynb/Sudoku.ipynb
-# Can also download from the code which SATNET uses for their data https://github.com/Kyubyong/sudoku
+# TODO: Improve puzzle generation speed with https://github.com/Kyubyong/sudoku
 
 class Sudoku:
 	def __init__(self, N, K):
@@ -166,29 +165,6 @@ class LoadSudoku(Sudoku):
 		assert rand_board.shape == (self.N, self.N)
 		self.mat = rand_board
 
-
-def savePuzzles():
-	'''
-	From SATNet's Sudoku code generation source, save 100,000 puzzles and solutions
-	'''
-	quizzes = np.zeros((100000, 81), np.int32)
-	solutions = np.zeros((100000, 81), np.int32)
-	for i, line in enumerate(open('data/sudoku.csv', 'r').read().splitlines()[1:]):
-		if i == 100000:
-			break 
-
-		quiz, solution = line.split(",")
-		for j, q_s in enumerate(zip(quiz, solution)):
-			q, s = q_s
-			quizzes[i, j] = q
-			solutions[i, j] = s
-	quizzes = quizzes.reshape((-1, 9, 9))
-	solutions = solutions.reshape((-1, 9, 9))
-
-	quizzes_tens = torch.from_numpy(quizzes)
-	solutions_tens = torch.from_numpy(solutions)
-	torch.save(quizzes_tens, "satnet_puzzles_100k.pt")
-	torch.save(solutions_tens, "satnet_sols_100k.pt")
 
 
 

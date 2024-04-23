@@ -21,7 +21,7 @@ def get_cli_args():
     )
     parser.add_argument("--n_blocks", type=int, default=3)
     parser.add_argument("--percent_filled", type=float, default=0.75)
-    parser.add_argument("--puzzles_file", type=str, default="puzzles_500000.pt")
+    parser.add_argument("--puzzles_file", type=str, default="satnet_puzzle_0.75_filled_10000.pt")
     parser.add_argument("--num_gpus",type=int, default=1)
     args = parser.parse_args()
     return args
