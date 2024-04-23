@@ -14,7 +14,8 @@ class ActionMaskEnv(SudokuEnv):
     def __init__(self, config):
         n_blocks = config.get("n_blocks", 3)
         percent_filled = config.get("percent_filled", 0.75)
-        super().__init__(n_blocks, percent_filled)
+        puzzles_file = config.get("puzzles_file", "satnet_puzzles_100k.pt")
+        super().__init__(n_blocks, percent_filled, puzzles_file)
         self._skip_env_checking = False 
         # Masking only works for Discrete actions.
         assert isinstance(self.action_space, Discrete)

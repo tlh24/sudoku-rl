@@ -150,7 +150,7 @@ class LoadSudoku(Sudoku):
 	'''
 	Sudoku class but "generates" a puzzle by sampling from a file containg a list of puzzles
 	'''
-	def __init__(self, N, puzzles=None, file_name="satnet_puzzles_100k.pt"):
+	def __init__(self, N, puzzles=None, file_name="puzzles_500000.pt"):
 		super().__init__(N,0)
 		if puzzles is None:
 			self.puzzles_list = torch.load(file_name)
