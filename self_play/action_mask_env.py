@@ -38,6 +38,7 @@ class ActionMaskEnv(SudokuEnv):
         if not self.action_mask[action]:
             raise ValueError(
                 f"Invalid action ({action}) sent to env! "
+                f"Board={self.sudoku.mat}"
                 f"action_mask={self.action_mask}"
             )
         board, rew, done, _, _ = super().step(action)

@@ -6,6 +6,7 @@ import pdb
 import torch 
 
 # TODO: Improve puzzle generation speed with https://github.com/norvig/pytudes/blob/main/ipynb/Sudoku.ipynb
+# Can also download from the code which SATNET uses for their data https://github.com/Kyubyong/sudoku
 
 class Sudoku:
 	def __init__(self, N, K):
@@ -21,6 +22,7 @@ class Sudoku:
 	def fillValues(self):
 		# Fill the diagonal of SRN x SRN matrices
 		# 4x4 matrices have a good chance of being unsolvable.
+		self.mat = np.zeros((self.N, self.N), dtype=np.int32) #add this so we can properly fill values if we need to redo
 		done = False
 		while not done: 
 			self.fillDiagonal()
@@ -148,8 +150,8 @@ class LoadSudoku(Sudoku):
 	'''
 	Sudoku class but "generates" a puzzle by sampling from a file containg a list of puzzles
 	'''
-	def __init__(self, N, K, puzzles=None, file_name="puzzles_500000.pt"):
-		super().__init__(N,K)
+	def __init__(self, N, puzzles=None, file_name="satnet_puzzles_100k.pt"):
+		super().__init__(N,0)
 		if puzzles is None:
 			self.puzzles_list = torch.load(file_name)
 		else:
@@ -165,15 +167,37 @@ class LoadSudoku(Sudoku):
 		self.mat = rand_board
 
 
+def savePuzzles():
+	'''
+	From SATNet's Sudoku code generation source, save 100,000 puzzles and solutions
+	'''
+	quizzes = np.zeros((100000, 81), np.int32)
+	solutions = np.zeros((100000, 81), np.int32)
+	for i, line in enumerate(open('data/sudoku.csv', 'r').read().splitlines()[1:]):
+		if i == 100000:
+			break 
+
+		quiz, solution = line.split(",")
+		for j, q_s in enumerate(zip(quiz, solution)):
+			q, s = q_s
+			quizzes[i, j] = q
+			solutions[i, j] = s
+	quizzes = quizzes.reshape((-1, 9, 9))
+	solutions = solutions.reshape((-1, 9, 9))
+
+	quizzes_tens = torch.from_numpy(quizzes)
+	solutions_tens = torch.from_numpy(solutions)
+	torch.save(quizzes_tens, "satnet_puzzles_100k.pt")
+	torch.save(solutions_tens, "satnet_sols_100k.pt")
+
+
 
 # Driver code
 if __name__ == "__main__":
 	N = 9
 	K = 81-37
-	sudoku = LoadSudoku(N, K)
-	sudoku.fillValues()
-	sudoku.printSudoku()
-
-
+	#sudoku = LoadSudoku(N, K)
+	#sudoku.fillValues()
+	#sudoku.printSudoku()
 
 

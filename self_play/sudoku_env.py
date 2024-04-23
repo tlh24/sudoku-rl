@@ -14,7 +14,7 @@ import torch
 
 
 class SudokuEnv(gym.Env):
-    def __init__(self, n_blocks: int, percent_filled: float, puzzles_file="puzzles_500000.pt"):
+    def __init__(self, n_blocks: int, percent_filled: float, puzzles_file="satnet_puzzles_100k.pt"):
         self.n_blocks = n_blocks
         self.percent_filled = percent_filled 
         self.board_width = self.n_blocks**2
@@ -23,6 +23,7 @@ class SudokuEnv(gym.Env):
         self.observation_space = spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
         self.action_space = spaces.Discrete(self.board_width**3, start=0)
         self.puzzles_list = torch.load(puzzles_file)
+        self.action_mask = np.zeros(self.board_width**3, dtype=np.int8)
         self._setupGame()
 
     def _actionTupleToAction(self, action_tuple):
@@ -48,10 +49,12 @@ class SudokuEnv(gym.Env):
     
     def _setupGame(self):
         num_cells_remove = int(self.board_width**2 * (1-self.percent_filled))
-        sudoku = LoadSudoku(self.board_width, num_cells_remove, self.puzzles_list)
-        sudoku.fillValues()
+        sudoku = LoadSudoku(self.board_width, self.puzzles_list)
         self.sudoku = sudoku
-        self.getActionMask()
+        while np.sum(self.action_mask) == 0:
+            self.sudoku.fillValues()
+            self.getActionMask()
+        
 
     def getActionMask(self):
         '''
