@@ -51,9 +51,13 @@ class SudokuEnv(gym.Env):
         num_cells_remove = int(self.board_width**2 * (1-self.percent_filled))
         sudoku = LoadSudoku(self.board_width, self.puzzles_list)
         self.sudoku = sudoku
+        num_attempts = 0
         while np.sum(self.action_mask) == 0:
+            if num_attempts > 10:
+                raise RuntimeError("Failed to get a valid board 10 times")
             self.sudoku.fillValues()
             self.getActionMask()
+            num_attempts += 1
         
 
     def getActionMask(self):
