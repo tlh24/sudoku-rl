@@ -46,8 +46,7 @@ def testing(config, algo):
         action = algo.compute_single_action(obs)
         next_obs, reward, done, truncated, _ = env.step(action)
 
-        print(f"Obs: {obs} Action: {action}")
-
+        #print(f"Obs: {obs} Action: {action}")
         obs = next_obs 
 
 def main():
@@ -83,8 +82,12 @@ def main():
     algo = config.build()
 
     training(args, algo)
-    #cProfile.runctx('training(args, algo)', globals(), {'args':args, 'algo': algo})
+    # save a checkpoint 
+    save_result = algo.save()
+    path_to_checkpoint = save_result.checkpoint.path 
+    print(f"A checkpoint has been saved at {path_to_checkpoint}")
 
+    
     testing(config, algo)
     
     ray.shutdown()
