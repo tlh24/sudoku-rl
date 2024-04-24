@@ -4,7 +4,7 @@ import os
 import gymnasium as gym
 from gymnasium.spaces import Box, Discrete
 import ray
-from ray.rllib.algorithms import ppo
+from ray.rllib.algorithms import ppo, algorithm
 from action_mask_env import ActionMaskEnv
 from ray.rllib.examples.rl_modules.classes.action_masking_rlm import (
     TorchActionMaskRLM
@@ -23,6 +23,7 @@ def get_cli_args():
     parser.add_argument("--percent_filled", type=float, default=0.75)
     parser.add_argument("--puzzles_file", type=str, default="satnet_puzzle_0.75_filled_10000.pt")
     parser.add_argument("--num_gpus",type=int, default=1)
+    parser.add_argument("--checkpoint_path", type=str, default='')
     args = parser.parse_args()
     return args
 
@@ -80,6 +81,10 @@ def main():
     )
 
     algo = config.build()
+
+    if args.checkpoint_path:
+        algo.restore(args.checkpoint_path)
+    
 
     training(args, algo)
     # save a checkpoint 
