@@ -161,10 +161,10 @@ class LoadSudoku(Sudoku):
 		#generates the board by choosing a random init board from list of puzzles
 		num_boards = self.puzzles_list.size(0)
 		rand_idx = torch.randint(num_boards, size=(1,)).item()
-		rand_board = self.puzzles_list[rand_idx].numpy()
+		# create a copy to prevent changing the original puzzles list
+		rand_board = self.puzzles_list[rand_idx].clone().detach().numpy()
 		assert rand_board.shape == (self.N, self.N)
 		self.mat = rand_board
-
 
 
 

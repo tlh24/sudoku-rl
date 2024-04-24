@@ -22,6 +22,7 @@ class SudokuEnv(gym.Env):
         # Note that observation is a flattened matrix
         self.observation_space = spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
         self.action_space = spaces.Discrete(self.board_width**3, start=0)
+       
         self.puzzles_list = torch.load(puzzles_file)
         self.action_mask = np.zeros(self.board_width**3, dtype=np.int8)
         self._setupGame()
@@ -48,13 +49,12 @@ class SudokuEnv(gym.Env):
         return (i, j, digit)       
     
     def _setupGame(self):
-        num_cells_remove = int(self.board_width**2 * (1-self.percent_filled))
         sudoku = LoadSudoku(self.board_width, self.puzzles_list)
         self.sudoku = sudoku
         num_attempts = 0
         while np.sum(self.action_mask) == 0:
             if num_attempts > 10:
-                raise RuntimeError("Failed to get a valid board 10 times")
+                raise RuntimeError(f"Failed to get a valid board 10 times board={self.sudoku.mat}")
             self.sudoku.fillValues()
             self.getActionMask()
             num_attempts += 1
