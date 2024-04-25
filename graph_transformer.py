@@ -4,21 +4,21 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 import torchlayers as tl
-import l1attn
+import l1attn_cuda
 import pdb
 import matplotlib.pyplot as plt
 from constants import g_zeroinit, g_l1atten, SuN
 
 class LayerNorm(nn.LayerNorm):
-    """Subclass torch's LayerNorm to handle fp16."""
-    def forward(self, x: torch.Tensor):
-        orig_type = x.dtype
-        ret = super().forward(x.type(torch.float32))
-        return ret.type(orig_type)
+	"""Subclass torch's LayerNorm to handle fp16."""
+	def forward(self, x: torch.Tensor):
+		orig_type = x.dtype
+		ret = super().forward(x.type(torch.float32))
+		return ret.type(orig_type)
 
 class QuickGELU(nn.Module):
-    def forward(self, x: torch.Tensor):
-        return x * torch.sigmoid(1.702 * x)
+	def forward(self, x: torch.Tensor):
+		return x * torch.sigmoid(1.702 * x)
 	  
 class LinearM(nn.Module): 
 	# with the bias merged -- used for PSGD optimizer.
@@ -135,9 +135,9 @@ class ResidualAttentionBlock(nn.Module):
 			# starts out at zero = head gated off.
 		self.head_enabled = [not init_zeros for _ in range(n_head)]
 		self.head_enabled[-1] = True # all-to-all always on.
-		self.l1a = l1attn.L1Attn()
+		self.l1a = l1attn_cuda.L1Attn()
 		if g_l1atten: # axis 2 for regular attention, 3 for l1
-			self.soft = torch.nn.Softmax(dim=3) 
+			self.soft = torch.nn.Softmax(dim=1) 
 		else: 
 			self.soft = torch.nn.Softmax(dim=2)
 		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
@@ -190,10 +190,10 @@ class ResidualAttentionBlock(nn.Module):
 		v = v * gv  
 		
 		if g_l1atten: 
-			a = self.l1a(q,k) / math.sqrt(d_head) # output is bhts!
+			a = self.l1a(q,k) # output is bsdh!
 			a = self.soft(a) 
 			a = a * msk # msk permuted in gmain.py! 
-			b = torch.einsum('bhts,bshd -> bthd', a, v) 
+			b = torch.einsum('bsdh,bshw -> bdhw', a, v) 
 			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() #
 			ap = torch.permute(ap, (1,2,0)).contiguous() # for viewing.
 		else: 

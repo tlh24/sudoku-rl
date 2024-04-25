@@ -341,8 +341,8 @@ def getAttentionMasks(graph_masks, device):
 	if g_globalatten: 
 		attention_masks[:,:,:,-1] = 1.0
 	
-	if g_l1atten: 
-		attention_masks = torch.permute(attention_masks, (0,3,1,2)).contiguous() # L1 atten is bhts order
+	# if g_l1atten: 
+	# 	attention_masks = torch.permute(attention_masks, (0,2,1,3)).contiguous() # L1 atten is bsdh order; was bhts order
 	# msk = msk.to_sparse() # idk if you can have views of sparse tensors.. ??
 	# sparse tensors don't work with einsum, alas.
 	attention_masks = attention_masks.to(device)
