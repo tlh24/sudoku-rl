@@ -9,6 +9,7 @@ class Types(Enum): # these are categorical one-hot encoded.
 	MOVE_ACTION = 6
 	GUESS_ACTION = 7  # 0 is unset guess
 	NOTE_ACTION = 8
+	SET = 9
 	
 # this encoding could be one-hot, integer, or both:
 # need to experiment! 
