@@ -19,6 +19,7 @@ class Axes(float, Enum):
 	Y_AX = 2
 	B_AX = 3 # block
 	H_AX = 4 # highlight (where the cursor is)
+	G_AX = 5 # same as the Guess action, fwiw
 
 class Action(Enum):
 	UP = 0

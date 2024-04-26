@@ -64,7 +64,7 @@ class Node:
 		return i
 		
 		
-def sudokuToNodes(puzzle, curs_pos): 
+def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int): 
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
 	board_nodes = [[] for _ in range(SuN)]
@@ -74,6 +74,8 @@ def sudokuToNodes(puzzle, curs_pos):
 			b = (y // SuH)*SuH + (x // SuH)
 			v = puzzle[x,y]
 			nb = Node(Types.BOX, v)
+			g = guess_mat[x,y]
+			nb.addChild( Node(Axes.G_AX, g - posOffset) )
 			
 			# think of these as named attributes, var.x, var.y etc
 			# the original encoding is var.pos[0], var.pos[1], var.pos[2]
@@ -93,7 +95,7 @@ def sudokuToNodes(puzzle, curs_pos):
 	# make the sets
 	nboard = Node(Types.SET, 2) # node of the whole board
 	
-	xsets = Node(Types.SET, 1)
+	xsets = Node(Types.SET, 1.1)
 	for x in range(SuN): 
 		nb = Node(Types.SET, 0)
 		nb.addChild( Node(Axes.X_AX, x - posOffset) )
@@ -104,18 +106,18 @@ def sudokuToNodes(puzzle, curs_pos):
 	nboard.addChild(xsets)
 	nodes.append(xsets)
 	
-	ysets = Node(Types.SET, 1)
+	ysets = Node(Types.SET, 1.2)
 	for y in range(SuN): 
 		nb = Node(Types.SET, 0)
 		nb.addChild( Node(Axes.Y_AX, y - posOffset) )
 		for x in range(SuN): 
 			nb.addChild( board_nodes[x][y] )
-		ysets.addChild(ysets)
+		ysets.addChild(nb)
 		nodes.append(nb)
 	nboard.addChild(ysets)
 	nodes.append(ysets)
 		
-	bsets = Node(Types.SET, 1)
+	bsets = Node(Types.SET, 1.3)
 	for b in range(SuN): 
 		nb = Node(Types.SET, 0)
 		nb.addChild( Node(Axes.B_AX, b - posOffset) )
@@ -128,7 +130,39 @@ def sudokuToNodes(puzzle, curs_pos):
 		nodes.append(nb)
 	nboard.addChild(bsets)
 	nodes.append(bsets)
+	nodes.append(nboard)
 	
+	def makeAction(ax,v):
+		na = Node(Types.MOVE_ACTION, 0)
+		na.addChild( Node(ax, v) )
+		return na
+		
+	# Uses matrix coordinates: (0,0) is at the top left.
+	# x is down/up, y is right/left
+	match action_type: 
+		case Action.LEFT.value:
+			na = makeAction(Axes.Y_AX, -1)
+		case Action.RIGHT.value:
+			na = makeAction(Axes.Y_AX, 1)
+		case Action.UP.value:
+			na = makeAction(Axes.X_AX, -1)
+		case Action.DOWN.value:
+			na = makeAction(Axes.X_AX, 1)
+		
+		case Action.SET_GUESS.value: 
+			na = Node(Types.GUESS_ACTION, action_value)
+		case Action.UNSET_GUESS.value:
+			na = Node(Types.GUESS_ACTION, 0)
+			
+		case Action.SET_NOTE.value: 
+			na = Node(Types.NOTE_ACTION, action_value)
+		case Action.UNSET_NOTE.value:
+			na = Node(Types.NOTE_ACTION, 0)
+	
+	na.addChild(nboard) # should this be the other way around?
+	nodes.insert(0,na) # put at beginning for better visibility
+	
+	# set the node indexes.
 	for n in nodes: 
 		n.clearLoc()
 	i = 0
@@ -177,7 +211,8 @@ if __name__ == "__main__":
 	puzzle[2,:] = [3,4,5,6]
 	puzzle[3,:] = [4,5,6,7]
 	curs_pos = [0,0]
-	nodes = sudokuToNodes(puzzle, curs_pos)
+	guess_mat = np.zeros((SuN,SuN))
+	nodes = sudokuToNodes(puzzle, guess_mat, curs_pos, Action.LEFT.value, 0)
 	
 	for n in nodes: 
 		n.resetRefcnt()
