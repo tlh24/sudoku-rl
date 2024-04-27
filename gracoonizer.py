@@ -36,7 +36,7 @@ class Gracoonizer(nn.Module):
 			d_model = xfrmr_dim, 
 			layers = 2, # was 2
 			n_head = self.n_head, 
-			repeat = 2, # was 3
+			repeat = 3, # was 3
 			init_zeros = g_zeroinit
 			)
 		
@@ -52,13 +52,12 @@ class Gracoonizer(nn.Module):
 		# with th.no_grad(): 
 		# 	self.critic_to_reward.w.copy_( th.ones(2, xfrmr_dim+1) / xfrmr_dim )
 	
-	def forward(self, benc, actenc, msk, n, record): 
+	def forward(self, benc, hcoo, dst_mxlen, n, record): 
 		batch_size = benc.shape[0]
 		board_size = benc.shape[1]
 		if record is not None: 
 			record.append(actenc)
-		x = th.cat((benc, actenc), axis=1)
-		y,a1,a2,w1,w2 = self.xfrmr(x,msk,n,record)
+		y,a1,a2,w1,w2 = self.xfrmr(benc,hcoo,dst_mxlen,n,record)
 		reward = th.ones(batch_size) * 0.05
 		return y[:,:board_size,:], reward, a1, a2, w1, w2
 		

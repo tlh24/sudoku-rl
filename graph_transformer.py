@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 import torchlayers as tl
-import l1attn_cuda
+import l1attn_sparse_cuda
 import pdb
 import matplotlib.pyplot as plt
 from constants import g_zeroinit, g_l1atten, SuN
@@ -135,11 +135,8 @@ class ResidualAttentionBlock(nn.Module):
 			# starts out at zero = head gated off.
 		self.head_enabled = [not init_zeros for _ in range(n_head)]
 		self.head_enabled[-1] = True # all-to-all always on.
-		self.l1a = l1attn_cuda.L1Attn()
-		if g_l1atten: # axis 2 for regular attention, 3 for l1
-			self.soft = torch.nn.Softmax(dim=1) 
-		else: 
-			self.soft = torch.nn.Softmax(dim=2)
+		self.l1a = l1attn_sparse_cuda.L1AttnSparse()
+		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
 		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
 		#self.fanout_stn = StraightThroughNormal() # try this again?
 		self.gelu = QuickGELU()
@@ -147,7 +144,8 @@ class ResidualAttentionBlock(nn.Module):
 		# self.fanin_stn = StraightThroughNormal()
 		
 		
-	def attention(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int, record=list):
+	def attention(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, layer:int, pas:int, record=list):
+		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
 		
 		if pas == 0 and self.init_zeros: 
@@ -190,26 +188,33 @@ class ResidualAttentionBlock(nn.Module):
 		v = v * gv  
 		
 		if g_l1atten: 
-			a = self.l1a(q,k) # output is bsdh!
-			a = self.soft(a) 
-			a = a * msk # msk permuted in gmain.py! 
-			b = torch.einsum('bsdh,bshw -> bdhw', a, v) 
-			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() #
-			ap = torch.permute(ap, (1,2,0)).contiguous() # for viewing.
+			# ideally, need different coo vectors per head, 
+			# built-in to the lib so it's fast --
+			# indexing problem, can do that later. 
+			v1 = v[:,:,:n_head//2,:]
+			v2 = v[:,:,n_head//2:,:]
+			q1 = q[:,:,:n_head//2,:]
+			q2 = q[:,:,n_head//2:,:]
+			k1 = k[:,:,:n_head//2,:]
+			k2 = k[:,:,n_head//2:,:]
+			b1 = self.l1a(v1,q1,k1,hcoo[0,:,:],dst_mxlen) # output is bsdh!
+			b2 = self.l1a(v2,q2,k2,hcoo[1,:,:],dst_mxlen)
+			b = torch.cat([b1,b2], dim=2)
+			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
 			a = self.soft(a)
 			a = a * msk 
 			b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
-			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu() #
-		
+			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu()
+			
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
 		 
 		return b,ap # residual sum later.
 
-	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, layer:int, pas:int, record=list):
-		y,ap = self.attention(x,msk,n,layer,pas,record)
+	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, layer:int, pas:int, record=list):
+		y,ap = self.attention(x,hcoo,dst_mxlen,n,layer,pas,record)
 		if record is not None: 
 			record.append( y )
 		# y = self.ln_1(y) # stabilize learning? 
@@ -238,13 +243,13 @@ class Transformer(nn.Module):
 		self.layer2 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		# self.resblocks = nn.Sequential(*[ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
-	def forward(self, x:torch.Tensor, msk:torch.Tensor, n:int, record:list):
+	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, record:list):
 		for i in range(self.repeat): 
 			# # one-hot encode the layer position on all tokens. 
 			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
 			# x[:,:,self.d_model - i - 1] = 1.0
-			x,a1,w1 = self.layer1(x,msk,n,0,i,record)
-			x,a2,w2 = self.layer2(x,msk,n,1,i,record)
+			x,a1,w1 = self.layer1(x,hcoo,dst_mxlen,n,0,i,record)
+			x,a2,w2 = self.layer2(x,hcoo,dst_mxlen,n,1,i,record)
 			# x,a3,w3 = self.layer3(x,msk,n,1)
 		return x, a1, a2, w1, w2
 

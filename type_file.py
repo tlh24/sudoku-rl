@@ -1,6 +1,6 @@
 from enum import Enum 
 
-class Types(Enum): # these are categorical one-hot encoded. 
+class Types(int, Enum): # these are categorical one-hot encoded. 
 	CURSOR = 1
 	POSITION = 2 # value is the axis
 	LEAF = 3 # bare value
@@ -13,7 +13,7 @@ class Types(Enum): # these are categorical one-hot encoded.
 	
 # this encoding could be one-hot, integer, or both:
 # need to experiment! 
-class Axes(float, Enum): 
+class Axes(int, Enum): 
 	N_AX = 0 #null, nop
 	X_AX = 1
 	Y_AX = 2

@@ -41,7 +41,6 @@ class Node:
 			print('</node>',file=fil)
 			for k in self.kids: 
 				k.printGexf(fil)
-		
 			
 	def resetRefcnt(self): 
 		if self.refcnt > 0: # graph can contain loops! 
@@ -50,7 +49,7 @@ class Node:
 				k.resetRefcnt()
 		
 	def clearLoc(self): 
-		if self.loc > 0: # graph can contain loops! 
+		if self.loc >= 0: 
 			self.loc = -1
 			for k in self.kids: 
 				k.clearLoc()
@@ -62,6 +61,14 @@ class Node:
 			for k in self.kids: 
 				i = k.setLoc(i)
 		return i
+		
+	def flatten(self, node_list): 
+		if self.refcnt < 1: 
+			self.refcnt = self.refcnt + 1
+			node_list.append(self)
+			for k in self.kids: 
+				node_list = k.flatten(node_list)
+		return node_list
 		
 		
 def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int): 
@@ -163,14 +170,54 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	nodes.insert(0,na) # put at beginning for better visibility
 	
 	# set the node indexes.
+	# some nodes are in the top-level list; others are just children.
 	for n in nodes: 
 		n.clearLoc()
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	print("total number of nodes:", i)
+	# print("total number of nodes:", i)
 	
-	return nodes
+	return nodes # action node & board nodes.
+	
+def nodesToCoo(nodes): 
+	# coo is [dst, src] -- see l1attnSparse
+	edges = [] # edges from kids to parents
+	# to get from parents to kids, switch dst and src. 
+	for n in nodes: 
+		n.resetRefcnt()
+	for n in nodes: 
+		if n.refcnt <= 0: 
+			n.refcnt = n.refcnt+1
+			for k in n.kids:
+				edges.append((n.loc, k.loc))
+	return torch.tensor(edges)
+	
+def encodeNodes(nodes): 
+	# returns a matrix encoding of the nodes + coo vector
+	# redo the loc, jic
+	for n in nodes: 
+		n.clearLoc()
+	i = 0
+	for n in nodes: 
+		i = n.setLoc(i)
+	# flatten the tree-list
+	for n in nodes: 
+		n.resetRefcnt()
+	nodes_flat = []
+	for n in nodes: 
+		nodes_flat = n.flatten(nodes_flat)
+	count = len(nodes_flat)
+	assert(i == count)
+	benc = np.zeros((count, 20), dtype=np.float32)
+	for n in nodes_flat: 
+		i = n.loc # muct be consistent with edges for coo
+		benc[i, n.typ.value] = 1.0 # categorical
+		benc[i, 10] = n.value
+		
+	coo = nodesToCoo(nodes)
+	return torch.tensor(benc), coo
+		
 	
 def outputGexf(nodes): 
 	for n in nodes: 
@@ -205,11 +252,8 @@ def outputGexf(nodes):
 	
 	
 if __name__ == "__main__":
-	puzzle = np.zeros((SuN, SuN))
-	puzzle[0,:] = [1,2,3,4]
-	puzzle[1,:] = [2,3,4,5]
-	puzzle[2,:] = [3,4,5,6]
-	puzzle[3,:] = [4,5,6,7]
+	puzzle = np.arange(SuN*SuN) / 10
+	puzzle = np.reshape(puzzle,(SuN,SuN))
 	curs_pos = [0,0]
 	guess_mat = np.zeros((SuN,SuN))
 	nodes = sudokuToNodes(puzzle, guess_mat, curs_pos, Action.LEFT.value, 0)
@@ -218,6 +262,25 @@ if __name__ == "__main__":
 		n.resetRefcnt()
 	for n in nodes: 
 		n.print("")
+	
+	plot_rows = 1
+	plot_cols = 2
+	figsize = (16, 8)
+	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
+	im = [0,0]
+	
+	benc,coo = encodeNodes(nodes)
+	
+	im[0] = axs[0].imshow(benc.T.numpy())
+	plt.colorbar(im[0], ax=axs[0])
+	axs[0].set_title('board encoding')
+	
+	im[1] = axs[1].plot(coo[:,0].numpy(), coo[:,1].numpy(), 'o')
+	axs[1].set_title('coo vector (child -> parent)')
+	axs[1].set_xlabel('dst')
+	axs[1].set_ylabel('src')
+	
+	plt.show()
 		
 	outputGexf(nodes)
 	# seems to be working..
