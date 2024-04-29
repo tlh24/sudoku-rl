@@ -324,6 +324,8 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, ds
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
 				loss = torch.sum((new_state_preds - new_board)**2) + sum( \
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
+					# we seem to have lost the comment explaining why this was here 
+					# but this was recommended by the psgd authors to break symmetries w a L2 norm on the weights. 
 				return loss
 			loss = optimizer.step(closure)
 		
@@ -343,14 +345,17 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, ds
 	return uu
 	
 	
-def validate(args, model, test_loader, criterion, hcoo, dst_mxlen, uu):
+def validate(args, model, test_loader, optimzer_name, criterion, hcoo, dst_mxlen, uu):
 	model.eval()
 	sum_batch_loss = 0.0
 	with torch.no_grad():
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_board, hcoo, dst_mxlen, uu, None)
-			loss = criterion(new_state_preds, new_board)
+			if optimizer_name == 'psgd': 
+				loss = torch.sum((new_state_preds - new_board)**2)
+			else:
+				loss = criterion(new_state_preds, new_board)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
 			fd_losslog.write(f'{uu}\t{lloss}\n')
@@ -371,7 +376,7 @@ if __name__ == '__main__':
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
-	optimizer_name = "adam" # adam or psgd
+	optimizer_name = "psgd" # adam or psgd
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
@@ -392,7 +397,7 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device)
 	model.printParamCount()
 	try: 
 		#model.load_checkpoint()
@@ -412,4 +417,4 @@ if __name__ == '__main__':
 	model.save_checkpoint()
 
 	print("validation")
-	validate(args, model, test_dataloader, criterion, hcoo, dst_mxlen, uu)
+	validate(args, model, test_dataloader, optimizer_name, criterion, hcoo, dst_mxlen, uu)

@@ -14,13 +14,14 @@ class Types(int, Enum): # these are categorical one-hot encoded.
 # this encoding could be one-hot, integer, or both:
 # need to experiment! 
 class Axes(int, Enum): 
-	N_AX = 0 #null, nop
-	X_AX = 1
-	Y_AX = 2
-	B_AX = 3 # block
-	H_AX = 4 # highlight (where the cursor is)
-	G_AX = 5 # same as the Guess action, fwiw
+	N_AX = 10 #null, nop
+	X_AX = 11
+	Y_AX = 12
+	B_AX = 13 # block
+	H_AX = 14 # highlight (where the cursor is)
+	G_AX = 15 # same as the Guess action, fwiw
 
+# this is not encoded in the board, just for the python code! 
 class Action(Enum):
 	UP = 0
 	RIGHT = 1

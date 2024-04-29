@@ -144,8 +144,8 @@ if __name__ == "__main__":
 					x = x.T / maxqkv[head]
 					
 					plot_tensor(layer+2, head, x, f"wqv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
-					if not initialized: 
-						axs[layer+2,head].plot([19.5, 19.5], [0.0, 19.5], 'g')
+					# if not initialized: 
+					# 	axs[layer+2,head].plot([19.5, 19.5], [0.0, 19.5], 'g')
 					if head == 0: 
 						axs[layer+2,head].set_ylabel('input dim')
 						axs[layer+2,head].set_xlabel('output dim for Q & V')

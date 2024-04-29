@@ -4,7 +4,7 @@ import torch
 from enum import Enum
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
-from constants import SuN, SuH, SuK
+from constants import SuN, SuH, SuK, world_dim
 from type_file import Types, Axes, Action 
 import pdb
 
@@ -76,68 +76,76 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	posOffset = (SuN - 1) / 2.0
 	board_nodes = [[] for _ in range(SuN)]
 	
-	for x in range(SuN): # x = row
-		for y in range(SuN): # y = column
-			b = (y // SuH)*SuH + (x // SuH)
-			v = puzzle[x,y]
-			nb = Node(Types.BOX, v)
-			g = guess_mat[x,y]
-			nb.addChild( Node(Axes.G_AX, g - posOffset) )
-			
-			# think of these as named attributes, var.x, var.y etc
-			# the original encoding is var.pos[0], var.pos[1], var.pos[2]
-			# can do a bit of both by encoding the axes with integers
-			nb.addChild( Node(Axes.X_AX, x - posOffset) )
-			nb.addChild( Node(Axes.Y_AX, y - posOffset) )
-			nb.addChild( Node(Axes.B_AX, b - posOffset) )
-			
-			highlight = 0
-			if x == curs_pos[0] and y == curs_pos[1]: 
-				highlight = 1
-			nb.addChild( Node(Axes.H_AX, highlight))
-			
-			board_nodes[x].append(nb)
-			nodes.append(nb)
-	
-	# make the sets
-	nboard = Node(Types.SET, 2) # node of the whole board
-	
-	xsets = Node(Types.SET, 1.1)
-	for x in range(SuN): 
-		nb = Node(Types.SET, 0)
-		nb.addChild( Node(Axes.X_AX, x - posOffset) )
-		for y in range(SuN): 
-			nb.addChild( board_nodes[x][y] )
-		xsets.addChild(nb)
-		nodes.append(nb)
-	nboard.addChild(xsets)
-	nodes.append(xsets)
-	
-	ysets = Node(Types.SET, 1.2)
-	for y in range(SuN): 
-		nb = Node(Types.SET, 0)
-		nb.addChild( Node(Axes.Y_AX, y - posOffset) )
-		for x in range(SuN): 
-			nb.addChild( board_nodes[x][y] )
-		ysets.addChild(nb)
-		nodes.append(nb)
-	nboard.addChild(ysets)
-	nodes.append(ysets)
+	full_board = False
+	if full_board: 
+		for x in range(SuN): # x = row
+			for y in range(SuN): # y = column
+				b = (y // SuH)*SuH + (x // SuH)
+				v = puzzle[x,y]
+				nb = Node(Types.BOX, v)
+				g = guess_mat[x,y]
+				nb.addChild( Node(Axes.G_AX, g - posOffset) )
+				
+				# think of these as named attributes, var.x, var.y etc
+				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
+				# can do a bit of both by encoding the axes with integers
+				nb.addChild( Node(Axes.X_AX, x - posOffset) )
+				nb.addChild( Node(Axes.Y_AX, y - posOffset) )
+				nb.addChild( Node(Axes.B_AX, b - posOffset) )
+				
+				highlight = 0
+				if x == curs_pos[0] and y == curs_pos[1]: 
+					highlight = 1
+				nb.addChild( Node(Axes.H_AX, highlight))
+				
+				board_nodes[x].append(nb)
+				nodes.append(nb)
 		
-	bsets = Node(Types.SET, 1.3)
-	for b in range(SuN): 
-		nb = Node(Types.SET, 0)
-		nb.addChild( Node(Axes.B_AX, b - posOffset) )
-		for y in range(SuN): # y = row
-			for x in range(SuN): # x = column
-				bb = (y // SuH)*SuH + (x // SuH)
-				if b == bb: 
-					nb.addChild( board_nodes[x][y] )
-		bsets.addChild(nb)
-		nodes.append(nb)
-	nboard.addChild(bsets)
-	nodes.append(bsets)
-	nodes.append(nboard)
+		# make the sets
+		nboard = Node(Types.SET, 2) # node of the whole board
+		
+		xsets = Node(Types.SET, 1.1)
+		for x in range(SuN): 
+			nb = Node(Types.SET, 0)
+			nb.addChild( Node(Axes.X_AX, x - posOffset) )
+			for y in range(SuN): 
+				nb.addChild( board_nodes[x][y] )
+			xsets.addChild(nb)
+			nodes.append(nb)
+		nboard.addChild(xsets)
+		nodes.append(xsets)
+		
+		ysets = Node(Types.SET, 1.2)
+		for y in range(SuN): 
+			nb = Node(Types.SET, 0)
+			nb.addChild( Node(Axes.Y_AX, y - posOffset) )
+			for x in range(SuN): 
+				nb.addChild( board_nodes[x][y] )
+			ysets.addChild(nb)
+			nodes.append(nb)
+		nboard.addChild(ysets)
+		nodes.append(ysets)
+			
+		bsets = Node(Types.SET, 1.3)
+		for b in range(SuN): 
+			nb = Node(Types.SET, 0)
+			nb.addChild( Node(Axes.B_AX, b - posOffset) )
+			for y in range(SuN): # y = row
+				for x in range(SuN): # x = column
+					bb = (y // SuH)*SuH + (x // SuH)
+					if b == bb: 
+						nb.addChild( board_nodes[x][y] )
+			bsets.addChild(nb)
+			nodes.append(nb)
+		nboard.addChild(bsets)
+		nodes.append(bsets)
+		nodes.append(nboard)
+	
+	# make the cursor
+	ncursor = Node(Types.CURSOR, 0)
+	ncursor.addChild( Node(Axes.X_AX, curs_pos[0] - posOffset) )
+	ncursor.addChild( Node(Axes.Y_AX, curs_pos[1] - posOffset) )
+	nodes.append(ncursor)
 	
 	def makeAction(ax,v):
 		na = Node(Types.MOVE_ACTION, 0)
@@ -166,7 +174,9 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		case Action.UNSET_NOTE.value:
 			na = Node(Types.NOTE_ACTION, 0)
 	
-	na.addChild(nboard) # should this be the other way around?
+	if full_board: 
+		na.addChild(nboard) # should this be the other way around?
+	na.addChild(ncursor)
 	nodes.insert(0,na) # put at beginning for better visibility
 	
 	# set the node indexes.
@@ -209,11 +219,11 @@ def encodeNodes(nodes):
 		nodes_flat = n.flatten(nodes_flat)
 	count = len(nodes_flat)
 	assert(i == count)
-	benc = np.zeros((count, 20), dtype=np.float32)
+	benc = np.zeros((count, world_dim), dtype=np.float32)
 	for n in nodes_flat: 
 		i = n.loc # muct be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
-		benc[i, 10] = n.value
+		benc[i, 20] = n.value
 		
 	coo = nodesToCoo(nodes)
 	return torch.tensor(benc), coo
@@ -270,6 +280,7 @@ if __name__ == "__main__":
 	im = [0,0]
 	
 	benc,coo = encodeNodes(nodes)
+	print('benc shape:',benc.shape,'coo shape',coo.shape)
 	
 	im[0] = axs[0].imshow(benc.T.numpy())
 	plt.colorbar(im[0], ax=axs[0])
