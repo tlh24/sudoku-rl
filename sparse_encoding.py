@@ -223,6 +223,8 @@ def encodeNodes(nodes):
 	for n in nodes_flat: 
 		i = n.loc # muct be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
+		#if len(n.parents) > 0: 
+		#	benc[i, n.parents[0].typ.value] = 1.0 # inheritance?
 		benc[i, 20] = n.value
 		
 	coo = nodesToCoo(nodes)

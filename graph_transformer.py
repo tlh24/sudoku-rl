@@ -204,9 +204,10 @@ class ResidualAttentionBlock(nn.Module):
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
 			a = self.soft(a)
-			a = a * msk 
+			# a = a * msk 
 			b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
-			ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu()
+			# ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu()
+			ap = (a[0,:,:,:]).squeeze().detach().cpu()
 			
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))

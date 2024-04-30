@@ -29,10 +29,10 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 		curs_pos[1] += 1
 	if action == Action.DOWN.value: 
 		curs_pos[0] += 1
-	if action == Action.LEFT.value: 	
+	if action == Action.LEFT.value:
 		curs_pos[1] -= 1
-	curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
-	curs_pos[1] = curs_pos[1] % SuN # works for negative nums
+	# curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
+	# curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 	
 	if action == Action.SET_GUESS.value:
 		clue = sudoku.mat[cursPos[0], cursPos[1]]
@@ -322,7 +322,9 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, ds
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds - new_board)**2) + sum( \
+				loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
+					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
+					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 					# we seem to have lost the comment explaining why this was here 
 					# but this was recommended by the psgd authors to break symmetries w a L2 norm on the weights. 
@@ -353,7 +355,7 @@ def validate(args, model, test_loader, optimzer_name, criterion, hcoo, dst_mxlen
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_board, hcoo, dst_mxlen, uu, None)
 			if optimizer_name == 'psgd': 
-				loss = torch.sum((new_state_preds - new_board)**2)
+				loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2)
 			else:
 				loss = criterion(new_state_preds, new_board)
 			lloss = loss.detach().cpu().item()
@@ -376,10 +378,36 @@ if __name__ == '__main__':
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
-	optimizer_name = "psgd" # adam or psgd
+	optimizer_name = "psgd" # adam, adamw, or psgd
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
+	
+	print(coo)
+	# # full coo
+	i = 0
+	coo = torch.zeros(10, 2, dtype=int)
+	for dst in range(5): 
+		for src in range(5): 
+			if src > dst: 
+				coo[i, 0] = dst
+				coo[i, 1] = src
+				i = i + 1
+	print(coo)
+	# we know that the upper triangle works, but super sparse does not. 
+	# gradually remove links until it stops working. 
+	co = []
+	co.append([0,1]) #orig not needed & distractor
+	co.append([0,2]) #orig not needed
+	# co.append([0,3]) # not needed
+	# co.append([0,4]) # nn
+	# co.append([1,2]) # nn
+	co.append([1,3]) # absolutely essential! 
+	co.append([1,4]) # absolutely essential!
+	co.append([2,3]) #orig (functions without one of 2,3 or 2,4, but poorly)
+	co.append([2,4]) #orig
+	# co.append([3,4]) # nn
+	coo = torch.tensor(co)
 	
 	# first half of heads are kids to parents
 	kids2parents, dst_mxlen_f, src_mxlen_f = expandCoo(coo)

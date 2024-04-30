@@ -3,7 +3,7 @@ world_dim = 30
 xfrmr_dim = 30 # default: 128
 reward_dim = 1 # immediate and infinite-horizon
 token_cnt = 5 # run graph_encoding to determine this. 
-g_zeroinit = False
+g_zeroinit = True
 g_l1atten = True
 g_globalatten = False
 
