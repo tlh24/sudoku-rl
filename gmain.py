@@ -323,7 +323,7 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, ds
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
 				loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
-					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
+					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-3 + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 					# we seem to have lost the comment explaining why this was here 
@@ -398,14 +398,14 @@ if __name__ == '__main__':
 	# gradually remove links until it stops working. 
 	co = []
 	co.append([0,1]) #orig not needed & distractor
-	co.append([0,2]) #orig not needed
+	co.append([2,0]) #orig not needed
 	# co.append([0,3]) # not needed
 	# co.append([0,4]) # nn
 	# co.append([1,2]) # nn
-	co.append([1,3]) # absolutely essential! 
-	co.append([1,4]) # absolutely essential!
-	co.append([2,3]) #orig (functions without one of 2,3 or 2,4, but poorly)
-	co.append([2,4]) #orig
+	# co.append([1,3]) # absolutely essential! works slower with 0,3
+	# co.append([1,4]) # absolutely essential! works slower with 0,4
+	co.append([3,2]) #orig (functions without one of 2,3 or 2,4, but poorly)
+	co.append([4,2]) #orig
 	# co.append([3,4]) # nn
 	coo = torch.tensor(co)
 	

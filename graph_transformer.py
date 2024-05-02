@@ -24,7 +24,7 @@ class LinearM(nn.Module):
 	# with the bias merged -- used for PSGD optimizer.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearM, self).__init__()
-		scl = math.sqrt(6) / math.sqrt(indim + outdim)
+		scl = math.sqrt(6) / math.sqrt(indim * outdim)
 		if initzeros: 
 			scl = 0.0
 		self.w = torch.nn.Parameter( scl * torch.rand(outdim, indim+1) )
@@ -38,7 +38,7 @@ class LinearNobias(nn.Module):
 	# with the bias merged.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearNobias, self).__init__()
-		scl = math.sqrt(6) / math.sqrt(indim + outdim)
+		scl = math.sqrt(6) / math.sqrt(indim * outdim)
 		if initzeros: 
 			scl = 0.0
 		self.w = torch.nn.Parameter( scl * torch.rand(outdim, indim) )
@@ -191,15 +191,19 @@ class ResidualAttentionBlock(nn.Module):
 			# ideally, need different coo vectors per head, 
 			# built-in to the lib so it's fast --
 			# indexing problem, can do that later. 
-			v1 = v[:,:,:n_head//2,:]
-			v2 = v[:,:,n_head//2:,:]
-			q1 = q[:,:,:n_head//2,:]
-			q2 = q[:,:,n_head//2:,:]
-			k1 = k[:,:,:n_head//2,:]
-			k2 = k[:,:,n_head//2:,:]
-			b1 = self.l1a(v1,q1,k1,hcoo[0,:,:],dst_mxlen) # output is bsdh!
-			b2 = self.l1a(v2,q2,k2,hcoo[1,:,:],dst_mxlen)
-			b = torch.cat([b1,b2], dim=2)
+			if False: 
+				v1 = v[:,:,:n_head//2,:]
+				v2 = v[:,:,n_head//2:,:]
+				q1 = q[:,:,:n_head//2,:]
+				q2 = q[:,:,n_head//2:,:]
+				k1 = k[:,:,:n_head//2,:]
+				k2 = k[:,:,n_head//2:,:]
+				b1 = self.l1a(v1,q1,k1,hcoo[0,:,:],dst_mxlen) # output is bsdh!
+				b2 = self.l1a(v2,q2,k2,hcoo[1,:,:],dst_mxlen)
+				b = torch.cat([b1,b2], dim=2)
+			else: 
+				# alternate forward and backward heads. 
+				b = self.l1a(v,q,k,hcoo[layer%2,:,:],dst_mxlen) # output is bsdh!
 			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
@@ -208,8 +212,19 @@ class ResidualAttentionBlock(nn.Module):
 			b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
 			# ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu()
 			ap = (a[0,:,:,:]).squeeze().detach().cpu()
-			
+		
+		# multiply b by a symmetry-breaking mask
+		# d_model = self.d_model
+		# msk = torch.ones(self.n_head, d_model) * 1e-3
+		# msk[:, 0:21] = 1
+		# for i in range(self.n_head):
+		# 	msk[i, d_model-(i+1)*3:d_model-i*3] = 1
+		# msk = msk.to(b.device)
+		# msk = msk.unsqueeze(0).unsqueeze(1).expand([batch_size,ntok,-1,-1])
+		# b = torch.sum(b*msk, dim=2) # sum along the heads
+		
 		b = torch.sum(b, dim=2) # sum along the heads
+		
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
 		 
 		return b,ap # residual sum later.
@@ -242,6 +257,8 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.layer1 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		self.layer2 = ResidualAttentionBlock(d_model, n_head, init_zeros)
+		self.layer3 = ResidualAttentionBlock(d_model, n_head, init_zeros)
+		self.layer4 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		# self.resblocks = nn.Sequential(*[ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
 	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, record:list):
@@ -250,7 +267,9 @@ class Transformer(nn.Module):
 			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
 			# x[:,:,self.d_model - i - 1] = 1.0
 			x,a1,w1 = self.layer1(x,hcoo,dst_mxlen,n,0,i,record)
-			x,a2,w2 = self.layer2(x,hcoo,dst_mxlen,n,1,i,record)
+			x,a2,w2 = self.layer2(x,hcoo,dst_mxlen,n,0,i,record)
+			x,a1,w1 = self.layer3(x,hcoo,dst_mxlen,n,0,i,record)
+			x,a2,w2 = self.layer4(x,hcoo,dst_mxlen,n,0,i,record)
 			# x,a3,w3 = self.layer3(x,msk,n,1)
 		return x, a1, a2, w1, w2
 
