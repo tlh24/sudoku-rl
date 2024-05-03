@@ -3,7 +3,7 @@ from enum import Enum
 class Types(int, Enum): # these are categorical one-hot encoded. 
 	CURSOR = 1
 	POSITION = 2 # value is the axis
-	LEAF = 3 # bare value
+	REWARD = 3 # bare value
 	BOX = 4
 	GUESS = 5 # penciled-in guess.
 	MOVE_ACTION = 6

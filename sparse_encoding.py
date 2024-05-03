@@ -71,12 +71,22 @@ class Node:
 		return node_list
 		
 		
-def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int): 
+def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
 	board_nodes = [[] for _ in range(SuN)]
 	
-	full_board = False
+	# make the cursor
+	ncursor = Node(Types.CURSOR, 0)
+	ncursor.addChild( Node(Axes.X_AX, curs_pos[0] - posOffset) )
+	ncursor.addChild( Node(Axes.Y_AX, curs_pos[1] - posOffset) )
+	nodes.append(ncursor)
+	
+	# reward token (used for reward prediction)
+	nreward = Node(Types.REWARD, reward*5)
+	nodes.append(nreward)
+	
+	full_board = True
 	if full_board: 
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column
@@ -96,7 +106,9 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				highlight = 0
 				if x == curs_pos[0] and y == curs_pos[1]: 
 					highlight = 1
-				nb.addChild( Node(Axes.H_AX, highlight))
+				nh = Node(Axes.H_AX, highlight)
+				nh.addChild(ncursor) #cheating haha! 
+				nb.addChild( nh )
 				
 				board_nodes[x].append(nb)
 				nodes.append(nb)
@@ -141,12 +153,6 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		nodes.append(bsets)
 		nodes.append(nboard)
 	
-	# make the cursor
-	ncursor = Node(Types.CURSOR, 0)
-	ncursor.addChild( Node(Axes.X_AX, curs_pos[0] - posOffset) )
-	ncursor.addChild( Node(Axes.Y_AX, curs_pos[1] - posOffset) )
-	nodes.append(ncursor)
-	
 	def makeAction(ax,v):
 		na = Node(Types.MOVE_ACTION, 0)
 		na.addChild( Node(ax, v) )
@@ -166,17 +172,26 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		
 		case Action.SET_GUESS.value: 
 			na = Node(Types.GUESS_ACTION, action_value)
+			na.addChild( Node(Axes.G_AX, action_value) ) # dummy.
 		case Action.UNSET_GUESS.value:
 			na = Node(Types.GUESS_ACTION, 0)
+			na.addChild( Node(Axes.G_AX, 0) ) # dummy.
 			
 		case Action.SET_NOTE.value: 
 			na = Node(Types.NOTE_ACTION, action_value)
 		case Action.UNSET_NOTE.value:
 			na = Node(Types.NOTE_ACTION, 0)
+			
+		case _ : 
+			print(action_type)
+			assert(False)
 	
 	if full_board: 
 		na.addChild(nboard) # should this be the other way around?
 	na.addChild(ncursor)
+	na.addChild(nreward) # action obviously affects reward
+	nboard.addChild(nreward)
+	nreward.addChild(ncursor)
 	nodes.insert(0,na) # put at beginning for better visibility
 	
 	# set the node indexes.
@@ -186,9 +201,11 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	# print("total number of nodes:", i)
+	if i != 130:
+		pdb.set_trace()
+	# print("reward_loc", nreward.loc)
 	
-	return nodes # action node & board nodes.
+	return nodes, nreward.loc # action node & board nodes.
 	
 def nodesToCoo(nodes): 
 	# coo is [dst, src] -- see l1attnSparse
@@ -201,6 +218,8 @@ def nodesToCoo(nodes):
 			n.refcnt = n.refcnt+1
 			for k in n.kids:
 				edges.append((n.loc, k.loc))
+				for kk in k.kids:
+					edges.append((n.loc, kk.loc))
 	return torch.tensor(edges)
 	
 def encodeNodes(nodes): 
@@ -254,7 +273,17 @@ def outputGexf(nodes):
 	for n in nodes: 
 		for k in n.kids: 
 			print(f'<edge source="{n.loc}" target="{k.loc}">',file=fil)
+			print(f'<attvalues>',file=fil)
+			print(f'<attvalue for="0" values="first"/>',file=fil)
+			print(f'</attvalues>',file=fil)
 			print('</edge>',file=fil)
+			# add in grandkids
+			for kk in k.kids: 
+				print(f'<edge source="{n.loc}" target="{kk.loc}">',file=fil)
+				print(f'<attvalues>',file=fil)
+				print(f'<attvalue for="0" value="second"/>',file=fil)
+				print(f'</attvalues>',file=fil)
+				print('</edge>',file=fil)
 	footer = '''
 </edges>
 </graph>
@@ -268,7 +297,7 @@ if __name__ == "__main__":
 	puzzle = np.reshape(puzzle,(SuN,SuN))
 	curs_pos = [0,0]
 	guess_mat = np.zeros((SuN,SuN))
-	nodes = sudokuToNodes(puzzle, guess_mat, curs_pos, Action.LEFT.value, 0)
+	nodes, reward_loc = sudokuToNodes(puzzle, guess_mat, curs_pos, Action.LEFT.value, 0, 0.0)
 	
 	for n in nodes: 
 		n.resetRefcnt()

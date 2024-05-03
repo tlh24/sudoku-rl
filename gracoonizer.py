@@ -34,7 +34,7 @@ class Gracoonizer(nn.Module):
 		
 		self.xfrmr = graph_transformer.Transformer(
 			d_model = xfrmr_dim, 
-			layers = 4, # was 2
+			layers = 6, # was 2
 			n_head = self.n_head, 
 			repeat = 1, # was 3
 			init_zeros = g_zeroinit
@@ -58,8 +58,7 @@ class Gracoonizer(nn.Module):
 		if record is not None: 
 			record.append(actenc)
 		y,a1,a2,w1,w2 = self.xfrmr(benc,hcoo,dst_mxlen,n,record)
-		reward = th.ones(batch_size) * 0.05
-		return y[:,:board_size,:], reward, a1, a2, w1, w2
+		return y[:,:board_size,:], a1, a2, w1, w2
 		
 	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd):
 		# record the real targets for the internal variables. 

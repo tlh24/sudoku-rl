@@ -178,7 +178,7 @@ class ResidualAttentionBlock(nn.Module):
 		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk
 		
-		# full-rank key calculation (worse)
+		# full-rank key calculation (worse!)
 		# kw = self.wk.w.reshape([self.n_head, self.d_model, -1])
 		# k = torch.einsum("btd,hde -> bthe", x, kw)
 	
@@ -255,23 +255,20 @@ class Transformer(nn.Module):
 		self.n_head = n_head
 		self.layers = layers
 		self.repeat = repeat
-		self.layer1 = ResidualAttentionBlock(d_model, n_head, init_zeros)
-		self.layer2 = ResidualAttentionBlock(d_model, n_head, init_zeros)
-		self.layer3 = ResidualAttentionBlock(d_model, n_head, init_zeros)
-		self.layer4 = ResidualAttentionBlock(d_model, n_head, init_zeros)
-		# self.resblocks = nn.Sequential(*[ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
+		#self.layer1 = ResidualAttentionBlock(d_model, n_head, init_zeros)
+		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
 	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, record:list):
 		for i in range(self.repeat): 
 			# # one-hot encode the layer position on all tokens. 
 			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
 			# x[:,:,self.d_model - i - 1] = 1.0
-			x,a1,w1 = self.layer1(x,hcoo,dst_mxlen,n,0,i,record)
-			x,a2,w2 = self.layer2(x,hcoo,dst_mxlen,n,0,i,record)
-			x,a1,w1 = self.layer3(x,hcoo,dst_mxlen,n,0,i,record)
-			x,a2,w2 = self.layer4(x,hcoo,dst_mxlen,n,0,i,record)
-			# x,a3,w3 = self.layer3(x,msk,n,1)
-		return x, a1, a2, w1, w2
+			for j, layer in enumerate(self.resblocks):
+				x,a1,w1 = layer(x,hcoo,dst_mxlen,n,j,i,record)
+				if j == 2: 
+					a2 = a1
+					w2 = w1
+		return x, a1, a2, w1, w2 # dumb way to do this
 
 	def allHeadsOn(self): 
 		self.layer1.allHeadsOn()

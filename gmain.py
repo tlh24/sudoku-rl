@@ -35,23 +35,23 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 	# curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 	
 	if action == Action.SET_GUESS.value:
-		clue = sudoku.mat[cursPos[0], cursPos[1]]
-		curr = guess_mat[cursPos[0], cursPos[1]]
-		if clue == 0 and curr == 0 and sudoku.checkIfSafe(curs_pos[0], curs_pos[1], num):
-			# updateNotes(cursPos, num, notes)
+		clue = sudoku.mat[curs_pos[0], curs_pos[1]]
+		curr = guess_mat[curs_pos[0], curs_pos[1]]
+		if clue == 0 and curr == 0 and sudoku.checkIfSafe(curs_pos[0], curs_pos[1], action_val):
+			# updateNotes(curs_pos, action_val, notes)
 			reward = 1
-			guess_mat[cursPos[0], cursPos[1]] = num
+			guess_mat[curs_pos[0], curs_pos[1]] = action_val
 		else:
 			reward = -1
 	if action == Action.UNSET_GUESS.value:
-		curr = guess_mat[cursPos[0], cursPos[1]]
+		curr = guess_mat[curs_pos[0], curs_pos[1]]
 		if curr != 0: 
-			guess_mat[cursPos[0], cursPos[1]] = 0
+			guess_mat[curs_pos[0], curs_pos[1]] = 0
 		else:
 			reward = -0.25
 			
 	if True: 
-		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}')
+		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}:{action_val}')
 	
 	return reward
 
@@ -72,15 +72,15 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 	msk: Shape (#board&action nodes x #board&action) represents nodes parent/child relationships
 		which defines the attention mask used in the transformer heads
 	'''
-	nodes = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val)
+	nodes, reward_loc = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
 	benc,coo = sparse_encoding.encodeNodes(nodes)
 	
 	reward = runAction(sudoku, guess_mat, curs_pos, action, action_val)
 	
-	nodes = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, -1) # action_val doesn't matter
+	nodes, reward_loc = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, -1, reward) # action_val doesn't matter
 	newbenc,coo = sparse_encoding.encodeNodes(nodes)
 	
-	return benc, newbenc, coo, reward
+	return benc, newbenc, coo, reward, reward_loc
 
 
 def generateActionValue(action: int, min_dist: int, max_dist: int):
@@ -112,7 +112,9 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
-		possible_actions = range(4) # only move! 
+		possible_actions = [ 0,1,2,3,4,5 ]
+		possible_actions.append(Action.SET_GUESS.value) # upweight
+		possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
 	if depth > 0: 
 		for action in possible_actions:
@@ -152,16 +154,15 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		curs_pos = torch.randint(SuN, (2,))
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
 		
-		# curs_pos = torch.randint(1, SuN-1, (2,)) # FIXME: not whole board!
 		# benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
-		benc,newbenc,coo,reward = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
+		benc,newbenc,coo,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
 		orig_boards.append(torch.tensor(benc))
 		new_boards.append(torch.tensor(newbenc))
 		rewards[i] = reward
 		
 	orig_board_enc = torch.stack(orig_boards)
 	new_board_enc = torch.stack(new_boards)
-	return orig_board_enc, new_board_enc, coo, rewards
+	return orig_board_enc, new_board_enc, coo, rewards, reward_loc
 
 def trainValSplit(data_matrix: torch.Tensor, num_eval=None, eval_ratio: float = 0.2):
 	'''
@@ -207,7 +208,7 @@ def getDataLoaders(puzzles, num_samples, num_eval=2000):
 	'''
 	Returns a pytorch train and test dataloader
 	'''
-	data_dict, coo = getDataDict(puzzles, num_samples, num_eval)
+	data_dict, coo, reward_loc = getDataDict(puzzles, num_samples, num_eval)
 	train_dataset = SudokuDataset(data_dict['train_orig_board'],
 											data_dict['train_new_board'], 
 											data_dict['train_rewards'])
@@ -219,14 +220,14 @@ def getDataLoaders(puzzles, num_samples, num_eval=2000):
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-	return train_dataloader, test_dataloader, coo
+	return train_dataloader, test_dataloader, coo, reward_loc
 
 
 def getDataDict(puzzles, num_samples, num_eval=2000):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board, new_board, coo, rewards = enumerateBoards(puzzles, num_samples)
+	orig_board, new_board, coo, rewards, reward_loc = enumerateBoards(puzzles, num_samples)
 	print(orig_board.shape, new_board.shape, rewards.shape)
 	train_orig_board, test_orig_board = trainValSplit(orig_board, num_eval=num_eval)
 	train_new_board, test_new_board = trainValSplit(new_board, num_eval=num_eval)
@@ -241,7 +242,7 @@ def getDataDict(puzzles, num_samples, num_eval=2000):
 		'test_new_board': test_new_board,
 		'test_rewards': test_rewards
     }
-	return dataDict, coo
+	return dataDict, coo, reward_loc
 
 def getMemoryDict():
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
@@ -295,7 +296,7 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
 	return 
 
-def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, dst_mxlen, uu):
+def train(args, memory_dict, model, train_loader, optimizer, hcoo, dst_mxlen, reward_loc, uu):
 	model.train()
 	sum_batch_loss = 0.0
 
@@ -305,12 +306,16 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, ds
 		pred_data = {}
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()
-			new_state_preds, reward_preds, a1,a2,w1,w2 = \
+			new_state_preds,a1,a2,w1,w2 = \
 				model.forward(old_board, hcoo, dst_mxlen, uu, None)
+			reward_preds = new_state_preds[:,reward_loc, 20]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
-			loss = criterion(new_state_preds, new_board)
+			loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
+					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
+					sum( \
+					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 			loss.backward()
 			optimizer.step() 
 			print(loss.detach().cpu().item())
@@ -318,16 +323,17 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, ds
 			# psgd library internally does loss.backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_board, hcoo, dst_mxlen, uu, None)
+				new_state_preds, a1,a2,w1,w2 = model.forward(old_board, hcoo, dst_mxlen, uu, None)
+				reward_preds = new_state_preds[:,reward_loc, 20]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
 				loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
-					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-3 + \
+					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param) * param * param) for param in model.parameters()])
 					# we seem to have lost the comment explaining why this was here 
-					# but this was recommended by the psgd authors to break symmetries w a L2 norm on the weights. 
+					# but it was recommended by the psgd authors to break symmetries w a L2 norm on the weights. 
 				return loss
 			loss = optimizer.step(closure)
 		
@@ -347,17 +353,15 @@ def train(args, memory_dict, model, train_loader, optimizer, criterion, hcoo, ds
 	return uu
 	
 	
-def validate(args, model, test_loader, optimzer_name, criterion, hcoo, dst_mxlen, uu):
+def validate(args, model, test_loader, optimzer_name, hcoo, dst_mxlen, uu):
 	model.eval()
 	sum_batch_loss = 0.0
 	with torch.no_grad():
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
-			new_state_preds, reward_preds, a1,a2,w1,w2 = model.forward(old_board, hcoo, dst_mxlen, uu, None)
-			if optimizer_name == 'psgd': 
-				loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2)
-			else:
-				loss = criterion(new_state_preds, new_board)
+			new_state_preds,a1,a2,w1,w2 = model.forward(old_board, hcoo, dst_mxlen, uu, None)
+			reward_preds = new_state_preds[:,reward_loc, 20]
+			loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
 			fd_losslog.write(f'{uu}\t{lloss}\n')
@@ -371,9 +375,9 @@ def validate(args, model, test_loader, optimzer_name, criterion, hcoo, dst_mxlen
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
-	NUM_SAMPLES = batch_size * 120 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_SAMPLES = batch_size * 200 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
 	NUM_EVAL = batch_size * 25
-	NUM_EPOCHS = 200
+	NUM_EPOCHS = 500
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
@@ -381,33 +385,36 @@ if __name__ == '__main__':
 	optimizer_name = "psgd" # adam, adamw, or psgd
 	
 	# get our train and test dataloaders
-	train_dataloader, test_dataloader, coo = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
+	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
 	
 	print(coo)
-	# # full coo
-	i = 0
-	coo = torch.zeros(10, 2, dtype=int)
-	for dst in range(5): 
-		for src in range(5): 
-			if src > dst: 
-				coo[i, 0] = dst
-				coo[i, 1] = src
-				i = i + 1
-	print(coo)
-	# we know that the upper triangle works, but super sparse does not. 
-	# gradually remove links until it stops working. 
-	co = []
-	co.append([0,1]) #orig not needed & distractor
-	co.append([2,0]) #orig not needed
-	# co.append([0,3]) # not needed
-	# co.append([0,4]) # nn
-	# co.append([1,2]) # nn
-	# co.append([1,3]) # absolutely essential! works slower with 0,3
-	# co.append([1,4]) # absolutely essential! works slower with 0,4
-	co.append([3,2]) #orig (functions without one of 2,3 or 2,4, but poorly)
-	co.append([4,2]) #orig
-	# co.append([3,4]) # nn
-	coo = torch.tensor(co)
+	# # # full coo
+	# i = 0
+	# coo = torch.zeros(10, 2, dtype=int)
+	# for dst in range(5): 
+	# 	for src in range(5): 
+	# 		if src > dst: 
+	# 			coo[i, 0] = dst
+	# 			coo[i, 1] = src
+	# 			i = i + 1
+	# print(coo)
+	# # we know that the upper triangle works, but super sparse does not. 
+	# # gradually remove links until it stops working. 
+	# co = []
+	# co.append([0,1]) #orig not needed & distractor
+	# co.append([2,0]) #orig not needed
+	# # co.append([0,3]) # not needed
+	# # co.append([0,4]) # nn
+	# # co.append([1,2]) # nn
+	# # co.append([1,3]) # absolutely essential! works slower with 0,3
+	# # co.append([1,4]) # absolutely essential! works slower with 0,4
+	# co.append([3,2]) #orig (functions without one of 2,3 or 2,4, but poorly)
+	# co.append([4,2]) #orig
+	# # co.append([3,4]) # nn
+	# co.append([2,2])
+	# co.append([3,0])
+	# co.append([4,0])
+	# coo = torch.tensor(co)
 	
 	# first half of heads are kids to parents
 	kids2parents, dst_mxlen_f, src_mxlen_f = expandCoo(coo)
@@ -435,14 +442,13 @@ if __name__ == '__main__':
 		print("could not load model checkpoint")
 	
 	optimizer = getOptimizer(optimizer_name, model)
-	criterion = nn.MSELoss()
 
 	uu = 0
 	for _ in range(0, args["NUM_EPOCHS"]):
-		uu = train(args, memory_dict, model, train_dataloader, optimizer, criterion, hcoo, dst_mxlen, uu)
+		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, dst_mxlen, reward_loc, uu)
 	
 	# save after training
 	model.save_checkpoint()
 
 	print("validation")
-	validate(args, model, test_dataloader, optimizer_name, criterion, hcoo, dst_mxlen, uu)
+	validate(args, model, test_dataloader, optimizer_name, hcoo, dst_mxlen, reward_loc, uu)
