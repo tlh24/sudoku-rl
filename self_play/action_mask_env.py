@@ -1,5 +1,5 @@
 from sudoku_env import SudokuEnv
-import gymnasium as gym 
+import gymnasium as gym
 from gymnasium.spaces import Box, Dict, Discrete, MultiBinary
 import numpy as np
 from collections import OrderedDict
@@ -15,9 +15,9 @@ class ActionMaskEnv(SudokuEnv):
         n_blocks = config.get("n_blocks", 3)
         percent_filled = config.get("percent_filled", 0.75)
         puzzles_file = config.get("puzzles_file", "break.pt")
-      
+
         super().__init__(n_blocks, percent_filled, puzzles_file)
-        self._skip_env_checking = False 
+        self._skip_env_checking = False
         # Masking only works for Discrete actions.
         assert isinstance(self.action_space, Discrete)
         # Add action_mask to observations
@@ -44,7 +44,7 @@ class ActionMaskEnv(SudokuEnv):
                 f"action_mask={self.action_mask}"
             )
         board, rew, done, _, _ = super().step(action)
-                
+
         obs = OrderedDict([
             ("action_mask", self.action_mask),
             ("observations", board)
@@ -52,6 +52,6 @@ class ActionMaskEnv(SudokuEnv):
 
         return obs, rew, done, False, {}
 
-    #def _get_action_mask(self, board):
+    # def _get_action_mask(self, board):
     #    self.valid_actions = super().get_action_mask(board)
     #    return self.valid_actions
