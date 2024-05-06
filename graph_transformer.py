@@ -5,9 +5,10 @@ import torch.nn.functional as F
 from torch import nn
 import torchlayers as tl
 import l1attn_sparse_cuda
+from flash_attn import flash_attn_func
 import pdb
 import matplotlib.pyplot as plt
-from constants import g_zeroinit, g_l1atten, SuN
+from constants import g_zeroinit, g_l1atten, SuN, g_dtype
 
 class LayerNorm(nn.LayerNorm):
 	"""Subclass torch's LayerNorm to handle fp16."""
@@ -24,10 +25,10 @@ class LinearM(nn.Module):
 	# with the bias merged -- used for PSGD optimizer.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearM, self).__init__()
-		scl = math.sqrt(6) / math.sqrt(indim * outdim)
+		scl = 1.0 / math.sqrt(indim * outdim)
 		if initzeros: 
 			scl = 0.0
-		self.w = torch.nn.Parameter( scl * torch.rand(outdim, indim+1) )
+		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1,dtype=g_dtype))
 		with torch.no_grad(): 
 			self.w[:,-1] = 0.0 # bias starts at 0
 		
@@ -38,10 +39,10 @@ class LinearNobias(nn.Module):
 	# with the bias merged.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearNobias, self).__init__()
-		scl = math.sqrt(6) / math.sqrt(indim * outdim)
+		scl = 1.0 / math.sqrt(indim * outdim)
 		if initzeros: 
 			scl = 0.0
-		self.w = torch.nn.Parameter( scl * torch.rand(outdim, indim) )
+		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim,dtype=g_dtype) )
 		
 	def forward(self, x):
 		return torch.einsum('oi,bhi -> bho', self.w[:, :-1], x)
@@ -144,7 +145,7 @@ class ResidualAttentionBlock(nn.Module):
 		# self.fanin_stn = StraightThroughNormal()
 		
 		
-	def attention(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, layer:int, pas:int, record=list):
+	def attention(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
 		
@@ -184,7 +185,7 @@ class ResidualAttentionBlock(nn.Module):
 	
 		# gate the value by head_enabled. 
 		# during sampling, all heads enabled, so no need to save. 
-		gv = torch.tensor(self.head_enabled, dtype=torch.float32, device=v.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand([batch_size,ntok,-1,d_head])
+		gv = torch.tensor(self.head_enabled, dtype=g_dtype, device=v.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand([batch_size,ntok,-1,d_head])
 		v = v * gv  
 		
 		if g_l1atten: 
@@ -202,8 +203,17 @@ class ResidualAttentionBlock(nn.Module):
 				b2 = self.l1a(v2,q2,k2,hcoo[1,:,:],dst_mxlen)
 				b = torch.cat([b1,b2], dim=2)
 			else: 
-				# alternate forward and backward heads. 
-				b = self.l1a(v,q,k,hcoo[layer%2,:,:],dst_mxlen) # output is bsdh!
+				# cycle through the coo vectors.  
+				if layer % 3 == 2:
+					if g_dtype == torch.float16: 
+						b = flash_attn_func(q, k, v)
+					else: 
+						# flashAttention only supports float16
+						b = flash_attn_func(q.half(), k.half(), v.half())
+						b = b.float()
+				else: 
+					coo,dst_mxlen = hcoo[layer%3]
+					b = self.l1a(v,q,k,coo,dst_mxlen) 
 			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
@@ -229,8 +239,8 @@ class ResidualAttentionBlock(nn.Module):
 		 
 		return b,ap # residual sum later.
 
-	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, layer:int, pas:int, record=list):
-		y,ap = self.attention(x,hcoo,dst_mxlen,n,layer,pas,record)
+	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, n:int, layer:int, pas:int, record=list):
+		y,ap = self.attention(x,hcoo,n,layer,pas,record)
 		if record is not None: 
 			record.append( y )
 		# y = self.ln_1(y) # stabilize learning? 
@@ -258,14 +268,14 @@ class Transformer(nn.Module):
 		#self.layer1 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
-	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, dst_mxlen, n:int, record:list):
+	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, n:int, record:list):
 		for i in range(self.repeat): 
 			# # one-hot encode the layer position on all tokens. 
 			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
 			# x[:,:,self.d_model - i - 1] = 1.0
 			for j, layer in enumerate(self.resblocks):
-				x,a1,w1 = layer(x,hcoo,dst_mxlen,n,j,i,record)
-				if j == 2: 
+				x,a1,w1 = layer(x,hcoo,n,j,i,record)
+				if j == 1: 
 					a2 = a1
 					w2 = w1
 		return x, a1, a2, w1, w2 # dumb way to do this

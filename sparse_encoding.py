@@ -4,7 +4,7 @@ import torch
 from enum import Enum
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
-from constants import SuN, SuH, SuK, world_dim
+from constants import *
 from type_file import Types, Axes, Action 
 import pdb
 
@@ -188,9 +188,9 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	
 	if full_board: 
 		na.addChild(nboard) # should this be the other way around?
+		nboard.addChild(nreward)
 	na.addChild(ncursor)
 	na.addChild(nreward) # action obviously affects reward
-	nboard.addChild(nreward)
 	nreward.addChild(ncursor)
 	nodes.insert(0,na) # put at beginning for better visibility
 	
@@ -201,7 +201,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	if i != 130:
+	if i != token_cnt:
 		pdb.set_trace()
 	# print("reward_loc", nreward.loc)
 	
@@ -218,8 +218,8 @@ def nodesToCoo(nodes):
 			n.refcnt = n.refcnt+1
 			for k in n.kids:
 				edges.append((n.loc, k.loc))
-				for kk in k.kids:
-					edges.append((n.loc, kk.loc))
+				# for kk in k.kids:
+				# 	edges.append((n.loc, kk.loc))
 	return torch.tensor(edges)
 	
 def encodeNodes(nodes): 
@@ -238,7 +238,7 @@ def encodeNodes(nodes):
 		nodes_flat = n.flatten(nodes_flat)
 	count = len(nodes_flat)
 	assert(i == count)
-	benc = np.zeros((count, world_dim), dtype=np.float32)
+	benc = np.zeros((count, world_dim))
 	for n in nodes_flat: 
 		i = n.loc # muct be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
@@ -247,7 +247,7 @@ def encodeNodes(nodes):
 		benc[i, 20] = n.value
 		
 	coo = nodesToCoo(nodes)
-	return torch.tensor(benc), coo
+	return torch.tensor(benc, dtype=g_dtype), coo
 		
 	
 def outputGexf(nodes): 
@@ -277,13 +277,13 @@ def outputGexf(nodes):
 			print(f'<attvalue for="0" values="first"/>',file=fil)
 			print(f'</attvalues>',file=fil)
 			print('</edge>',file=fil)
-			# add in grandkids
-			for kk in k.kids: 
-				print(f'<edge source="{n.loc}" target="{kk.loc}">',file=fil)
-				print(f'<attvalues>',file=fil)
-				print(f'<attvalue for="0" value="second"/>',file=fil)
-				print(f'</attvalues>',file=fil)
-				print('</edge>',file=fil)
+			# # add in grandkids
+			# for kk in k.kids: 
+			# 	print(f'<edge source="{n.loc}" target="{kk.loc}">',file=fil)
+			# 	print(f'<attvalues>',file=fil)
+			# 	print(f'<attvalue for="0" value="second"/>',file=fil)
+			# 	print(f'</attvalues>',file=fil)
+			# 	print('</edge>',file=fil)
 	footer = '''
 </edges>
 </graph>
