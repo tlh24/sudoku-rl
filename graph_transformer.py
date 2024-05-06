@@ -208,9 +208,13 @@ class ResidualAttentionBlock(nn.Module):
 					if g_dtype == torch.float16: 
 						b = flash_attn_func(q, k, v)
 					else: 
-						# flashAttention only supports float16
-						b = flash_attn_func(q.half(), k.half(), v.half())
-						b = b.float()
+						a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
+						a = self.soft(a)
+						b = torch.einsum('btsh,bshd -> bthd', a, v)
+					# else: 
+					# 	# flashAttention only supports float16
+					# 	b = flash_attn_func(q.half(), k.half(), v.half())
+					# 	b = b.float()
 				else: 
 					coo,dst_mxlen = hcoo[layer%3]
 					b = self.l1a(v,q,k,coo,dst_mxlen) 

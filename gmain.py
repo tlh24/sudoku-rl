@@ -20,6 +20,7 @@ import psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
 def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int): 
+	
 	# run the action, update the world, return the reward.
 	# act = b % 4
 	reward = -0.05
@@ -94,7 +95,7 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	'''
 	# movement action
 	dist = np.random.randint(low=min_dist, high=max_dist+1)
-	if action in [Action.DOWN.value,Action.LEFT.value]:
+	if action in [Action.DOWN.value, Action.LEFT.value]:
 		direction = -1
 		return dist * direction 
 
@@ -113,7 +114,7 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
 		possible_actions = [ 0,1,2,3 ]
-		# possible_actions = [ 0,1,2,3,4,5 ]
+		# possible_actions = [ 0,1,2,3,4,5,4,4]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
@@ -152,7 +153,7 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
 		sudoku.setMat(puzzl.numpy())
-		curs_pos = torch.randint(SuN, (2,),dtype=g_dtype)
+		curs_pos = torch.randint(SuN, (2,),dtype=int)
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
 		
 		# benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
@@ -268,11 +269,11 @@ def getLossMask(board_enc, device):
 		loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
 	return loss_mask 
 
-def getOptimizer(optimizer_name, model, lr=1e-3, weight_decay=0):
+def getOptimizer(optimizer_name, model, lr=2e-4, weight_decay=0):
 	if optimizer_name == "adam": 
 		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 	elif optimizer_name == 'adamw':
-		optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+		optimizer = optim.AdamW(model.parameters(), lr=lr)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
 	return optimizer 
@@ -314,7 +315,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
 			loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
-					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
+					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-5 + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 			loss.backward()
@@ -343,6 +344,9 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		args["fd_losslog"].write(f'{uu}\t{lloss}\n')
 		args["fd_losslog"].flush()
 		uu = uu + 1
+		
+		if uu % 1000 == 999: 
+			model.save_checkpoint(f"checkpoints/racoonizer_{uu//1000}.pth")
 
 		sum_batch_loss += lloss
 		if batch_idx % 25 == 0:
@@ -378,12 +382,10 @@ if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
 	NUM_SAMPLES = batch_size * 120 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
 	NUM_EVAL = batch_size * 25
-	NUM_EPOCHS = 200
+	NUM_EPOCHS = 1000
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
-	
-	optimizer_name = "adamw" # adam, adamw, or psgd
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
@@ -445,12 +447,13 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device)
 	model.printParamCount()
 	try: 
-		#model.load_checkpoint()
-		#print("loaded model checkpoint")
+		model.load_checkpoint('checkpoints/racoonizer_18.pth')
+		print("loaded model checkpoint")
 		pass 
 	except : 
 		print("could not load model checkpoint")
 	
+	optimizer_name = "psgd" # adam, adamw, or psgd
 	optimizer = getOptimizer(optimizer_name, model)
 
 	uu = 0
