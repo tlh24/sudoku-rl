@@ -113,8 +113,8 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
-		possible_actions = [ 0,1,2,3 ]
-		# possible_actions = [ 0,1,2,3,4,5,4,4]
+		# possible_actions = [ 0,1,2,3 ]
+		possible_actions = [ 0,1,2,3,4,5,4,4]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
@@ -380,7 +380,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
-	NUM_SAMPLES = batch_size * 120 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_SAMPLES = batch_size * 200 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
 	NUM_EVAL = batch_size * 25
 	NUM_EPOCHS = 1000
 	device = torch.device('cuda:0')
@@ -446,8 +446,9 @@ if __name__ == '__main__':
 	# define model 
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device)
 	model.printParamCount()
+
 	try: 
-		model.load_checkpoint('checkpoints/racoonizer_18.pth')
+		model.load_checkpoint('checkpoints/racoonizer_94.pth')
 		print("loaded model checkpoint")
 		pass 
 	except : 

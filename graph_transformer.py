@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch import nn
 import torchlayers as tl
 import l1attn_sparse_cuda
+import l1attn_cuda
 from flash_attn import flash_attn_func
 import pdb
 import matplotlib.pyplot as plt
@@ -136,7 +137,8 @@ class ResidualAttentionBlock(nn.Module):
 			# starts out at zero = head gated off.
 		self.head_enabled = [not init_zeros for _ in range(n_head)]
 		self.head_enabled[-1] = True # all-to-all always on.
-		self.l1a = l1attn_sparse_cuda.L1AttnSparse()
+		self.l1a_s = l1attn_sparse_cuda.L1AttnSparse()
+		self.l1a_f = l1attn_cuda.L1Attn()
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
 		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
 		#self.fanout_stn = StraightThroughNormal() # try this again?
@@ -208,16 +210,22 @@ class ResidualAttentionBlock(nn.Module):
 					if g_dtype == torch.float16: 
 						b = flash_attn_func(q, k, v)
 					else: 
-						a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
-						a = self.soft(a)
-						b = torch.einsum('btsh,bshd -> bthd', a, v)
+						a = self.l1a_f(q, k) # includes sqrt(head)
+						# output is b,src,dst,heads
+						a = F.softmax(a, 1) # see l1attn.py -- sm over src
+						b = torch.einsum('bsdh, bshw -> bdhw', a, v)
+					# else: 
+					# 	# this is dot-product attention
+					# 	a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
+					# 	a = self.soft(a)
+					# 	b = torch.einsum('btsh,bshd -> bthd', a, v)
 					# else: 
 					# 	# flashAttention only supports float16
 					# 	b = flash_attn_func(q.half(), k.half(), v.half())
 					# 	b = b.float()
 				else: 
 					coo,dst_mxlen = hcoo[layer%3]
-					b = self.l1a(v,q,k,coo,dst_mxlen) 
+					b = self.l1a_s(v,q,k,coo,dst_mxlen) 
 			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)

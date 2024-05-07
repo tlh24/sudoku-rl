@@ -34,7 +34,7 @@ class Gracoonizer(nn.Module):
 		
 		self.xfrmr = graph_transformer.Transformer(
 			d_model = xfrmr_dim, 
-			layers = 6, 
+			layers = 9, 
 			n_head = self.n_head, 
 			repeat = 1, 
 			init_zeros = g_zeroinit
@@ -137,7 +137,7 @@ class Gracoonizer(nn.Module):
 			path = "checkpoints/gracoonizer.pth"
 		self.load_state_dict(torch.load(path))
 		# if we load the state dict, then start all heads 'on'
-		self.xfrmr.allHeadsOn()
+		# self.xfrmr.allHeadsOn()
    
 	def save_checkpoint(self, path:str=None):
 		if path is None:
