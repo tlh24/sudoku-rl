@@ -379,9 +379,66 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			
 	return 
 
+def evaluateActions(model, sudoku, guess_mat, curs_pos, action_type, action_value, hcoo):
+	# evaluate a batch of actions on the model, return the new predicted states.
+	l = len(action_type)
+	boards = torch.zeros(l, token_cnt, world_dim)
+
+	for i,(action,action_val) in enumerate(zip(action_type, action_value)):
+		nodes, reward_loc = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
+		benc,coo = sparse_encoding.encodeNodes(nodes)
+		boards[i,:,:] = benc
+
+	boards = boards.cuda()
+	boards_pred,_,_,_,_ = model.forward(boards,hcoo,0,None)
+	reward_pred = boards_pred[:,reward_loc, 20]
+
+	return boards_pred,reward_pred
+
+# seems slightly stupid to simulate the world through the model
+# when we have a perfectly good simulator at hand..
+# but, the point is to learn the dynamics,
+# and from that features of the world that are useful in predicting policy and value ..
+# (the original plan was to use value gradients, but Dreamer v2 v3 seems to indicate that does not work well with discrete domains -- instead, they use REINFORCE gradients.
+
+def evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo):
+	action_types = []
+	action_values = []
+	for at in [0,1,2,3]: #directions
+		for av in [-1,1]:
+			action_types.append(at)
+			action_values.append(av)
+	at = Action.SET_GUESS.value
+	for av in range(9):
+		action_types.append(at)
+		action_values.append(av+1)
+
+	boards_pred, reward_pred = evaluateActions(model, sudoku, guess_mat, curs_pos, action_types, action_values, hcoo)
+
+	for i,(at,av) in enumerate(zip(action_types,action_values)):
+		reward = reward_pred[i]
+		print(f"action type:{at} value:{av} reward:{reward}")
+
+	return boards_pred, reward_pred
+
+# need some way of updating the actions without updating the whole board...
+
+def evaluateActionsMany2(model, puzzles, hcoo):
+	i = np.random.randint(puzzles.shape[0])
+	puzzle = puzzles[i,:,:]
+	sudoku = Sudoku(SuN, SuK)
+	sudoku.setMat(puzzle.numpy())
+	guess_mat = np.zeros((SuN, SuN))
+	curs_pos = torch.randint(SuN, (2,),dtype=int)
+
+	boards_pred, reward_pred = evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo)
+
+	return boards_pred, reward_pred
+
+
 if __name__ == '__main__':
 	puzzles = torch.load('puzzles_500000.pt')
-	NUM_SAMPLES = batch_size * 200 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_SAMPLES = batch_size * 50 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
 	NUM_EVAL = batch_size * 25
 	NUM_EPOCHS = 1000
 	device = torch.device('cuda:0')
@@ -430,6 +487,8 @@ if __name__ == '__main__':
 	
 	optimizer_name = "psgd" # adam, adamw, or psgd
 	optimizer = getOptimizer(optimizer_name, model)
+
+	evaluateActionsMany2(model, puzzles, hcoo)
 
 	uu = 0
 	for _ in range(0, args["NUM_EPOCHS"]):
