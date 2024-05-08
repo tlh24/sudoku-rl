@@ -318,6 +318,8 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-5 + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
+			# adam is unstable -- attempt to stabilize?
+			torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
 			loss.backward()
 			optimizer.step() 
 			print(loss.detach().cpu().item())
@@ -375,7 +377,6 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 	
 	avg_batch_loss = sum_batch_loss / len(test_loader)
 			
-	
 	return 
 
 if __name__ == '__main__':
@@ -391,33 +392,6 @@ if __name__ == '__main__':
 	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
 	
 	print(coo)
-	# # # full coo
-	# i = 0
-	# coo = torch.zeros(10, 2, dtype=int)
-	# for dst in range(5): 
-	# 	for src in range(5): 
-	# 		if src > dst: 
-	# 			coo[i, 0] = dst
-	# 			coo[i, 1] = src
-	# 			i = i + 1
-	# print(coo)
-	# # we know that the upper triangle works, but super sparse does not. 
-	# # gradually remove links until it stops working. 
-	# co = []
-	# co.append([0,1]) #orig not needed & distractor
-	# co.append([2,0]) #orig not needed
-	# # co.append([0,3]) # not needed
-	# # co.append([0,4]) # nn
-	# # co.append([1,2]) # nn
-	# # co.append([1,3]) # absolutely essential! works slower with 0,3
-	# # co.append([1,4]) # absolutely essential! works slower with 0,4
-	# co.append([3,2]) #orig (functions without one of 2,3 or 2,4, but poorly)
-	# co.append([4,2]) #orig
-	# # co.append([3,4]) # nn
-	# co.append([2,2])
-	# co.append([3,0])
-	# co.append([4,0])
-	# coo = torch.tensor(co)
 	
 	# first half of heads are kids to parents
 	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
@@ -448,7 +422,7 @@ if __name__ == '__main__':
 	model.printParamCount()
 
 	try: 
-		model.load_checkpoint('checkpoints/racoonizer_94.pth')
+		model.load_checkpoint('checkpoints/racoonizer_174.pth')
 		print("loaded model checkpoint")
 		pass 
 	except : 
