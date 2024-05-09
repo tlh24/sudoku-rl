@@ -2,6 +2,7 @@ import datetime
 import gym
 import numpy as np
 import uuid
+import gymnasium
 
 
 class TimeLimit(gym.Wrapper):
@@ -47,7 +48,7 @@ class NormalizeActions(gym.Wrapper):
 
 class OneHotAction(gym.Wrapper):
     def __init__(self, env):
-        assert isinstance(env.action_space, gym.spaces.Discrete)
+        assert isinstance(env.action_space, gym.spaces.Discrete) or isinstance(env.action_space, gymnasium.spaces.Discrete)
         super().__init__(env)
         self._random = np.random.RandomState()
         shape = (self.env.action_space.n,)
@@ -72,7 +73,6 @@ class OneHotAction(gym.Wrapper):
         reference = np.zeros(actions, dtype=np.float32)
         reference[index] = 1.0
         return reference
-
 
 class RewardObs(gym.Wrapper):
     def __init__(self, env):

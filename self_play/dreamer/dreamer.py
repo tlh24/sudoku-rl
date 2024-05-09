@@ -13,11 +13,12 @@ import functools
 import os
 import pathlib
 import sys
+import pdb
 
 os.environ["MUJOCO_GL"] = "osmesa"
 
-
 sys.path.append(str(pathlib.Path(__file__).parent))
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
 
 
 def to_np(x): return x.detach().cpu().numpy()
@@ -148,7 +149,12 @@ def make_dataset(episodes, config):
 
 def make_env(config, mode, id):
     suite, task = config.task.split("_", 1)
-    if suite == "dmc":
+    if suite == "sudoku":
+        from dreamer_sudoku_env import DreamerSudokuEnv
+        env_config = {"n_blocks": 3, "percent_filled": 0.75, "puzzles_file": "/home/justin/Desktop/Code/sudoku-rl/self_play/satnet_puzzle_0.75_filled_10000.pt"}
+        env = DreamerSudokuEnv(env_config)
+        env = wrappers.OneHotAction(env)
+    elif suite == "dmc":
         import envs.dmc as dmc
 
         env = dmc.DeepMindControl(
@@ -308,6 +314,7 @@ def main(config):
         logger.write()
         if config.eval_episode_num > 0:
             print("Start evaluation.")
+
             eval_policy = functools.partial(agent, training=False)
             tools.simulate(
                 eval_policy,

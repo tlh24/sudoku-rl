@@ -1,29 +1,35 @@
-import sys
+'''
+Used to work with https://github.com/NM512/dreamerv3-torch/tree/main/envs dreamer code 
+Note: no action masking 
+'''
+import sys 
 from pathlib import Path  
-import gymnasium
+from sudoku_env import SudokuEnv
+import gym 
+import gymnasium 
+import torch 
 from gymnasium import spaces
-import numpy as np 
-
+from gymnasium.spaces import Discrete
+import numpy as np
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from sudoku_gen import Sudoku, LoadSudoku
 import torch 
 
-
-class SudokuEnv(gymnasium.Env):
+         
+class NoMaskSudoku(gym.Env):
     '''
-    To be used with action masking 
+    Sudoku to be used with no action masking. Assumes that generated puzzle is solvable
     '''
     def __init__(self, n_blocks: int, percent_filled: float, puzzles_file="satnet_puzzles_100k.pt"):
         self.n_blocks = n_blocks
         self.percent_filled = percent_filled 
         self.board_width = self.n_blocks**2
         # board consists of digits and 0 (for empty cells). Board positions i,j are 0-indexed. 
-        # Note that observation is a flattened matrix
-        self.observation_space = spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
-        self.action_space = spaces.Discrete(self.board_width**3, start=0)
+        # Note that observation is a flattened vector
+        self._observation_space = gym.spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
+        self._action_space = gym.spaces.Discrete(self.board_width**3)
        
         self.puzzles_list = torch.load(puzzles_file)
-        self.action_mask = np.zeros(self.board_width**3, dtype=np.int8)
         self._setupGame()
 
     def _actionTupleToAction(self, action_tuple):
@@ -50,37 +56,7 @@ class SudokuEnv(gymnasium.Env):
     def _setupGame(self):
         sudoku = LoadSudoku(self.board_width, self.puzzles_list)
         self.sudoku = sudoku
-        num_attempts = 0
-        while np.sum(self.action_mask) == 0:
-            if num_attempts > 10:
-                raise RuntimeError(f"Failed to get a valid board 10 times board={self.sudoku.mat}")
-            self.sudoku.fillValues()
-            self.getActionMask()
-            num_attempts += 1
-        
-
-    def getActionMask(self):
-        '''
-        TODO: optimize valid action checking 
-        
-        Given current board state, return a boolean action mask (vector of size board_width^3) where 
-            all valid elements are 1 and invalid are 0 
-        
-        board: (numpy matrix) Size board_width * board_width, each elm in matrix is a digit in [0, board_width]
-            where 0 represents no number
-        '''
-        action_mask = np.ones(self.board_width**3, dtype=np.int8)
-        # all occupied cells are invalid actions
-        for i in range(0, self.board_width):
-            for j in range(0, self.board_width):
-                if self.sudoku.mat[i][j] != 0:
-                    action_mask[self._actionTupleToAction((i,j,1)) : self._actionTupleToAction((i,j,self.board_width)) + 1] = 0
-                else:
-                    for digit in range(1, self.board_width + 1):
-                        if not self.sudoku.checkIfSafe(i,j,digit):
-                            action_mask[self._actionTupleToAction((i,j,digit))] = 0
-        
-        self.action_mask = action_mask
+        self.sudoku.fillValues()
 
 
     def getReward(self):
@@ -99,9 +75,6 @@ class SudokuEnv(gymnasium.Env):
                 val = board[i][j]
                 # Empty cell exists
                 if val == 0: 
-                    # no playable moves left is loss
-                    if sum(self.action_mask) == 0:
-                        return -1 
                     return 0
 
                 # check row 
@@ -124,22 +97,17 @@ class SudokuEnv(gymnasium.Env):
     
 
 
-    def step(self, action: int):
+    def _step(self, action: int):
         '''
         action: (int) Later converted to a tuple (i,j,act) where i,j represent board indices and act 
             represents digit placed 
         
         Returns board, is_done, reward
         '''
-        # need to limit to only legal actions
-        # assuming that action is legal
         (i,j,digit) = self._actionToActionTuple(action)
         self.sudoku.makeMove(i,j,digit)
 
-        # update my action mask
-        self.getActionMask()
-
-        # reward is 1 if win, -1 if lose/no playable actions and empty cells left, 0 if there exists an empty cell and playable 
+        # reward is 1 if win, -1 if lose, 0 if empty cell exist
         reward = self.getReward()
         is_done = (reward != 0)
 
@@ -148,5 +116,53 @@ class SudokuEnv(gymnasium.Env):
     def reset(self):
         self._setupGame()
         return self.sudoku.mat.flatten(), {} 
-    
 
+
+class DreamerSudokuEnv(NoMaskSudoku):
+    """
+    Written to work with https://github.com/NM512/dreamerv3-torch/tree/main/envs
+    """
+    def __init__(self, config):
+        n_blocks = config.get("n_blocks", 3)
+        percent_filled = config.get("percent_filled", 0.75)
+        puzzles_file = config.get("puzzles_file", "break.pt")
+
+        super().__init__(n_blocks, percent_filled, puzzles_file)
+        self._skip_env_checking = False
+
+    @property
+    def observation_space(self):
+        spaces = {
+            "board": gym.spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8),
+            "is_first": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.uint8),
+            "is_last": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.uint8),
+            "is_terminal": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.uint8)
+        }
+        return gym.spaces.Dict(spaces)
+
+    @property
+    def action_space(self):
+        action_space = self._action_space
+        action_space.discrete = True
+        return action_space
+
+    def reset(self):
+        board, info = super().reset()
+        obs = {
+            "board": board, 
+            "is_first": True,
+            "is_last": False,
+            "is_terminal": False,
+        }
+        return obs 
+    
+    def step(self, action):
+        board, reward, done, _, info = self._step(action)
+        reward = np.float32(reward)
+        obs = {
+            "board": board,
+            "is_first": False,
+            "is_last": done,
+            "is_terminal": done
+        }
+        return obs, reward, done, info
