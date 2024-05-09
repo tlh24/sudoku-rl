@@ -92,10 +92,10 @@ def sudokuActionNodes(action_type, action_value):
 		
 		case Action.SET_GUESS.value: 
 			na = Node(Types.GUESS_ACTION, action_value)
-			na.addChild( Node(Axes.G_AX, action_value) ) # dummy.
+			na.addChild( Node(Types.GUESS, action_value) ) # dummy.
 		case Action.UNSET_GUESS.value:
 			na = Node(Types.GUESS_ACTION, 0)
-			na.addChild( Node(Axes.G_AX, 0) ) # dummy.
+			na.addChild( Node(Types.GUESS, -2) ) # dummy.
 			
 		case Action.SET_NOTE.value: 
 			na = Node(Types.NOTE_ACTION, action_value)
@@ -130,7 +130,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				v = puzzle[x,y]
 				nb = Node(Types.BOX, v)
 				g = guess_mat[x,y]
-				nb.addChild( Node(Axes.G_AX, g) )
+				nb.addChild( Node(Types.GUESS, g) )
 				
 				# think of these as named attributes, var.x, var.y etc
 				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
@@ -154,7 +154,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		
 		xsets = Node(Types.SET, 1.1)
 		for x in range(SuN): 
-			nb = Node(Types.SET, 0)
+			nb = Node(Types.SET, 0.1)
 			nb.addChild( Node(Axes.X_AX, x - posOffset) )
 			for y in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -165,7 +165,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		
 		ysets = Node(Types.SET, 1.2)
 		for y in range(SuN): 
-			nb = Node(Types.SET, 0)
+			nb = Node(Types.SET, 0.2)
 			nb.addChild( Node(Axes.Y_AX, y - posOffset) )
 			for x in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -176,7 +176,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 			
 		bsets = Node(Types.SET, 1.3)
 		for b in range(SuN): 
-			nb = Node(Types.SET, 0)
+			nb = Node(Types.SET, 0.3)
 			nb.addChild( Node(Axes.B_AX, b - posOffset) )
 			for y in range(SuN): # y = row
 				for x in range(SuN): # x = column
@@ -208,17 +208,17 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		i = n.setLoc(i)
 	if i != token_cnt:
 		pdb.set_trace()
-	# print("reward_loc", nreward.loc)
 	
 	board_loc = torch.zeros((SuN,SuN),dtype=int)
 	guess_loc = torch.zeros((SuN,SuN),dtype=int)
-	for x in range(SuN): # x = row
-		for y in range(SuN): # y = column
-			board_loc[x,y] = board_nodes[x][y].loc
-			guess_loc[x,y] = board_nodes[x][y].kids[0].loc
+	if full_board:
+		for x in range(SuN): # x = row
+			for y in range(SuN): # y = column
+				board_loc[x,y] = board_nodes[x][y].loc
+				guess_loc[x,y] = board_nodes[x][y].kids[0].loc
 	cursor_loc = [ncursor.kids[0].loc, ncursor.kids[1].loc]
 	
-	return nodes, nreward.loc, (board_loc, guess_loc,cursor_loc)
+	return nodes, nreward.loc, (board_loc,guess_loc,cursor_loc)
 	
 def nodesToCoo(nodes): 
 	# coo is [dst, src] -- see l1attnSparse
@@ -258,6 +258,11 @@ def encodeNodes(nodes):
 		# if len(n.parents) > 0: 
 		# 	benc[i, n.parents[0].typ.value] = 1.0 # inheritance?
 		benc[i, 20] = n.value
+		ntv = n.typ.value
+		if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
+			if n.value >= 0.7 and n.value <= 4.3: 
+				vi = round(n.value)
+				benc[i,20-vi] = 1.0 # also categorical.
 		
 	coo = nodesToCoo(nodes)
 	return torch.tensor(benc, dtype=g_dtype), coo
@@ -334,7 +339,7 @@ if __name__ == "__main__":
 	puzzle = np.reshape(puzzle,(SuN,SuN))
 	curs_pos = [0,0]
 	guess_mat = np.zeros((SuN,SuN))
-	nodes, reward_loc = sudokuToNodes(puzzle, guess_mat, curs_pos, Action.LEFT.value, 0, 0.0)
+	nodes, reward_loc, locs = sudokuToNodes(puzzle, guess_mat, curs_pos, Action.LEFT.value, 0, 0.0)
 	
 	for n in nodes: 
 		n.resetRefcnt()

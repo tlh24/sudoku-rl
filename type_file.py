@@ -19,7 +19,7 @@ class Axes(int, Enum):
 	Y_AX = 12
 	B_AX = 13 # block
 	H_AX = 14 # highlight (where the cursor is)
-	G_AX = 15 # same as the Guess action, fwiw
+	# G_AX = 15 # same as the Guess action, fwiw
 
 # this is not encoded in the board, just for the python code! 
 class Action(Enum):

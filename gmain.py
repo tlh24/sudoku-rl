@@ -87,7 +87,7 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 	
 	reward = runAction(sudoku, guess_mat, curs_pos, action, action_val)
 	
-	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, -1, reward) # action_val doesn't matter
+	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, reward) # action_val doesn't matter
 	newbenc,coo = sparse_encoding.encodeNodes(nodes)
 	
 	return benc, newbenc, coo, reward, reward_loc
@@ -123,7 +123,7 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
 		# possible_actions = [ 0,1,2,3 ]
-		possible_actions = [ 0,1,2,3,4,5,4,4]
+		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
@@ -357,7 +357,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		uu = uu + 1
 		
 		if uu % 1000 == 999: 
-			model.save_checkpoint(f"checkpoints/racoonizer_{uu//1000}.pth")
+			model.save_checkpoint(f"checkpoints/racoonizer_{uu//1000}.pth") #fixme
 
 		sum_batch_loss += lloss
 		if batch_idx % 25 == 0:
@@ -410,17 +410,6 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 # # and from that features of the world that are useful in predicting policy and value ..
 # # (the original plan was to use value gradients, but Dreamer v2 v3 seems to indicate that does not work well with discrete domains -- instead, they use REINFORCE gradients.
 # 
-# def makeActionList(): 
-# 	action_types = []
-# 	action_values = []
-# 	for at in [0,1,2,3]: #directions
-# 		action_types.append(at)
-# 		action_values.append(0)
-# 	at = Action.SET_GUESS.value
-# 	for av in range(SuN):
-# 		action_types.append(at)
-# 		action_values.append(av+1)
-# 	return action_types,action_values
 # 
 # def evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo):
 # 	action_types,action_values = makeActionList()
@@ -446,6 +435,18 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 # 	boards_pred, reward_pred = evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo)
 # 
 # 	return boards_pred, reward_pred
+
+def makeActionList(): 
+	action_types = []
+	action_values = []
+	for at in [0,1,2,3]: #directions
+		action_types.append(at)
+		action_values.append(0)
+	at = Action.SET_GUESS.value
+	for av in range(SuN):
+		action_types.append(at)
+		action_values.append(av+1)
+	return action_types,action_values
 	
 class ANode: 
 	def __init__(self, typ, val, reward): 
@@ -514,9 +515,9 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 
 if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_SAMPLES = batch_size * 25 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
-	NUM_EVAL = batch_size * 20
-	NUM_EPOCHS = 1000
+	NUM_SAMPLES = batch_size * 250 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_EVAL = batch_size * 200
+	NUM_EPOCHS = 10000
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
@@ -555,7 +556,7 @@ if __name__ == '__main__':
 	model.printParamCount()
 
 	try: 
-		model.load_checkpoint('checkpoints/racoonizer_174.pth')
+		model.load_checkpoint('checkpoints/racoonizer_173.pth')
 		print("loaded model checkpoint")
 		pass 
 	except : 
@@ -566,12 +567,12 @@ if __name__ == '__main__':
 
 	evaluateActionsRecurse(model, puzzles, hcoo)
 
-	# uu = 0
-	# for _ in range(0, args["NUM_EPOCHS"]):
-	# 	uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
- # 
-	# # save after training
-	# model.save_checkpoint()
- # 
-	# print("validation")
-	# validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
+	uu = 0
+	for _ in range(0, args["NUM_EPOCHS"]):
+		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
+ 
+	# save after training
+	model.save_checkpoint()
+ 
+	print("validation")
+	validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
