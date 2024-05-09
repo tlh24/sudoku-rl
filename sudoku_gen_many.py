@@ -3,7 +3,6 @@ import torch
 import numpy as np
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
-import model
 from multiprocessing import Pool
 from itertools import product
 

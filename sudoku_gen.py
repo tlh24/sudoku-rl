@@ -130,8 +130,10 @@ class Sudoku:
 
 # Driver code
 if __name__ == "__main__":
-	N = 9
-	K = 81-37
+	# N = 9
+	# K = 81-37
+	N = 4
+	K = 16-6
 	sudoku = Sudoku(N, K)
 	sudoku.fillValues()
 	sudoku.printSudoku()

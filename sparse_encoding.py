@@ -5,7 +5,7 @@ from enum import Enum
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
 from constants import *
-from type_file import Types, Axes, Action 
+from type_file import Types, Axes, Action, getActionName
 import pdb
 
 # encode the board as a graph that can be passed to sparse attention. 
@@ -71,6 +71,42 @@ class Node:
 		return node_list
 		
 		
+def sudokuActionNodes(action_type, action_value): 
+	
+	def makeAction(ax,v):
+		na = Node(Types.MOVE_ACTION, 0)
+		na.addChild( Node(ax, v) )
+		return na
+		
+	# Uses matrix coordinates: (0,0) is at the top left.
+	# x is down/up, y is right/left
+	match action_type: 
+		case Action.LEFT.value:
+			na = makeAction(Axes.Y_AX, -1)
+		case Action.RIGHT.value:
+			na = makeAction(Axes.Y_AX, 1)
+		case Action.UP.value:
+			na = makeAction(Axes.X_AX, -1)
+		case Action.DOWN.value:
+			na = makeAction(Axes.X_AX, 1)
+		
+		case Action.SET_GUESS.value: 
+			na = Node(Types.GUESS_ACTION, action_value)
+			na.addChild( Node(Axes.G_AX, action_value) ) # dummy.
+		case Action.UNSET_GUESS.value:
+			na = Node(Types.GUESS_ACTION, 0)
+			na.addChild( Node(Axes.G_AX, 0) ) # dummy.
+			
+		case Action.SET_NOTE.value: 
+			na = Node(Types.NOTE_ACTION, action_value)
+		case Action.UNSET_NOTE.value:
+			na = Node(Types.NOTE_ACTION, 0)
+			
+		case _ : 
+			print(action_type)
+			assert(False)
+	return na
+		
 def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
@@ -94,7 +130,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				v = puzzle[x,y]
 				nb = Node(Types.BOX, v)
 				g = guess_mat[x,y]
-				nb.addChild( Node(Axes.G_AX, g - posOffset) )
+				nb.addChild( Node(Axes.G_AX, g) )
 				
 				# think of these as named attributes, var.x, var.y etc
 				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
@@ -153,38 +189,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		nodes.append(bsets)
 		nodes.append(nboard)
 	
-	def makeAction(ax,v):
-		na = Node(Types.MOVE_ACTION, 0)
-		na.addChild( Node(ax, v) )
-		return na
-		
-	# Uses matrix coordinates: (0,0) is at the top left.
-	# x is down/up, y is right/left
-	match action_type: 
-		case Action.LEFT.value:
-			na = makeAction(Axes.Y_AX, -1)
-		case Action.RIGHT.value:
-			na = makeAction(Axes.Y_AX, 1)
-		case Action.UP.value:
-			na = makeAction(Axes.X_AX, -1)
-		case Action.DOWN.value:
-			na = makeAction(Axes.X_AX, 1)
-		
-		case Action.SET_GUESS.value: 
-			na = Node(Types.GUESS_ACTION, action_value)
-			na.addChild( Node(Axes.G_AX, action_value) ) # dummy.
-		case Action.UNSET_GUESS.value:
-			na = Node(Types.GUESS_ACTION, 0)
-			na.addChild( Node(Axes.G_AX, 0) ) # dummy.
-			
-		case Action.SET_NOTE.value: 
-			na = Node(Types.NOTE_ACTION, action_value)
-		case Action.UNSET_NOTE.value:
-			na = Node(Types.NOTE_ACTION, 0)
-			
-		case _ : 
-			print(action_type)
-			assert(False)
+	na = sudokuActionNodes(action_type, action_value)
 	
 	if full_board: 
 		na.addChild(nboard) # should this be the other way around?
@@ -205,7 +210,15 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		pdb.set_trace()
 	# print("reward_loc", nreward.loc)
 	
-	return nodes, nreward.loc # action node & board nodes.
+	board_loc = torch.zeros((SuN,SuN),dtype=int)
+	guess_loc = torch.zeros((SuN,SuN),dtype=int)
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			board_loc[x,y] = board_nodes[x][y].loc
+			guess_loc[x,y] = board_nodes[x][y].kids[0].loc
+	cursor_loc = [ncursor.kids[0].loc, ncursor.kids[1].loc]
+	
+	return nodes, nreward.loc, (board_loc, guess_loc,cursor_loc)
 	
 def nodesToCoo(nodes): 
 	# coo is [dst, src] -- see l1attnSparse
@@ -248,7 +261,31 @@ def encodeNodes(nodes):
 		
 	coo = nodesToCoo(nodes)
 	return torch.tensor(benc, dtype=g_dtype), coo
-		
+	
+def encodeActionNodes(action_type, action_value): 
+	# action nodes are at the beginning of the board encoding, 
+	# easy to replace. 
+	na = sudokuActionNodes(action_type, action_value)
+	aenc, _ = encodeNodes([na])
+	return aenc
+	
+def decodeNodes(benc, locs): 
+	posOffset = (SuN - 1) / 2.0
+	board_loc,guess_loc,cursor_loc = locs
+	puzzle = torch.zeros((SuN, SuN), dtype = int)
+	guess_mat = torch.zeros((SuN, SuN), dtype = int)
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			puzzle[x,y] = round(benc[board_loc[x,y], 20].item() )
+			guess_mat[x,y] = round(benc[guess_mat[x,y], 20].item() )
+	cursor_pos = [round(benc[cursor_loc[0], 20].item() + posOffset), \
+		round(benc[cursor_loc[1], 20].item() + posOffset ) ]
+	
+	su = Sudoku(SuN,SuN)
+	su.setMat(puzzle.numpy())
+	su.printSudoku()
+	print("guess_mat", guess_mat)
+	print("cursor_pos", cursor_pos)
 	
 def outputGexf(nodes): 
 	for n in nodes: 

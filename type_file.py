@@ -32,3 +32,25 @@ class Action(Enum):
 	SET_NOTE = 6
 	UNSET_NOTE = 7
 	NOP = 8
+
+
+def getActionName(action_type): 
+	match action_type: 
+		case 0: 
+			return "UP"
+		case 1: 
+			return "RIGHT"
+		case 2:
+			return "DOWN"
+		case 3: 
+			return "LEFT"
+		case 4:
+			return "SET_GUESS"
+		case 5: 
+			return "UNSET_GUESS"
+		case 6:
+			return "SET_NOTE"
+		case 7:
+			return "UNSET_NOTE"
+		case _ : 
+			return "NOP"

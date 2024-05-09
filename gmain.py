@@ -13,7 +13,7 @@ from plot_mmap import make_mmf, write_mmap
 from netdenoise import NetDenoise
 from test_gtrans import getTestDataLoaders, SimpleMLP
 from constants import *
-from type_file import Action
+from type_file import Action, getActionName
 from l1attn_sparse_cuda import expandCoo
 import psgd 
 	# https://sites.google.com/site/lixilinx/home/psgd
@@ -32,6 +32,15 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 		curs_pos[0] += 1
 	if action == Action.LEFT.value:
 		curs_pos[1] -= 1
+	# clip (rather than wrap) cursor position
+	for i in range(2): 
+		if curs_pos[i] < 0: 
+			reward = -0.5
+			curs_pos[i] = 0
+		if curs_pos[i] >= SuN: 
+			reward = -0.5
+			curs_pos[i] = SuN - 1
+		
 	# curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
 	# curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 	
@@ -51,7 +60,7 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 		else:
 			reward = -0.25
 			
-	if True: 
+	if False: 
 		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}:{action_val}')
 	
 	return reward
@@ -73,12 +82,12 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 	msk: Shape (#board&action nodes x #board&action) represents nodes parent/child relationships
 		which defines the attention mask used in the transformer heads
 	'''
-	nodes, reward_loc = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
+	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
 	benc,coo = sparse_encoding.encodeNodes(nodes)
 	
 	reward = runAction(sudoku, guess_mat, curs_pos, action, action_val)
 	
-	nodes, reward_loc = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, -1, reward) # action_val doesn't matter
+	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, -1, reward) # action_val doesn't matter
 	newbenc,coo = sparse_encoding.encodeNodes(nodes)
 	
 	return benc, newbenc, coo, reward, reward_loc
@@ -105,7 +114,7 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 
 	# guess or set note action
 	if action in [Action.SET_GUESS.value, Action.SET_NOTE.value]:
-		return np.random.randint(1,10)
+		return np.random.randint(1,SuN+1)
 
 	# nop
 	return 0
@@ -158,8 +167,8 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		
 		# benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
 		benc,newbenc,coo,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
-		orig_boards.append(torch.tensor(benc,dtype=g_dtype))
-		new_boards.append(torch.tensor(newbenc,dtype=g_dtype))
+		orig_boards.append(benc)
+		new_boards.append(newbenc)
 		rewards[i] = reward
 		
 	orig_board_enc = torch.stack(orig_boards)
@@ -379,67 +388,134 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			
 	return 
 
-def evaluateActions(model, sudoku, guess_mat, curs_pos, action_type, action_value, hcoo):
-	# evaluate a batch of actions on the model, return the new predicted states.
-	l = len(action_type)
-	boards = torch.zeros(l, token_cnt, world_dim)
+# def evaluateActions(model, sudoku, guess_mat, curs_pos, action_type, action_value, hcoo):
+# 	# evaluate a batch of actions on the model, return the new predicted states.
+# 	l = len(action_type)
+# 	boards = torch.zeros(l, token_cnt, world_dim)
+# 
+# 	for i,(action,action_val) in enumerate(zip(action_type, action_value)):
+# 		nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
+# 		benc,coo = sparse_encoding.encodeNodes(nodes)
+# 		boards[i,:,:] = benc
+# 
+# 	boards = boards.cuda()
+# 	boards_pred,_,_,_,_ = model.forward(boards,hcoo,0,None)
+# 	reward_pred = boards_pred[:,reward_loc, 20]
+# 
+# 	return boards_pred,reward_pred,locs
+# 
+# # seems slightly stupid to simulate the world through the model
+# # when we have a perfectly good simulator at hand..
+# # but, the point is to learn the dynamics,
+# # and from that features of the world that are useful in predicting policy and value ..
+# # (the original plan was to use value gradients, but Dreamer v2 v3 seems to indicate that does not work well with discrete domains -- instead, they use REINFORCE gradients.
+# 
+# def makeActionList(): 
+# 	action_types = []
+# 	action_values = []
+# 	for at in [0,1,2,3]: #directions
+# 		action_types.append(at)
+# 		action_values.append(0)
+# 	at = Action.SET_GUESS.value
+# 	for av in range(SuN):
+# 		action_types.append(at)
+# 		action_values.append(av+1)
+# 	return action_types,action_values
+# 
+# def evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo):
+# 	action_types,action_values = makeActionList()
+# 
+# 	boards_pred, reward_pred, locs = evaluateActions(model, sudoku, guess_mat, curs_pos, action_types, action_values, hcoo)
+# 
+# 	for i,(at,av) in enumerate(zip(action_types,action_values)):
+# 		reward = reward_pred[i]
+# 		print(f"action type:{at} value:{av} reward:{reward}")
+# 
+# 	return boards_pred, reward_pred
+# 
+# # need some way of updating the actions without updating the whole board...
+# 
+# def evaluateActionsMany2(model, puzzles, hcoo):
+# 	i = np.random.randint(puzzles.shape[0])
+# 	puzzle = puzzles[i,:,:]
+# 	sudoku = Sudoku(SuN, SuK)
+# 	sudoku.setMat(puzzle.numpy())
+# 	guess_mat = np.zeros((SuN, SuN))
+# 	curs_pos = torch.randint(SuN, (2,),dtype=int)
+# 
+# 	boards_pred, reward_pred = evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo)
+# 
+# 	return boards_pred, reward_pred
+	
+class ANode: 
+	def __init__(self, typ, val, reward): 
+		self.action_type = typ
+		self.action_value = val
+		self.kids = []
+		self.reward = reward
+		
+	def addKid(self, node): 
+		self.kids.append(node)
+		
+	def print(self, indent): 
+		print(indent, self.action_type, self.action_value, self.reward)
+		indent = indent + " "
+		for k in self.kids: 
+			k.print(indent)
 
-	for i,(action,action_val) in enumerate(zip(action_type, action_value)):
-		nodes, reward_loc = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
-		benc,coo = sparse_encoding.encodeNodes(nodes)
-		boards[i,:,:] = benc
+	
+def evaluateActionsRec(model, board, hcoo, action_node, depth, locs): 
+	# clean up the boards
+	board = torch.round(board * 2.0) / 2.0
+		
+	if depth > 0: 
+		action_types,action_values = makeActionList()
+			
+		new_boards = torch.Tensor.repeat(board, (len(action_types), 1, 1))
+		for i,(at,av) in enumerate(zip(action_types,action_values)):
+			aenc = sparse_encoding.encodeActionNodes(at, av)
+			s = aenc.shape[0]
+			new_boards[i, 0:s, :] = aenc.cuda()
+			
+		boards_pred,_,_,_,_ = model.forward(new_boards,hcoo,0,None)
+		reward_pred = boards_pred[:,reward_loc, 20]
+		
+		for i,(at,av) in enumerate(zip(action_types,action_values)):
+			reward = reward_pred[i].item()
+			board = boards_pred[i,:,:]
+			an = ANode(at, av, reward)
+			action_node.addKid(an)
+			print(f"action {getActionName(at)} {av} reward {reward}")
+			sparse_encoding.decodeNodes(board, locs)
+			if reward > -2.0: 
+				evaluateActionsRec(model, board, hcoo, an, depth-1, locs)
 
-	boards = boards.cuda()
-	boards_pred,_,_,_,_ = model.forward(boards,hcoo,0,None)
-	reward_pred = boards_pred[:,reward_loc, 20]
-
-	return boards_pred,reward_pred
-
-# seems slightly stupid to simulate the world through the model
-# when we have a perfectly good simulator at hand..
-# but, the point is to learn the dynamics,
-# and from that features of the world that are useful in predicting policy and value ..
-# (the original plan was to use value gradients, but Dreamer v2 v3 seems to indicate that does not work well with discrete domains -- instead, they use REINFORCE gradients.
-
-def evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo):
-	action_types = []
-	action_values = []
-	for at in [0,1,2,3]: #directions
-		for av in [-1,1]:
-			action_types.append(at)
-			action_values.append(av)
-	at = Action.SET_GUESS.value
-	for av in range(9):
-		action_types.append(at)
-		action_values.append(av+1)
-
-	boards_pred, reward_pred = evaluateActions(model, sudoku, guess_mat, curs_pos, action_types, action_values, hcoo)
-
-	for i,(at,av) in enumerate(zip(action_types,action_values)):
-		reward = reward_pred[i]
-		print(f"action type:{at} value:{av} reward:{reward}")
-
-	return boards_pred, reward_pred
-
-# need some way of updating the actions without updating the whole board...
-
-def evaluateActionsMany2(model, puzzles, hcoo):
+	
+def evaluateActionsRecurse(model, puzzles, hcoo): 
 	i = np.random.randint(puzzles.shape[0])
 	puzzle = puzzles[i,:,:]
 	sudoku = Sudoku(SuN, SuK)
 	sudoku.setMat(puzzle.numpy())
+	print("-- initial state --")
+	sudoku.printSudoku()
 	guess_mat = np.zeros((SuN, SuN))
 	curs_pos = torch.randint(SuN, (2,),dtype=int)
-
-	boards_pred, reward_pred = evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo)
-
-	return boards_pred, reward_pred
-
+	print(f"curs_pos {curs_pos[0]},{curs_pos[1]}")
+	
+	nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, 0, 0, 0.0) # action will be replaced.
+	board,_ = sparse_encoding.encodeNodes(nodes)
+	
+	board = board.cuda()
+	
+	action_node = ANode(0,0,0.0)
+	evaluateActionsRec(model, board, hcoo, action_node, 1, locs)
+	
+	action_node.print("")
 
 if __name__ == '__main__':
-	puzzles = torch.load('puzzles_500000.pt')
-	NUM_SAMPLES = batch_size * 50 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
-	NUM_EVAL = batch_size * 25
+	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
+	NUM_SAMPLES = batch_size * 25 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_EVAL = batch_size * 20
 	NUM_EPOCHS = 1000
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
@@ -488,14 +564,14 @@ if __name__ == '__main__':
 	optimizer_name = "psgd" # adam, adamw, or psgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	evaluateActionsMany2(model, puzzles, hcoo)
+	evaluateActionsRecurse(model, puzzles, hcoo)
 
-	uu = 0
-	for _ in range(0, args["NUM_EPOCHS"]):
-		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
-	
-	# save after training
-	model.save_checkpoint()
-
-	print("validation")
-	validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
+	# uu = 0
+	# for _ in range(0, args["NUM_EPOCHS"]):
+	# 	uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
+ # 
+	# # save after training
+	# model.save_checkpoint()
+ # 
+	# print("validation")
+	# validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
