@@ -5,8 +5,7 @@ from torch import nn
 import networks
 import tools
 
-
-def to_np(x): return x.detach().cpu().numpy()
+to_np = lambda x: x.detach().cpu().numpy()
 
 
 class RewardEMA:
@@ -146,11 +145,9 @@ class WorldModel(nn.Module):
                     for key, value in losses.items()
                 }
                 model_loss = sum(scaled.values()) + kl_loss
-            metrics = self._model_opt(
-                torch.mean(model_loss), self.parameters())
+            metrics = self._model_opt(torch.mean(model_loss), self.parameters())
 
-        metrics.update({f"{name}_loss": to_np(loss)
-                       for name, loss in losses.items()})
+        metrics.update({f"{name}_loss": to_np(loss) for name, loss in losses.items()})
         metrics["kl_free"] = kl_free
         metrics["dyn_scale"] = dyn_scale
         metrics["rep_scale"] = rep_scale
@@ -177,7 +174,7 @@ class WorldModel(nn.Module):
     def preprocess(self, obs):
         obs = obs.copy()
         if "image" in obs:
-            obs["image"] = torch.Tensor(obs["image"]) / 255.0 #TODO: FLAG scaling 
+            obs["image"] = torch.Tensor(obs["image"]) / 255.0
         if "discount" in obs:
             obs["discount"] *= self._config.discount
             # (batch_size, batch_length) -> (batch_size, batch_length, 1)
@@ -187,8 +184,7 @@ class WorldModel(nn.Module):
         # 'is_terminal' is necesarry to train cont_head
         assert "is_terminal" in obs
         obs["cont"] = torch.Tensor(1.0 - obs["is_terminal"]).unsqueeze(-1)
-        obs = {k: torch.Tensor(v).to(self._config.device)
-               for k, v in obs.items()}
+        obs = {k: torch.Tensor(v).to(self._config.device) for k, v in obs.items()}
         return obs
 
     def video_pred(self, data):
@@ -201,14 +197,11 @@ class WorldModel(nn.Module):
         recon = self.heads["decoder"](self.dynamics.get_feat(states))["image"].mode()[
             :6
         ]
-        reward_post = self.heads["reward"](
-            self.dynamics.get_feat(states)).mode()[:6]
+        reward_post = self.heads["reward"](self.dynamics.get_feat(states)).mode()[:6]
         init = {k: v[:, -1] for k, v in states.items()}
         prior = self.dynamics.imagine_with_action(data["action"][:6, 5:], init)
-        openl = self.heads["decoder"](self.dynamics.get_feat(prior))[
-            "image"].mode()
-        reward_prior = self.heads["reward"](
-            self.dynamics.get_feat(prior)).mode()
+        openl = self.heads["decoder"](self.dynamics.get_feat(prior))["image"].mode()
+        reward_prior = self.heads["reward"](self.dynamics.get_feat(prior)).mode()
         # observed image is given until 5 steps
         model = torch.cat([recon[:, :5], openl], 1)
         truth = data["image"][:6]
@@ -260,8 +253,7 @@ class ImagBehavior(nn.Module):
         if config.critic["slow_target"]:
             self._slow_value = copy.deepcopy(self.value)
             self._updates = 0
-        kw = dict(wd=config.weight_decay,
-                  opt=config.opt, use_amp=self._use_amp)
+        kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
         self._actor_opt = tools.Optimizer(
             "actor",
             self.actor.parameters(),
@@ -286,8 +278,7 @@ class ImagBehavior(nn.Module):
         )
         if self._config.reward_EMA:
             # register ema_vals to nn.Module for enabling torch.save and torch.load
-            self.register_buffer("ema_vals", torch.zeros(
-                (2,)).to(self._config.device))
+            self.register_buffer("ema_vals", torch.zeros((2,)).to(self._config.device))
             self.reward_ema = RewardEMA(device=self._config.device)
 
     def _train(
@@ -305,8 +296,7 @@ class ImagBehavior(nn.Module):
                 )
                 reward = objective(imag_feat, imag_state, imag_action)
                 actor_ent = self.actor(imag_feat).entropy()
-                state_ent = self._world_model.dynamics.get_dist(
-                    imag_state).entropy()
+                state_ent = self._world_model.dynamics.get_dist(imag_state).entropy()
                 # this target is not scaled by ema or sym_log.
                 target, weights, base = self._compute_target(
                     imag_feat, imag_state, reward
@@ -318,8 +308,7 @@ class ImagBehavior(nn.Module):
                     weights,
                     base,
                 )
-                actor_loss -= self._config.actor["entropy"] * \
-                    actor_ent[:-1, ..., None]
+                actor_loss -= self._config.actor["entropy"] * actor_ent[:-1, ..., None]
                 actor_loss = torch.mean(actor_loss)
                 metrics.update(mets)
                 value_input = imag_feat
@@ -349,15 +338,13 @@ class ImagBehavior(nn.Module):
             metrics.update(tools.tensorstats(imag_action, "imag_action"))
         metrics["actor_entropy"] = to_np(torch.mean(actor_ent))
         with tools.RequiresGrad(self):
-            metrics.update(self._actor_opt(
-                actor_loss, self.actor.parameters()))
-            metrics.update(self._value_opt(
-                value_loss, self.value.parameters()))
+            metrics.update(self._actor_opt(actor_loss, self.actor.parameters()))
+            metrics.update(self._value_opt(value_loss, self.value.parameters()))
         return imag_feat, imag_state, imag_action, weights, metrics
 
     def _imagine(self, start, policy, horizon):
         dynamics = self._world_model.dynamics
-        def flatten(x): return x.reshape([-1] + list(x.shape[2:]))
+        flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
         start = {k: flatten(v) for k, v in start.items()}
 
         def step(prev, _):
@@ -371,16 +358,14 @@ class ImagBehavior(nn.Module):
         succ, feats, actions = tools.static_scan(
             step, [torch.arange(horizon)], (start, None, None)
         )
-        states = {k: torch.cat([start[k][None], v[:-1]], 0)
-                  for k, v in succ.items()}
+        states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ.items()}
 
         return feats, states, actions
 
     def _compute_target(self, imag_feat, imag_state, reward):
         if "cont" in self._world_model.heads:
             inp = self._world_model.dynamics.get_feat(imag_state)
-            discount = self._config.discount * \
-                self._world_model.heads["cont"](inp).mean
+            discount = self._config.discount * self._world_model.heads["cont"](inp).mean
         else:
             discount = self._config.discount * torch.ones_like(reward)
         value = self.value(imag_feat).mode()

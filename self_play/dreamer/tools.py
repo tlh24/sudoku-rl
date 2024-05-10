@@ -166,6 +166,7 @@ def simulate(
         # step agents
         obs = {k: np.stack([o[k] for o in obs])
                for k in obs[0] if "log_" not in k}
+  
         action, agent_state = agent(obs, done, agent_state)
         if isinstance(action, dict):
             action = [
@@ -176,6 +177,7 @@ def simulate(
             action = np.array(action)
         assert len(action) == len(envs)
         # step envs
+      
         results = [e.step(a) for e, a in zip(envs, action)]
         results = [r() for r in results]
         obs, reward, done = zip(*[p[:3] for p in results])
@@ -441,6 +443,9 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
         else:
             super().__init__(logits=logits, probs=probs)
 
+    def get_logit(self):
+        return super().logits.detach() + super().logits - super().logits.detach()
+    
     def mode(self):
         _mode = F.one_hot(
             torch.argmax(super().logits, axis=-1), super().logits.shape[-1]

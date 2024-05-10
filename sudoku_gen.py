@@ -164,7 +164,7 @@ class LoadSudoku(Sudoku):
 		# create a copy to prevent changing the original puzzles list
 		rand_board = self.puzzles_list[rand_idx].clone().detach().numpy()
 		assert rand_board.shape == (self.N, self.N)
-		self.mat = rand_board
+		self.mat = rand_board.astype(np.uint8)
 
 
 

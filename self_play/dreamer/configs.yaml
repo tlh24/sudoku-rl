@@ -71,6 +71,7 @@ defaults:
   grad_clip: 1000
   dataset_size: 1000000
   opt: 'adam'
+  return_logits: False 
 
   # Behavior.
   discount: 0.997
@@ -181,6 +182,7 @@ sudoku:
   action_repeat: 1
   actor: {dist: 'onehot', std: 'none'}
   imag_gradient: 'reinforce'
+  return_logits: True 
 
 
 debug:

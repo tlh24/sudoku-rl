@@ -25,7 +25,7 @@ def to_np(x): return x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset):
+    def __init__(self, obs_space, act_space, config, logger, dataset, return_logits=False):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
@@ -41,6 +41,7 @@ class Dreamer(nn.Module):
         self._step = logger.step // config.action_repeat
         self._update_count = 0
         self._dataset = dataset
+        self._return_logits = return_logits
         self._wm = models.WorldModel(obs_space, act_space, self._step, config)
         self._task_behavior = models.ImagBehavior(config, self._wm)
         if (
@@ -96,22 +97,37 @@ class Dreamer(nn.Module):
         if self._config.eval_state_mean:
             latent["stoch"] = latent["mean"]
         feat = self._wm.dynamics.get_feat(latent)
+        #breakpoint()
         if not training:
             actor = self._task_behavior.actor(feat)
-            action = actor.mode()
+            if self._return_logits:
+                # Only works for one-hot dist 
+                action = actor.get_logit() 
+            else:
+                action = actor.mode()
         elif self._should_expl(self._step):
             actor = self._expl_behavior.actor(feat)
-            action = actor.sample()
+            if self._return_logits:
+                action = actor.get_logit() 
+            else:
+                action = actor.sample()
         else:
             actor = self._task_behavior.actor(feat)
-            action = actor.sample()
+            if self._return_logits:
+                action = actor.get_logit() 
+            else:
+                action = actor.sample()
+        #TODO: double check that actor.log_prob isn't used for anything. Note that when action is logits, log_prob is a vector of length n not 1
         logprob = actor.log_prob(action)
         latent = {k: v.detach() for k, v in latent.items()}
         action = action.detach()
         if self._config.actor["dist"] == "onehot_gumble":
-            action = torch.one_hot(
-                torch.argmax(action, dim=-1), self._config.num_actions
-            )
+            if self._return_logits:
+                raise ValueError("For sudoku, which is the only thing with masking, should not have onehot_gumble") 
+            else:
+                action = torch.one_hot(
+                    torch.argmax(action, dim=-1), self._config.num_actions
+                )
         policy_output = {"action": action, "logprob": logprob}
         state = (latent, action)
         return policy_output, state
@@ -151,7 +167,7 @@ def make_env(config, mode, id):
     suite, task = config.task.split("_", 1)
     if suite == "sudoku":
         from dreamer_sudoku_env import DreamerSudokuEnv
-        env_config = {"n_blocks": 3, "percent_filled": 0.75, "puzzles_file": "/home/justin/Desktop/Code/sudoku-rl/self_play/satnet_puzzle_0.75_filled_10000.pt"}
+        env_config = {"n_blocks": 3, "percent_filled": 0.75, "puzzles_file": "/home/justin/Desktop/Code/sudoku-rl/satnet_puzzle_0.95_filled_10000.pt"}
         env = DreamerSudokuEnv(env_config)
         env = wrappers.OneHotAction(env)
     elif suite == "dmc":
@@ -258,6 +274,8 @@ def main(config):
     config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
 
     state = None
+    return_logits = config.return_logits
+
     if not config.offline_traindir:
         prefill = max(0, config.prefill - count_steps(config.traindir))
         print(f"Prefill dataset ({prefill} steps).")
@@ -273,6 +291,8 @@ def main(config):
                 ),
                 1,
             )
+        #TODO: create your own random_agent for sudoku that returns  all equal logits, then create a wrapper that takes logits and 
+        #converts into a selected action 
 
         def random_agent(o, d, s):
             action = random_actor.sample()
@@ -294,12 +314,14 @@ def main(config):
     print("Simulate agent.")
     train_dataset = make_dataset(train_eps, config)
     eval_dataset = make_dataset(eval_eps, config)
+  
     agent = Dreamer(
         train_envs[0].observation_space,
         train_envs[0].action_space,
         config,
         logger,
         train_dataset,
+        config.return_logits
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
     if (logdir / "latest.pt").exists():

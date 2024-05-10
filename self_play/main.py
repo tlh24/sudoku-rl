@@ -5,6 +5,7 @@ import gymnasium as gym
 from gymnasium.spaces import Box, Discrete
 import ray
 from ray.rllib.algorithms import ppo, algorithm
+from dreamer_sudoku_env import NMSudoku
 from action_mask_env import ActionMaskEnv
 from ray.rllib.examples.rl_modules.classes.action_masking_rlm import (
     TorchActionMaskRLM
@@ -20,8 +21,8 @@ def get_cli_args():
         "--stop_iters", type=int, default=10, help="Number of iterations to train"
     )
     parser.add_argument("--n_blocks", type=int, default=3)
-    parser.add_argument("--percent_filled", type=float, default=0.75)
-    parser.add_argument("--puzzles_file", type=str, default="satnet_puzzle_0.75_filled_10000.pt")
+    parser.add_argument("--percent_filled", type=float, default=0.95)
+    parser.add_argument("--puzzles_file", type=str, default="/home/justin/Desktop/Code/sudoku-rl/satnet_puzzle_0.95_filled_10000.pt")
     parser.add_argument("--num_gpus",type=int, default=1)
     parser.add_argument("--checkpoint_path", type=str, default='')
     args = parser.parse_args()
@@ -38,7 +39,7 @@ def testing(config, algo):
     print("Test loop")
 
     # Note: no timestep horizon limit because number of actions in sudoku game are bounded if each action is digit placed
-    env = ActionMaskEnv(config["env_config"])
+    env = NMSudoku(config["env_config"])
 
     obs, info = env.reset()
     done = False 
@@ -57,12 +58,12 @@ def main():
     ray.init() 
     rlm_class = TorchActionMaskRLM
     rlm_spec = SingleAgentRLModuleSpec(module_class=rlm_class)
-
+    '''
     # Use PPO action masking
     config = (
         ppo.PPOConfig()
         .environment(
-            ActionMaskEnv,
+            NMSudoku,
             env_config={
                 "n_blocks": args.n_blocks,
                 "percent_filled": args.percent_filled,
@@ -77,11 +78,14 @@ def main():
         .resources(
             num_gpus=args.num_gpus
         )
-        .rl_module(rl_module_spec=rlm_spec)
+        #.rl_module(rl_module_spec=rlm_spec)
     )
-
     algo = config.build()
-
+    '''
+    algo = ppo.PPO(env=NMSudoku, config={
+        "env_config": {"n_blocks": 3, "percent_filled":0.95, "puzzles_file": "/home/justin/Desktop/Code/sudoku-rl/satnet_puzzle_0.95_filled_10000.pt"}
+    })
+    
     if args.checkpoint_path:
         algo.restore(args.checkpoint_path)
     
@@ -93,7 +97,7 @@ def main():
     print(f"A checkpoint has been saved at {path_to_checkpoint}")
 
     
-    testing(config, algo)
+    #testing(config, algo)
     
     ray.shutdown()
     
