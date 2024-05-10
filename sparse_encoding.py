@@ -110,7 +110,6 @@ def sudokuActionNodes(action_type, action_value):
 def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
-	board_nodes = [[] for _ in range(SuN)]
 	
 	# make the cursor
 	ncursor = Node(Types.CURSOR, 0)
@@ -123,6 +122,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	nodes.append(nreward)
 	
 	full_board = True
+	board_nodes = [[] for _ in range(SuN)]
 	if full_board: 
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column

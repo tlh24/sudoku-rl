@@ -515,8 +515,8 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 
 if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_SAMPLES = batch_size * 250 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
-	NUM_EVAL = batch_size * 200
+	NUM_SAMPLES = batch_size * 275 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_EVAL = batch_size * 250
 	NUM_EPOCHS = 10000
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
@@ -556,13 +556,13 @@ if __name__ == '__main__':
 	model.printParamCount()
 
 	try: 
-		model.load_checkpoint('checkpoints/racoonizer_173.pth')
+		model.load_checkpoint('checkpoints/racoonizer_58.pth')
 		print("loaded model checkpoint")
 		pass 
 	except : 
 		print("could not load model checkpoint")
 	
-	optimizer_name = "psgd" # adam, adamw, or psgd
+	optimizer_name = "adamw" # adam, adamw, or psgd
 	optimizer = getOptimizer(optimizer_name, model)
 
 	evaluateActionsRecurse(model, puzzles, hcoo)

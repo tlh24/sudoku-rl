@@ -34,7 +34,7 @@ class Gracoonizer(nn.Module):
 		
 		self.xfrmr = graph_transformer.Transformer(
 			d_model = xfrmr_dim, 
-			layers = 9, 
+			layers = 12, 
 			n_head = self.n_head, 
 			repeat = 1, 
 			init_zeros = g_zeroinit
