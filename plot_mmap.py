@@ -155,7 +155,7 @@ if __name__ == "__main__":
 		fig.tight_layout()
 		fig.canvas.draw()
 		fig.canvas.flush_events()
-		# time.sleep(0.35)
+		time.sleep(1.0)
 		print("tock")
 		initialized=True
 		u = u + 1

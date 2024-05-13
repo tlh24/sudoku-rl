@@ -122,8 +122,8 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
-		# possible_actions = [ 0,1,2,3 ]
-		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		possible_actions = [ 0,1,2,3 ]
+		# possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
@@ -282,7 +282,7 @@ def getOptimizer(optimizer_name, model, lr=2e-4, weight_decay=0):
 	if optimizer_name == "adam": 
 		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 	elif optimizer_name == 'adamw':
-		optimizer = optim.AdamW(model.parameters(), lr=lr)
+		optimizer = optim.AdamW(model.parameters(), lr=lr, amsgrad=True)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
 	return optimizer 
@@ -515,9 +515,9 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 
 if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_SAMPLES = batch_size * 275 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_SAMPLES = batch_size * 300 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
 	NUM_EVAL = batch_size * 250
-	NUM_EPOCHS = 10000
+	NUM_EPOCHS = 10
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
