@@ -78,6 +78,7 @@ if __name__ == "__main__":
 	initialized = False
 	im = [ [0]*plot_cols for i in range(plot_rows)]
 	cbar = [ [0]*plot_cols for i in range(plot_rows)]
+	fig.canvas.manager.set_window_title('plot_mmap')
 
 
 	def plot_tensor(r, c, v, name, lo, hi, colorbar=True):
@@ -118,10 +119,13 @@ if __name__ == "__main__":
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
 			plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
-			plot_tensor(1, 0, boardp[i,:cl,:].T, f"worldp[{i},:,:]", -4.0, 4.0)
+			plot_tensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
 			plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(worldp - board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
+			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
+			plot_tensor(0, 2, (boardp[i,:cl,0:21].T - new_board[i,:cl,0:21].T), f"(board_pred - new_board)[{i},:,:]", -4.0, 4.0)
+			# if not initialized: 
+			# 	axs[0,2].plot([0,token_cnt-1],[21,21], 'g', alpha=0.4) # make easier
+			# plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
 			plot_tensor(1, 2, rewardp[:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
 			
 		if mode == 1: 

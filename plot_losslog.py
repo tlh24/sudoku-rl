@@ -14,6 +14,7 @@ figsize = (12, 6)
 plt.ion()
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 initialized = False
+fig.canvas.manager.set_window_title('plot_losslog')
 
 def slidingWindowR2(x, y, window_size, stride):
 	n = len(x)

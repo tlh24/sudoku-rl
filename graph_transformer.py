@@ -6,7 +6,7 @@ from torch import nn
 import torchlayers as tl
 import l1attn_sparse_cuda
 import l1attn_cuda
-from flash_attn import flash_attn_func
+# from flash_attn import flash_attn_func # half only
 import pdb
 import matplotlib.pyplot as plt
 from constants import g_zeroinit, g_l1atten, SuN, g_dtype

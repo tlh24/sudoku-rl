@@ -124,6 +124,7 @@ def enumerateMoves(depth, episode, possible_actions=[]):
 	if not possible_actions:
 		possible_actions = [ 0,1,2,3 ]
 		# possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		# possible_actions = [ 4,4,4,4 ]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
@@ -215,7 +216,7 @@ class SudokuDataset(Dataset):
 		return sample
 			
 
-def getDataLoaders(puzzles, num_samples, num_eval=2000):
+def getDataLoaders(puzzles, num_samples, num_eval):
 	'''
 	Returns a pytorch train and test dataloader
 	'''
@@ -234,7 +235,7 @@ def getDataLoaders(puzzles, num_samples, num_eval=2000):
 	return train_dataloader, test_dataloader, coo, reward_loc
 
 
-def getDataDict(puzzles, num_samples, num_eval=2000):
+def getDataDict(puzzles, num_samples, num_eval):
 	'''
 	Returns a dictionary containing training and test data
 	'''
@@ -242,7 +243,6 @@ def getDataDict(puzzles, num_samples, num_eval=2000):
 	print(orig_board.shape, new_board.shape, rewards.shape)
 	train_orig_board, test_orig_board = trainValSplit(orig_board, num_eval=num_eval)
 	train_new_board, test_new_board = trainValSplit(new_board, num_eval=num_eval)
-
 	train_rewards, test_rewards = trainValSplit(rewards, num_eval=num_eval)
 
 	dataDict = {
@@ -283,6 +283,8 @@ def getOptimizer(optimizer_name, model, lr=2e-4, weight_decay=0):
 		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 	elif optimizer_name == 'adamw':
 		optimizer = optim.AdamW(model.parameters(), lr=lr, amsgrad=True)
+	elif optimizer_name == 'sgd':
+		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
 	return optimizer 
@@ -515,9 +517,9 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 
 if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_SAMPLES = batch_size * 300 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
-	NUM_EVAL = batch_size * 250
-	NUM_EPOCHS = 10
+	NUM_SAMPLES = batch_size * 240 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_EVAL = batch_size * 160
+	NUM_EPOCHS = 300
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
@@ -555,14 +557,15 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device)
 	model.printParamCount()
 
-	try: 
-		model.load_checkpoint('checkpoints/racoonizer_58.pth')
-		print("loaded model checkpoint")
-		pass 
-	except : 
-		print("could not load model checkpoint")
+	# pdb.set_trace()
+	# try: 
+	# 	model.load_checkpoint('checkpoints/gracoonizer.pth')
+	# 	print("loaded model checkpoint")
+	# 	pass 
+	# except : 
+	# 	print("could not load model checkpoint")
 	
-	optimizer_name = "adamw" # adam, adamw, or psgd
+	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
 	evaluateActionsRecurse(model, puzzles, hcoo)

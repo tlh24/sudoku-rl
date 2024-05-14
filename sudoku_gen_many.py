@@ -18,7 +18,7 @@ def makePuzzle(j): # argument is ignored.
 	if S == 9: 
 		k = np.random.randint(20) + 25 # how many positions to blank.
 	if S == 4: 
-		k = np.random.randint(4) + 5
+		k = np.random.randint(5) + 6
 	sudoku = Sudoku(S, k)
 	sudoku.fillValues()
 	return torch.tensor(sudoku.mat)
