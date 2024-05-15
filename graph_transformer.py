@@ -290,7 +290,7 @@ class Transformer(nn.Module):
 				if j == 1: 
 					a2 = a1
 					w2 = w1
-		return x, a1, a2, w1, w2 # dumb way to do this
+		return x, w1, w2 # dumb way to do this
 
 	def allHeadsOn(self): 
 		self.layer1.allHeadsOn()

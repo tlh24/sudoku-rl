@@ -3,11 +3,13 @@ import numpy as np
 import torch
 from torch import nn, optim
 import graph_transformer
+import nanogpt_model
 import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
-from constants import n_heads, g_zeroinit, g_dtype
+from constants import n_heads, token_cnt, g_zeroinit, g_dtype
 import graph_encoding
+from nanogpt_model import GPTConfig, GPT
 
 
 class Gracoonizer(nn.Module):
@@ -30,15 +32,27 @@ class Gracoonizer(nn.Module):
 		# 	self.world_to_xfrmr.weight.copy_( w )
 		# 	self.world_to_xfrmr.bias.copy_( torch.zeros(xfrmr_dim) )
 		
-		self.gelu = graph_transformer.QuickGELU()
-		
-		self.xfrmr = graph_transformer.Transformer(
-			d_model = xfrmr_dim, 
-			layers = 9, 
-			n_head = self.n_head, 
-			repeat = 1, 
-			init_zeros = g_zeroinit
-			)
+# 		self.gelu = graph_transformer.QuickGELU()
+#
+		if False:
+			self.xfrmr = graph_transformer.Transformer(
+				d_model = xfrmr_dim,
+				layers = 9,
+				n_head = self.n_head,
+				repeat = 1,
+				init_zeros = g_zeroinit
+				)
+		else:
+			model_args = dict(
+				n_layer=6,
+				n_head=6,
+				n_embd=384,
+				block_size=token_cnt,
+				bias=False,
+				in_size=world_dim,
+				dropout=False)
+			gptconf = GPTConfig(**model_args)
+			self.xfrmr = nanogpt_model.GPT(gptconf)
 		
 		# self.xfrmr_to_world = graph_transformer.LinearM(xfrmr_dim, world_dim, True) 
 		# with torch.no_grad(): 
@@ -57,8 +71,11 @@ class Gracoonizer(nn.Module):
 		board_size = benc.shape[1]
 		if record is not None: 
 			record.append(actenc)
-		y,a1,a2,w1,w2 = self.xfrmr(benc,hcoo,n,record)
-		return y[:,:board_size,:], a1, a2, w1, w2
+		# y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
+		y = self.xfrmr(benc)
+		w1 = None
+		w2 = None
+		return y, w1, w2
 		
 	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd):
 		# record the real targets for the internal variables. 

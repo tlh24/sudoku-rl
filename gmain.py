@@ -214,7 +214,7 @@ class SudokuDataset(Dataset):
 			'reward' : self.rewards[idx].item(),
 		}
 		return sample
-			
+
 
 def getDataLoaders(puzzles, num_samples, num_eval):
 	'''
@@ -278,7 +278,7 @@ def getLossMask(board_enc, device):
 		loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
 	return loss_mask 
 
-def getOptimizer(optimizer_name, model, lr=2e-4, weight_decay=0):
+def getOptimizer(optimizer_name, model, lr=5e-4, weight_decay=0):
 	if optimizer_name == "adam": 
 		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 	elif optimizer_name == 'adamw':
@@ -305,8 +305,11 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict['fd_boardp'], pred_dict['new_state_preds'][0:4,:,:].cpu().detach())
 	write_mmap(memory_dict['fd_reward'], pred_dict['rewards'][0:4].cpu())
 	write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'][0:4].cpu().detach())
-	write_mmap(memory_dict['fd_attention'], torch.stack((pred_dict['a1'], pred_dict['a2']), 0))
-	write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
+	if 'a1' in pred_dict and 'a2' in pred_dict:
+		if (pred_dict['a1'] is not None) and (pred_dict['a2'] is not None):
+			write_mmap(memory_dict['fd_attention'], torch.stack((pred_dict['a1'], pred_dict['a2']), 0))
+	if (pred_dict['w1'] is not None) and (pred_dict['w2'] is not None):
+		write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
 	return 
 
 def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu):
@@ -319,12 +322,12 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		pred_data = {}
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()
-			new_state_preds,a1,a2,w1,w2 = \
+			new_state_preds,w1,w2 = \
 				model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 20]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
-							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+							'w1':w1, 'w2':w2}
 			loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
 					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-5 + \
 					sum( \
@@ -338,11 +341,11 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			# psgd library internally does loss.backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_preds, a1,a2,w1,w2 = model.forward(old_board, hcoo, uu, None)
+				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
 				reward_preds = new_state_preds[:,reward_loc, 20]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
-							'a1':a1, 'a2':a2, 'w1':w1, 'w2':w2}
+							'w1':w1, 'w2':w2}
 				loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
 					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
 					sum( \
@@ -377,7 +380,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 	with torch.no_grad():
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
-			new_state_preds,a1,a2,w1,w2 = model.forward(old_board, hcoo, uu, None)
+			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 20]
 			loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2)
 			lloss = loss.detach().cpu().item()
@@ -480,7 +483,7 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, locs):
 			s = aenc.shape[0]
 			new_boards[i, 0:s, :] = aenc.cuda()
 			
-		boards_pred,_,_,_,_ = model.forward(new_boards,hcoo,0,None)
+		boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
 		reward_pred = boards_pred[:,reward_loc, 20]
 		
 		for i,(at,av) in enumerate(zip(action_types,action_values)):
@@ -519,14 +522,14 @@ if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
 	NUM_SAMPLES = batch_size * 240 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
 	NUM_EVAL = batch_size * 160
-	NUM_EPOCHS = 300
+	NUM_EPOCHS = 100
 	device = torch.device('cuda:0')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
-	
+	print(reward_loc)
 	print(coo)
 	
 	# first half of heads are kids to parents
@@ -558,17 +561,17 @@ if __name__ == '__main__':
 	model.printParamCount()
 
 	# pdb.set_trace()
-	# try: 
+	# try:
 	# 	model.load_checkpoint('checkpoints/gracoonizer.pth')
 	# 	print("loaded model checkpoint")
-	# 	pass 
-	# except : 
+	# 	pass
+	# except :
 	# 	print("could not load model checkpoint")
 	
-	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
+	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	evaluateActionsRecurse(model, puzzles, hcoo)
+	# evaluateActionsRecurse(model, puzzles, hcoo)
 
 	uu = 0
 	for _ in range(0, args["NUM_EPOCHS"]):
