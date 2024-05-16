@@ -522,7 +522,7 @@ if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
 	NUM_SAMPLES = batch_size * 300 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
 	NUM_EVAL = batch_size * 250
-	NUM_ITERS = 80000
+	NUM_ITERS = 50000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -562,14 +562,14 @@ if __name__ == '__main__':
 	model.printParamCount()
 
 	# pdb.set_trace()
-	# try:
-	# 	model.load_checkpoint('checkpoints/gracoonizer.pth')
-	# 	print("loaded model checkpoint")
-	# 	pass
-	# except :
-	# 	print("could not load model checkpoint")
+	try:
+		model.load_checkpoint('checkpoints/gracoonizer.pth')
+		print("loaded model checkpoint")
+		pass
+	except :
+		print("could not load model checkpoint")
 	
-	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
+	optimizer_name = "sgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
 	# evaluateActionsRecurse(model, puzzles, hcoo)
