@@ -11,6 +11,7 @@ from constants import n_heads, token_cnt, g_zeroinit, g_dtype
 import graph_encoding
 from nanogpt_model import GPTConfig, GPT
 
+USE_GRAPH_XFRMR = True
 
 class Gracoonizer(nn.Module):
 	
@@ -26,20 +27,12 @@ class Gracoonizer(nn.Module):
 		self.reward_dim = reward_dim
 		self.n_head = n_heads # need one head for each of the 4 connection types.
 		
-		# self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_dim)
-		# with torch.no_grad(): 
-		# 	w = torch.cat([torch.eye(world_dim, world_dim) for _ in range(self.n_head)], 0)
-		# 	self.world_to_xfrmr.weight.copy_( w )
-		# 	self.world_to_xfrmr.bias.copy_( torch.zeros(xfrmr_dim) )
-		
-# 		self.gelu = graph_transformer.QuickGELU()
-#
-		if False:
+		if USE_GRAPH_XFRMR:
 			self.xfrmr = graph_transformer.Transformer(
 				d_model = xfrmr_dim,
-				layers = 9,
+				layers = 6,
 				n_head = self.n_head,
-				repeat = 1,
+				repeat = 2,
 				init_zeros = g_zeroinit
 				)
 		else:
@@ -71,10 +64,12 @@ class Gracoonizer(nn.Module):
 		board_size = benc.shape[1]
 		if record is not None: 
 			record.append(actenc)
-		# y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
-		y = self.xfrmr(benc)
-		w1 = None
-		w2 = None
+		if USE_GRAPH_XFRMR: 
+			y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
+		else: 
+			y = self.xfrmr(benc)
+			w1 = None
+			w2 = None
 		return y, w1, w2
 		
 	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd):

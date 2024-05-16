@@ -38,7 +38,7 @@ while True:
 	if len(data.shape) > 1 and data.shape[0] > 1: 
 		ax[0,0].cla()
 		ax[0,0].plot(data[:,0], np.log(data[:, 1]), 'b')
-		ax[0,0].set(xlabel='iteration')
+		ax[0,0].set(xlabel='iteration / batch #')
 		ax[0,0].set_title('log loss')
 		
 		with open("rewardlog.txt", 'r') as x:

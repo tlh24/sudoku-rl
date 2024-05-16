@@ -122,8 +122,8 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
-		possible_actions = [ 0,1,2,3 ]
-		# possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		# possible_actions = [ 0,1,2,3 ]
+		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
 		# possible_actions = [ 4,4,4,4 ]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
@@ -278,7 +278,7 @@ def getLossMask(board_enc, device):
 		loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
 	return loss_mask 
 
-def getOptimizer(optimizer_name, model, lr=5e-4, weight_decay=0):
+def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	if optimizer_name == "adam": 
 		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 	elif optimizer_name == 'adamw':
@@ -333,7 +333,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 			# adam is unstable -- attempt to stabilize?
-			torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
 			optimizer.step() 
 			print(loss.detach().cpu().item())
@@ -520,12 +520,13 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 
 if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_SAMPLES = batch_size * 240 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
-	NUM_EVAL = batch_size * 160
-	NUM_EPOCHS = 100
+	NUM_SAMPLES = batch_size * 300 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
+	NUM_EVAL = batch_size * 250
+	NUM_ITERS = 80000
 	device = torch.device('cuda:0')
+	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
-	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_EPOCHS": NUM_EPOCHS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
+	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
@@ -574,7 +575,7 @@ if __name__ == '__main__':
 	# evaluateActionsRecurse(model, puzzles, hcoo)
 
 	uu = 0
-	for _ in range(0, args["NUM_EPOCHS"]):
+	while uu < NUM_ITERS:
 		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
  
 	# save after training

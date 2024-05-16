@@ -26,7 +26,7 @@ class LinearM(nn.Module):
 	# with the bias merged -- used for PSGD optimizer.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearM, self).__init__()
-		scl = 1.0 / math.sqrt(indim * outdim)
+		scl = 0.02 / math.sqrt(2*9)
 		if initzeros: 
 			scl = 0.0
 		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1,dtype=g_dtype))
@@ -40,7 +40,7 @@ class LinearNobias(nn.Module):
 	# with the bias merged.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearNobias, self).__init__()
-		scl = 1.0 / math.sqrt(indim * outdim)
+		scl = 0.02 / math.sqrt(2 * 9)
 		if initzeros: 
 			scl = 0.0
 		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim,dtype=g_dtype) )

@@ -258,11 +258,11 @@ def encodeNodes(nodes):
 		# if len(n.parents) > 0: 
 		# 	benc[i, n.parents[0].typ.value] = 1.0 # inheritance?
 		benc[i, 20] = n.value
-		# ntv = n.typ.value
-		# if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
-		# 	if n.value >= 0.7 and n.value <= 4.3: 
-		# 		vi = round(n.value)
-		# 		benc[i,20-vi] = 1.0 # also categorical.
+		ntv = n.typ.value
+		if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
+			if n.value >= 0.7 and n.value <= 4.3: 
+				vi = round(n.value)
+				benc[i,20-vi] = 1.0 # also categorical.
 		
 	coo = nodesToCoo(nodes)
 	return torch.tensor(benc, dtype=g_dtype), coo
