@@ -325,8 +325,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
-			loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
-					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-5 + \
+			loss = torch.sum((new_state_preds[:,:,20] - new_board[:,:,20])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 			# adam is unstable -- attempt to stabilize?
@@ -343,10 +342,11 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2) + \
-					torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
+				loss = torch.sum((new_state_preds[:,:,20] - new_board[:,:,20])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
+					# torch.sum((new_state_preds[:,:,:20] - new_board[:,:,:20])**2)*1e-4 + \
+					# torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
 					# we seem to have lost the comment explaining why this was here 
 					# but it was recommended by the psgd authors to break symmetries w a L2 norm on the weights. 
 				return loss
@@ -517,10 +517,10 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 
 if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 50
-	NUM_VALIDATE = batch_size * 150
+	NUM_TRAIN = batch_size * 100
+	NUM_VALIDATE = batch_size * 40
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 20000
+	NUM_ITERS = 120000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -560,12 +560,12 @@ if __name__ == '__main__':
 	model.printParamCount()
 
 	# pdb.set_trace()
-	try:
-		model.load_checkpoint('checkpoints/gracoonizer.pth')
-		print("loaded model checkpoint")
-		pass
-	except :
-		print("could not load model checkpoint")
+	# try:
+	# 	model.load_checkpoint('checkpoints/gracoonizer.pth')
+	# 	print("loaded model checkpoint")
+	# 	pass
+	# except :
+	# 	print("could not load model checkpoint")
 	
 	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
