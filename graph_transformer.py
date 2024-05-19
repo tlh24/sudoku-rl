@@ -9,7 +9,7 @@ import l1attn_cuda
 # from flash_attn import flash_attn_func # half only
 import pdb
 import matplotlib.pyplot as plt
-from constants import g_zeroinit, g_l1atten, SuN, g_dtype
+from constants import g_zeroinit, g_l1atten, SuN, g_dtype, token_cnt
 
 class LayerNorm(nn.LayerNorm):
 	"""Subclass torch's LayerNorm to handle fp16."""
@@ -150,6 +150,7 @@ class ResidualAttentionBlock(nn.Module):
 	def attention(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
+		width = x.shape[2]
 		
 		if pas == 0 and self.init_zeros: 
 			schedule = 2000 # slower for SGD
@@ -210,7 +211,12 @@ class ResidualAttentionBlock(nn.Module):
 					if g_dtype == torch.float16: 
 						b = flash_attn_func(q, k, v)
 					else: 
-						a = self.l1a_f(q, k) # includes sqrt(head)
+						# pad out to BLKSIZ tokens.
+						padn = ((token_cnt + 15) // 16) * 16 - token_cnt
+						qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+						kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+						a = self.l1a_f(qq, kk) # includes sqrt(head)
+						a = a[:, :token_cnt, :token_cnt, :]
 						# output is b,src,dst,heads
 						a = F.softmax(a, 1) # see l1attn.py -- sm over src
 						b = torch.einsum('bsdh, bshw -> bdhw', a, v)

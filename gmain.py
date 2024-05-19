@@ -176,21 +176,18 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	new_board_enc = torch.stack(new_boards)
 	return orig_board_enc, new_board_enc, coo, rewards, reward_loc
 
-def trainValSplit(data_matrix: torch.Tensor, num_eval=None, eval_ratio: float = 0.2):
+def trainValSplit(data_matrix: torch.Tensor, num_validate):
 	'''
 	Split data matrix into train and val data matrices
 	data_matrix: (torch.tensor) Containing rows of data
-	num_eval: (int) If provided, is the number of rows in the val matrix
+	num_validate: (int) If provided, is the number of rows in the val matrix
 	'''
 	num_samples = data_matrix.size(0)
 	if num_samples <= 1:
 		raise ValueError(f"data_matrix needs to be a tensor with more than 1 row")
-
-	if not num_eval:
-		num_eval = int(num_samples * eval_ratio)
 	
-	training_data = data_matrix[:-num_eval]
-	eval_data = data_matrix[-num_eval:]
+	training_data = data_matrix[:-num_validate]
+	eval_data = data_matrix[-num_validate:]
 	return training_data, eval_data
 
 
@@ -216,11 +213,11 @@ class SudokuDataset(Dataset):
 		return sample
 
 
-def getDataLoaders(puzzles, num_samples, num_eval):
+def getDataLoaders(puzzles, num_samples, num_validate):
 	'''
 	Returns a pytorch train and test dataloader
 	'''
-	data_dict, coo, reward_loc = getDataDict(puzzles, num_samples, num_eval)
+	data_dict, coo, reward_loc = getDataDict(puzzles, num_samples, num_validate)
 	train_dataset = SudokuDataset(data_dict['train_orig_board'],
 											data_dict['train_new_board'], 
 											data_dict['train_rewards'])
@@ -235,15 +232,15 @@ def getDataLoaders(puzzles, num_samples, num_eval):
 	return train_dataloader, test_dataloader, coo, reward_loc
 
 
-def getDataDict(puzzles, num_samples, num_eval):
+def getDataDict(puzzles, num_samples, num_validate):
 	'''
 	Returns a dictionary containing training and test data
 	'''
 	orig_board, new_board, coo, rewards, reward_loc = enumerateBoards(puzzles, num_samples)
 	print(orig_board.shape, new_board.shape, rewards.shape)
-	train_orig_board, test_orig_board = trainValSplit(orig_board, num_eval=num_eval)
-	train_new_board, test_new_board = trainValSplit(new_board, num_eval=num_eval)
-	train_rewards, test_rewards = trainValSplit(rewards, num_eval=num_eval)
+	train_orig_board, test_orig_board = trainValSplit(orig_board, num_validate)
+	train_new_board, test_new_board = trainValSplit(new_board, num_validate)
+	train_rewards, test_rewards = trainValSplit(rewards, num_validate)
 
 	dataDict = {
 		'train_orig_board': train_orig_board,
@@ -252,7 +249,7 @@ def getDataDict(puzzles, num_samples, num_eval):
 		'test_orig_board': test_orig_board,
 		'test_new_board': test_new_board,
 		'test_rewards': test_rewards
-    }
+	}
 	return dataDict, coo, reward_loc
 
 def getMemoryDict():
@@ -520,16 +517,17 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 
 if __name__ == '__main__':
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_SAMPLES = batch_size * 300 # must be a multiple, o/w get bumps in the loss from the edge effects of dataloader enumeration
-	NUM_EVAL = batch_size * 250
-	NUM_ITERS = 50000
+	NUM_TRAIN = batch_size * 50
+	NUM_VALIDATE = batch_size * 150
+	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
+	NUM_ITERS = 20000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
-	args = {"NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "NUM_EVAL": NUM_EVAL, "device": device, "fd_losslog": fd_losslog}
+	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device, "fd_losslog": fd_losslog}
 	
 	# get our train and test dataloaders
-	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_EVAL"])
+	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
 	print(reward_loc)
 	print(coo)
 	
@@ -569,10 +567,10 @@ if __name__ == '__main__':
 	except :
 		print("could not load model checkpoint")
 	
-	optimizer_name = "sgd" # adam, adamw, psgd, or sgd
+	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	# evaluateActionsRecurse(model, puzzles, hcoo)
+	evaluateActionsRecurse(model, puzzles, hcoo)
 
 	uu = 0
 	while uu < NUM_ITERS:
