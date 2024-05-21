@@ -166,7 +166,7 @@ def simulate(
         # step agents
         obs = {k: np.stack([o[k] for o in obs])
                for k in obs[0] if "log_" not in k}
-  
+        breakpoint()
         action, agent_state = agent(obs, done, agent_state)
         if isinstance(action, dict):
             action = [
@@ -176,10 +176,18 @@ def simulate(
         else:
             action = np.array(action)
         assert len(action) == len(envs)
+        breakpoint()
         # step envs
-      
-        results = [e.step(a) for e, a in zip(envs, action)]
-        results = [r() for r in results]
+        _results = [] 
+        for e,a in zip(envs, action):
+            result = e.step(a)
+            _results.append(result)
+    
+        results = []
+        for r in _results:
+            result = r()
+            results.append(result)
+
         obs, reward, done = zip(*[p[:3] for p in results])
         obs = list(obs)
         reward = list(reward)
@@ -444,7 +452,7 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
             super().__init__(logits=logits, probs=probs)
 
     def get_logit(self):
-        return super().logits.detach() + super().logits - super().logits.detach()
+        return super().logits
     
     def mode(self):
         _mode = F.one_hot(
@@ -455,11 +463,15 @@ class OneHotDist(torchd.one_hot_categorical.OneHotCategorical):
     def sample(self, sample_shape=(), seed=None):
         if seed is not None:
             raise ValueError("need to check")
-        sample = super().sample(sample_shape)
+
+        orig_sample = super().sample(sample_shape)
         probs = super().probs
-        while len(probs.shape) < len(sample.shape):
+
+        while len(probs.shape) < len(orig_sample.shape):
             probs = probs[None]
-        sample += probs - probs.detach()
+        sample = orig_sample + (probs - probs.detach())
+        # same as orig_sample + (logits - logits.detach())
+
         return sample
 
 

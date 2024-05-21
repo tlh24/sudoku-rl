@@ -97,11 +97,10 @@ class Dreamer(nn.Module):
         if self._config.eval_state_mean:
             latent["stoch"] = latent["mean"]
         feat = self._wm.dynamics.get_feat(latent)
-        #breakpoint()
         if not training:
             actor = self._task_behavior.actor(feat)
             if self._return_logits:
-                # Only works for one-hot dist 
+                # Only works for onehot dist (see tools.py OneHotDist)
                 action = actor.get_logit() 
             else:
                 action = actor.mode()
@@ -166,10 +165,11 @@ def make_dataset(episodes, config):
 def make_env(config, mode, id):
     suite, task = config.task.split("_", 1)
     if suite == "sudoku":
-        from dreamer_sudoku_env import DreamerSudokuEnv
-        env_config = {"n_blocks": 3, "percent_filled": 0.75, "puzzles_file": "/home/justin/Desktop/Code/sudoku-rl/satnet_puzzle_0.95_filled_10000.pt"}
-        env = DreamerSudokuEnv(env_config)
-        env = wrappers.OneHotAction(env)
+        from dreamer_sudoku_env import OneHotMask, DreamerMaskEnv
+        puzzles_file = "/home/justin/Desktop/Code/sudoku-rl/satnet_puzzle_0.95_filled_10000.pt"
+        env_config = {"n_blocks": 3, "percent_filled":0.75, "puzzles_file": puzzles_file, "is_eval": mode=="eval"}
+        env = DreamerMaskEnv(env_config)
+        env = OneHotMask(env) 
     elif suite == "dmc":
         import envs.dmc as dmc
 
@@ -277,6 +277,7 @@ def main(config):
     return_logits = config.return_logits
 
     if not config.offline_traindir:
+        
         prefill = max(0, config.prefill - count_steps(config.traindir))
         print(f"Prefill dataset ({prefill} steps).")
         if hasattr(acts, "discrete"):
@@ -291,16 +292,24 @@ def main(config):
                 ),
                 1,
             )
-        #TODO: create your own random_agent for sudoku that returns  all equal logits, then create a wrapper that takes logits and 
-        #converts into a selected action 
+
+        def mask_random_agent(o,d,s):
+            action = torch.zeros(config.num_actions).repeat(config.envs, 1)
+            logprob = torch.tensor([2.0]) #TODO confirm this is not used
+            return {"action": action, "logprob": logprob}, None
+
 
         def random_agent(o, d, s):
             action = random_actor.sample()
             logprob = random_actor.log_prob(action)
             return {"action": action, "logprob": logprob}, None
+        
+        breakpoint()
+        # return_logits True for masked env 
+        rand_agent = mask_random_agent if return_logits else random_agent
 
         state = tools.simulate(
-            random_agent,
+            rand_agent,
             train_envs,
             train_eps,
             config.traindir,
@@ -351,6 +360,7 @@ def main(config):
                 video_pred = agent._wm.video_pred(next(eval_dataset))
                 logger.video("eval_openl", to_np(video_pred))
         print("Start training.")
+     
         state = tools.simulate(
             agent,
             train_envs,
