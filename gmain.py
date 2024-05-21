@@ -1,5 +1,6 @@
 import math
 import random
+import argparse
 import numpy as np
 import torch
 from torch import nn, optim
@@ -159,10 +160,10 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	actions = []
 	masks = []
 	rewards = torch.zeros(n, dtype=g_dtype)
-	guess_mat = np.zeros((SuN, SuN))
 	for i, ep in enumerate(lst): 
 		puzzl = puzzles[i, :, :]
 		sudoku.setMat(puzzl.numpy())
+		guess_mat = np.zeros((SuN, SuN))
 		curs_pos = torch.randint(SuN, (2,),dtype=int)
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
 		
@@ -277,7 +278,7 @@ def getLossMask(board_enc, device):
 
 def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	if optimizer_name == "adam": 
-		optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+		optimizer = optim.Adam(model.parameters(), lr=lr)
 	elif optimizer_name == 'adamw':
 		optimizer = optim.AdamW(model.parameters(), lr=lr, amsgrad=True)
 	elif optimizer_name == 'sgd':
@@ -325,9 +326,8 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
-			loss = torch.sum((new_state_preds[:,:,20] - new_board[:,:,20])**2) + \
-					sum( \
-					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
+			# new_state_preds dimensions bs,t,w 
+			loss = torch.sum((new_state_preds[:,:,20:26] - new_board[:,:,20:26])**2)
 			# adam is unstable -- attempt to stabilize?
 			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
@@ -342,7 +342,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds[:,:,20] - new_board[:,:,20])**2) + \
+				loss = torch.sum((new_state_preds[:,:,20:26] - new_board[:,:,20:26])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 					# torch.sum((new_state_preds[:,:,:20] - new_board[:,:,:20])**2)*1e-4 + \
@@ -379,7 +379,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 20]
-			loss = torch.sum((new_state_preds[:,:,0:21] - new_board[:,:,0:21])**2)
+			loss = torch.sum((new_state_preds[:,:,20:25] - new_board[:,:,20:25])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
 			fd_losslog.write(f'{uu}\t{lloss}\n')
@@ -516,11 +516,15 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 	action_node.print("")
 
 if __name__ == '__main__':
+	parser = argparse.ArgumentParser(description="Train sudoku world model")
+	parser.add_argument('-c', action='store_true', help='start fresh')
+	cmd_args = parser.parse_args()
+	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
 	NUM_TRAIN = batch_size * 100
-	NUM_VALIDATE = batch_size * 40
+	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 120000
+	NUM_ITERS = 50000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -559,13 +563,15 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device)
 	model.printParamCount()
 
-	# pdb.set_trace()
-	# try:
-	# 	model.load_checkpoint('checkpoints/gracoonizer.pth')
-	# 	print("loaded model checkpoint")
-	# 	pass
-	# except :
-	# 	print("could not load model checkpoint")
+	if cmd_args.c: 
+		print("not loading any model weights.")
+	else:
+		try:
+			model.load_checkpoint('checkpoints/gracoonizer.pth')
+			print("loaded model checkpoint")
+			pass
+		except :
+			print("could not load model checkpoint")
 	
 	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)

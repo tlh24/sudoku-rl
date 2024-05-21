@@ -130,7 +130,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				v = puzzle[x,y]
 				nb = Node(Types.BOX, v)
 				g = guess_mat[x,y]
-				nb.addChild( Node(Types.GUESS, g) )
+				nb.addChild( Node(Axes.G_AX, g) )
 				
 				# think of these as named attributes, var.x, var.y etc
 				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
@@ -255,9 +255,10 @@ def encodeNodes(nodes):
 	for n in nodes_flat: 
 		i = n.loc # muct be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
-		# if len(n.parents) > 0: 
-		# 	benc[i, n.parents[0].typ.value] = 1.0 # inheritance?
-		benc[i, 20] = n.value
+		ii = 20
+		if n.typ.value >= Axes.N_AX.value and n.typ.value <= Axes.G_AX.value:
+			ii = n.typ.value + 10
+		benc[i, ii] = n.value
 		# ntv = n.typ.value
 		# if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
 		# 	if n.value >= 0.7 and n.value <= 4.3: 

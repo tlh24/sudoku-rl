@@ -130,7 +130,8 @@ class ResidualAttentionBlock(nn.Module):
 		self.d_model = d_model
 		self.init_zeros = init_zeros
 		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
-		self.wk = LinearNobias(d_model, n_head, True) # zeroinit
+		self.wk = LinearNobias(d_model, n_head, False) # not zeroinit
+		self.bk = LinearNobias(d_model, n_head, True) # zeroinit
 		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
 			# wk is just a weighting, not a full matrix 
 			# to avoid double permutation invariance.
@@ -180,7 +181,8 @@ class ResidualAttentionBlock(nn.Module):
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		k = k * gk
+		bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
+		k = k * gk + bk # with bias to allow for centering.
 		
 		# full-rank key calculation (worse!)
 		# kw = self.wk.w.reshape([self.n_head, self.d_model, -1])
@@ -288,10 +290,9 @@ class Transformer(nn.Module):
 
 	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, n:int, record:list):
 		for i in range(self.repeat): 
-			# # one-hot encode the layer position on all tokens. 
-			# x[:,:,self.d_model - self.repeat : self.d_model] = 0.0
-			# x[:,:,self.d_model - i - 1] = 1.0
 			for j, layer in enumerate(self.resblocks):
+				# linearly encode the layer position on all tokens. 
+				x[:,:,0] = i*2
 				x,a1,w1 = layer(x,hcoo,n,j,i,record)
 				if j == 1: 
 					a2 = a1
