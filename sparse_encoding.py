@@ -140,8 +140,8 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				nb.addChild( Node(Axes.B_AX, b - posOffset) )
 				
 				highlight = 0
-				if x == curs_pos[0] and y == curs_pos[1]: 
-					highlight = 1
+				if x == curs_pos[0] and y == curs_pos[1]:
+					highlight = 1 # FIXME
 				nh = Node(Axes.H_AX, highlight)
 				nh.addChild(ncursor) #cheating haha! 
 				nb.addChild( nh )

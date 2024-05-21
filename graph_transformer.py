@@ -131,7 +131,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.init_zeros = init_zeros
 		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
 		self.wk = LinearNobias(d_model, n_head, False) # not zeroinit
-		self.bk = LinearNobias(d_model, n_head, True) # zeroinit
+		# self.bk = LinearNobias(d_model, n_head, True) # zeroinit
 		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
 			# wk is just a weighting, not a full matrix 
 			# to avoid double permutation invariance.
@@ -181,8 +181,8 @@ class ResidualAttentionBlock(nn.Module):
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		k = k * gk + bk # with bias to allow for centering.
+		# bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
+		k = k * gk # + bk # with bias to allow for centering.
 		
 		# full-rank key calculation (worse!)
 		# kw = self.wk.w.reshape([self.n_head, self.d_model, -1])
@@ -215,12 +215,16 @@ class ResidualAttentionBlock(nn.Module):
 					else: 
 						# pad out to BLKSIZ tokens.
 						padn = ((token_cnt + 15) // 16) * 16 - token_cnt
+						assert(padn > 0) # for noop
 						qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
 						kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-						a = self.l1a_f(qq, kk) # includes sqrt(head)
-						a = a[:, :token_cnt, :token_cnt, :]
+						a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
+						a = a[:, :token_cnt+1, :token_cnt+1, :]
+						# add in e^0=1 as a 'noop' option
+						# (hence max attention is 0.5, not 1)
 						# output is b,src,dst,heads
 						a = F.softmax(a, 1) # see l1attn.py -- sm over src
+						a = a[:, :token_cnt, :token_cnt, :] # remove noop
 						b = torch.einsum('bsdh, bshw -> bdhw', a, v)
 					# else: 
 					# 	# this is dot-product attention

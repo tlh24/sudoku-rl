@@ -124,8 +124,8 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
 		# possible_actions = [ 0,1,2,3 ]
-		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
-		# possible_actions = [ 4,4,4,4 ]
+		# possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		possible_actions = [ 4,4,4,4 ]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
@@ -567,7 +567,7 @@ if __name__ == '__main__':
 		print("not loading any model weights.")
 	else:
 		try:
-			model.load_checkpoint('checkpoints/gracoonizer.pth')
+			model.load_checkpoint('checkpoints/racoonizer_3.pth')
 			print("loaded model checkpoint")
 			pass
 		except :
