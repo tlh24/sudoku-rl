@@ -143,7 +143,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				if x == curs_pos[0] and y == curs_pos[1]:
 					highlight = 1 # FIXME
 				nh = Node(Axes.H_AX, highlight)
-				# nh.addChild(ncursor) #cheating haha!
+				nh.addChild(ncursor) #cheating haha!
 				nb.addChild( nh )
 				
 				board_nodes[x].append(nb)
@@ -152,9 +152,9 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		# make the sets
 		nboard = Node(Types.SET, 2) # node of the whole board
 		
-		xsets = Node(Types.SET, 1.1)
+		xsets = Node(Types.SET, 1.25)
 		for x in range(SuN): 
-			nb = Node(Types.SET, 0.1)
+			nb = Node(Types.SET, 0.25)
 			nb.addChild( Node(Axes.X_AX, x - posOffset) )
 			for y in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -163,9 +163,9 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		nboard.addChild(xsets)
 		nodes.append(xsets)
 		
-		ysets = Node(Types.SET, 1.2)
+		ysets = Node(Types.SET, 1.5)
 		for y in range(SuN): 
-			nb = Node(Types.SET, 0.2)
+			nb = Node(Types.SET, 0.5)
 			nb.addChild( Node(Axes.Y_AX, y - posOffset) )
 			for x in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -174,9 +174,9 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		nboard.addChild(ysets)
 		nodes.append(ysets)
 			
-		bsets = Node(Types.SET, 1.3)
+		bsets = Node(Types.SET, 1.75)
 		for b in range(SuN): 
-			nb = Node(Types.SET, 0.3)
+			nb = Node(Types.SET, 0.75)
 			nb.addChild( Node(Axes.B_AX, b - posOffset) )
 			for y in range(SuN): # y = row
 				for x in range(SuN): # x = column
@@ -191,12 +191,14 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	
 	na = sudokuActionNodes(action_type, action_value)
 	
-	if full_board: 
-		na.addChild(nboard) # should this be the other way around?
-		nreward.addChild(nboard)
-	na.addChild(ncursor)
-	na.addChild(nreward) # action obviously affects reward
-	ncursor.addChild(nreward)
+	# do we need these relations?
+	# they are basically independent tokens, whose relation to the each other must  to be learned..
+	# if full_board:
+	# 	na.addChild(nboard) # should this be the other way around?
+	# 	nreward.addChild(nboard)
+	# na.addChild(ncursor)
+	# na.addChild(nreward) # action obviously affects reward
+	# ncursor.addChild(nreward)
 	nodes.insert(0,na) # put at beginning for better visibility
 	
 	# set the node indexes.

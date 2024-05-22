@@ -1,11 +1,13 @@
 import math
 import random
 import argparse
+import time
 import numpy as np
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
 import pdb
+from termcolor import colored
 import matplotlib.pyplot as plt
 import sparse_encoding
 from gracoonizer import Gracoonizer
@@ -524,7 +526,7 @@ if __name__ == '__main__':
 	NUM_TRAIN = batch_size * 100
 	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 20000
+	NUM_ITERS = 50000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -567,13 +569,13 @@ if __name__ == '__main__':
 		print("not loading any model weights.")
 	else:
 		try:
-			model.load_checkpoint('checkpoints/racoonizer_3.pth')
-			print("loaded model checkpoint")
-			pass
-		except :
-			print("could not load model checkpoint")
+			model.load_checkpoint('checkpoints/gracoonizer.pth')
+			print(colored("loaded model checkpoint", "blue"))
+			time.sleep(1)
+		except Exception as error:
+			print(colored(f"could not load model checkpoint {error}", "red"))
 	
-	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
+	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
 	evaluateActionsRecurse(model, puzzles, hcoo)

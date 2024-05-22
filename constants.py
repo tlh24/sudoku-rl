@@ -4,7 +4,7 @@ n_heads = 8
 world_dim = 32 #
 xfrmr_dim = 32 # default: 128
 reward_dim = 1 # immediate and infinite-horizon
-token_cnt = 66 # run graph_encoding to determine this.
+token_cnt = 226 # run graph_encoding to determine this.
 g_zeroinit = False
 g_l1atten = True
 g_globalatten = False
@@ -13,7 +13,7 @@ g_dtype = torch.float32 # March 6: I can't get float16 to work stably.
 batch_size = 64
 
 # sudoku board size
-if True: 
+if False:
 	SuN = 4 # 4 x 4 board: 4 entries per row, column and box.
 	SuH = 2
 	SuK = 5
