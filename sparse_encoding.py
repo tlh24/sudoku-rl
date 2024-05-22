@@ -129,21 +129,21 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				b = (y // SuH)*SuH + (x // SuH)
 				v = puzzle[x,y]
 				nb = Node(Types.BOX, v)
-				g = guess_mat[x,y]
-				nb.addChild( Node(Axes.G_AX, g) )
+				# g = guess_mat[x,y]
+				# nb.addChild( Node(Axes.G_AX, g) )
 				
 				# think of these as named attributes, var.x, var.y etc
 				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
 				# can do a bit of both by encoding the axes with integers
-				nb.addChild( Node(Axes.X_AX, x - posOffset) )
-				nb.addChild( Node(Axes.Y_AX, y - posOffset) )
-				nb.addChild( Node(Axes.B_AX, b - posOffset) )
+				# nb.addChild( Node(Axes.X_AX, x - posOffset) )
+				# nb.addChild( Node(Axes.Y_AX, y - posOffset) )
+				# nb.addChild( Node(Axes.B_AX, b - posOffset) )
 				
 				highlight = 0
 				if x == curs_pos[0] and y == curs_pos[1]:
 					highlight = 1 # FIXME
 				nh = Node(Axes.H_AX, highlight)
-				nh.addChild(ncursor) #cheating haha! 
+				# nh.addChild(ncursor) #cheating haha!
 				nb.addChild( nh )
 				
 				board_nodes[x].append(nb)
@@ -193,10 +193,10 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	
 	if full_board: 
 		na.addChild(nboard) # should this be the other way around?
-		nboard.addChild(nreward)
+		nreward.addChild(nboard)
 	na.addChild(ncursor)
 	na.addChild(nreward) # action obviously affects reward
-	nreward.addChild(ncursor)
+	ncursor.addChild(nreward)
 	nodes.insert(0,na) # put at beginning for better visibility
 	
 	# set the node indexes.

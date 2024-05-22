@@ -524,7 +524,7 @@ if __name__ == '__main__':
 	NUM_TRAIN = batch_size * 100
 	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 50000
+	NUM_ITERS = 20000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
