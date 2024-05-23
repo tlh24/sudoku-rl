@@ -337,7 +337,13 @@ def outputGexf(nodes):
 		n.printGexf(fil)
 	print('</nodes>',file=fil)
 	print('<edges>',file=fil)
+	# make a flat list of all nodes to get all edges. 
 	for n in nodes: 
+		n.resetRefcnt()
+	flat_nodes = []
+	for n in nodes: 
+		flat_nodes = n.flatten(flat_nodes)
+	for n in flat_nodes: 
 		for k in n.kids: 
 			print(f'<edge source="{n.loc}" target="{k.loc}">',file=fil)
 			print(f'<attvalues>',file=fil)

@@ -78,7 +78,10 @@ if __name__ == "__main__":
 	initialized = False
 	im = [ [0]*plot_cols for i in range(plot_rows)]
 	cbar = [ [0]*plot_cols for i in range(plot_rows)]
-	fig.canvas.manager.set_window_title('plot_mmap')
+	
+	current_directory = os.getcwd()
+	base_dir = os.path.basename(current_directory)
+	fig.canvas.manager.set_window_title(f'plot_mmap {base_dir}')
 
 
 	def plot_tensor(r, c, v, name, lo, hi, colorbar=True):

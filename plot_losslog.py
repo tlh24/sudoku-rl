@@ -14,7 +14,10 @@ figsize = (12, 6)
 plt.ion()
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 initialized = False
-fig.canvas.manager.set_window_title('plot_losslog')
+
+current_directory = os.getcwd()
+base_dir = os.path.basename(current_directory)
+fig.canvas.manager.set_window_title(f'plot_losslong {base_dir}')
 
 def slidingWindowR2(x, y, window_size, stride):
 	n = len(x)

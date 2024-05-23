@@ -16,7 +16,7 @@ from plot_mmap import make_mmf, write_mmap
 from netdenoise import NetDenoise
 from test_gtrans import getTestDataLoaders, SimpleMLP
 from constants import *
-from type_file import Action, getActionName
+from type_file import Action, Axes, getActionName
 from l1attn_sparse_cuda import expandCoo
 import psgd 
 	# https://sites.google.com/site/lixilinx/home/psgd
@@ -317,6 +317,12 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 
 	for batch_idx, batch_data in enumerate(train_loader):
 		old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+		
+		# scale down the highlight, see if the model can learn.. 
+		uu_scl = 1.0 - uu / args["NUM_ITERS"]
+		uu_scl = uu_scl / 10
+		old_board[:,:,Axes.H_AX.value] = old_board[:,:,Axes.H_AX.value] * uu_scl
+		new_board[:,:,Axes.H_AX.value] = new_board[:,:,Axes.H_AX.value] * uu_scl
 
 		pred_data = {}
 		if optimizer_name != 'psgd': 
@@ -522,10 +528,10 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 100
+	NUM_TRAIN = batch_size * 150
 	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 150000
+	NUM_ITERS = 90000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -569,13 +575,13 @@ if __name__ == '__main__':
 		print("not loading any model weights.")
 	else:
 		try:
-			model.load_checkpoint('checkpoints/racoonizer_107.pth')
+			model.load_checkpoint('checkpoints/gracoonizer.pth')
 			print(colored("loaded model checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
 			print(colored(f"could not load model checkpoint {error}", "red"))
 	
-	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
+	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
 	evaluateActionsRecurse(model, puzzles, hcoo)
