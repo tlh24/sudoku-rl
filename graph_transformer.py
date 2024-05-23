@@ -194,50 +194,45 @@ class ResidualAttentionBlock(nn.Module):
 		v = v * gv  
 		
 		if g_l1atten: 
-			# ideally, need different coo vectors per head, 
-			# built-in to the lib so it's fast --
-			# indexing problem, can do that later. 
-			if False: 
-				v1 = v[:,:,:n_head//2,:]
-				v2 = v[:,:,n_head//2:,:]
-				q1 = q[:,:,:n_head//2,:]
-				q2 = q[:,:,n_head//2:,:]
-				k1 = k[:,:,:n_head//2,:]
-				k2 = k[:,:,n_head//2:,:]
-				b1 = self.l1a(v1,q1,k1,hcoo[0,:,:],dst_mxlen) # output is bsdh!
-				b2 = self.l1a(v2,q2,k2,hcoo[1,:,:],dst_mxlen)
-				b = torch.cat([b1,b2], dim=2)
+			# cycle through the coo vectors.  
+			if layer % 3 == 2: 
+				if True:
+					# extract all global / all-to-all tokens
+					# really could do this with pure sparse attn.. will have to compare. 
+					a2a = hcoo[2]
+					a2len = a2a.shape[0]
+					q = q[:,a2a,:,:]
+					k = k[:,a2a,:,:]
+					v = v[:,a2a,:,:]
+					# pad out to BLKSIZ tokens.
+					padn = ((a2len + 15) // 16) * 16 - a2len
+					assert(padn > 0) # for noop
+					qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+					kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+					a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
+					a = a[:, :a2len+1, :a2len+1, :]
+					# add in e^0=1 as a 'noop' option
+					# (hence max attention is 0.5, not 1)
+					# output is b,src,dst,heads
+					a = F.softmax(a, 1) # see l1attn.py -- sm over src
+					a = a[:, :a2len, :a2len, :] # remove noop
+					bb = torch.einsum('bsdh, bshw -> bdhw', a, v)
+					# scatter to original sites
+					b = torch.zeros(batch_size, ntok, n_head, width, device=v.device)
+					indx = torch.arange(0, a2len, device=v.device)
+					b[:,a2a,:,:] = bb[:,indx,:,:]
+				# else: 
+				# 	# this is dot-product attention
+				# 	a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
+				# 	a = self.soft(a)
+				# 	b = torch.einsum('btsh,bshd -> bthd', a, v)
+				# else: 
+				# 	# flashAttention only supports float16
+				# 	b = flash_attn_func(q.half(), k.half(), v.half())
+				# 	b = b.float()
 			else: 
-				# cycle through the coo vectors.  
-				if layer % 3 == 2:
-					if g_dtype == torch.float16: 
-						b = flash_attn_func(q, k, v)
-					else: 
-						# pad out to BLKSIZ tokens.
-						padn = ((token_cnt + 15) // 16) * 16 - token_cnt
-						assert(padn > 0) # for noop
-						qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-						kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-						a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
-						a = a[:, :token_cnt+1, :token_cnt+1, :]
-						# add in e^0=1 as a 'noop' option
-						# (hence max attention is 0.5, not 1)
-						# output is b,src,dst,heads
-						a = F.softmax(a, 1) # see l1attn.py -- sm over src
-						a = a[:, :token_cnt, :token_cnt, :] # remove noop
-						b = torch.einsum('bsdh, bshw -> bdhw', a, v)
-					# else: 
-					# 	# this is dot-product attention
-					# 	a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
-					# 	a = self.soft(a)
-					# 	b = torch.einsum('btsh,bshd -> bthd', a, v)
-					# else: 
-					# 	# flashAttention only supports float16
-					# 	b = flash_attn_func(q.half(), k.half(), v.half())
-					# 	b = b.float()
-				else: 
-					coo,dst_mxlen = hcoo[layer%3]
-					b = self.l1a_s(v,q,k,coo,dst_mxlen) 
+				coo,dst_mxlen = hcoo[layer%3] 
+				b = self.l1a_s(v,q,k,coo,dst_mxlen) 
 			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
@@ -263,15 +258,17 @@ class ResidualAttentionBlock(nn.Module):
 		 
 		return b,ap # residual sum later.
 
-	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, n:int, layer:int, pas:int, record=list):
+	def forward(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
 		y,ap = self.attention(x,hcoo,n,layer,pas,record)
 		if record is not None: 
 			record.append( y )
 		# y = self.ln_1(y) # stabilize learning? 
 		# y = self.fanout_stn(self.fanout(y), 0.01)
 		# y = self.fanout(y)
-		y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
+		# y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
+		y = self.gelu(y)
 		y = self.fanout(y) # allow sign inversions & mixing; no dim change
+		# y = self.gelu(y) # this destroys performance! 
 		# y = self.fanout_stn(y, 0.01)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
@@ -292,10 +289,10 @@ class Transformer(nn.Module):
 		#self.layer1 = ResidualAttentionBlock(d_model, n_head, init_zeros)
 		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
 
-	def forward(self, x:torch.Tensor, hcoo:torch.Tensor, n:int, record:list):
+	def forward(self, x:torch.Tensor, hcoo:list, n:int, record:list):
 		for i in range(self.repeat): 
 			for j, layer in enumerate(self.resblocks):
-				# linearly encode the layer position on all tokens. 
+				# linearly encode the repeat position on all tokens. 
 				x[:,:,0] = i*2
 				x,a1,w1 = layer(x,hcoo,n,j,i,record)
 				if j == 1: 

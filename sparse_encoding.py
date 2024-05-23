@@ -70,6 +70,14 @@ class Node:
 				node_list = k.flatten(node_list)
 		return node_list
 		
+	def gatherEdges(self, edges, a2a_set): 
+		if self.refcnt <= 0: 
+			self.refcnt = self.refcnt+1
+			for k in self.kids:
+				edges.append((self.loc, k.loc))
+				a2a_set.discard(k.loc)
+				edges,a2a_set = k.gatherEdges(edges,a2a_set)
+		return edges,a2a_set
 		
 def sudokuActionNodes(action_type, action_value): 
 	
@@ -115,6 +123,8 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	ncursor = Node(Types.CURSOR, 0)
 	ncursor.addChild( Node(Axes.X_AX, curs_pos[0] - posOffset) )
 	ncursor.addChild( Node(Axes.Y_AX, curs_pos[1] - posOffset) )
+	bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
+	ncursor.addChild( Node(Axes.B_AX, bc - posOffset) )
 	nodes.append(ncursor)
 	
 	# reward token (used for reward prediction)
@@ -126,7 +136,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	if full_board: 
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column
-				b = (y // SuH)*SuH + (x // SuH)
+				b = (x // SuH)*SuH + (y // SuH)
 				v = puzzle[x,y]
 				nb = Node(Types.BOX, v)
 				# g = guess_mat[x,y]
@@ -143,51 +153,60 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				if x == curs_pos[0] and y == curs_pos[1]:
 					highlight = 1 # FIXME
 				nh = Node(Axes.H_AX, highlight)
-				nh.addChild(ncursor) #cheating haha!
 				nb.addChild( nh )
 				
 				board_nodes[x].append(nb)
-				nodes.append(nb)
 		
 		# make the sets
-		nboard = Node(Types.SET, 2) # node of the whole board
+		# nboard = Node(Types.SET, 2) # node of the whole board
 		
 		xsets = Node(Types.SET, 1.25)
+		nodes.append(xsets)
+		# nboard.addChild(xsets)
 		for x in range(SuN): 
 			nb = Node(Types.SET, 0.25)
 			nb.addChild( Node(Axes.X_AX, x - posOffset) )
+			highlight = 0
+			if x == curs_pos[0] :
+				highlight = 2 
+			nb.addChild( Node(Axes.H_AX, highlight) )
 			for y in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
 			xsets.addChild(nb)
-			nodes.append(nb)
-		nboard.addChild(xsets)
-		nodes.append(xsets)
 		
 		ysets = Node(Types.SET, 1.5)
+		nodes.append(ysets)
+		# nboard.addChild(ysets)
 		for y in range(SuN): 
 			nb = Node(Types.SET, 0.5)
 			nb.addChild( Node(Axes.Y_AX, y - posOffset) )
+			highlight = 0
+			if y == curs_pos[1] :
+				highlight = 2
+			nb.addChild( Node(Axes.H_AX, highlight) )
 			for x in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
 			ysets.addChild(nb)
-			nodes.append(nb)
-		nboard.addChild(ysets)
-		nodes.append(ysets)
 			
 		bsets = Node(Types.SET, 1.75)
+		nodes.append(bsets)
+		# nboard.addChild(bsets)
 		for b in range(SuN): 
 			nb = Node(Types.SET, 0.75)
 			nb.addChild( Node(Axes.B_AX, b - posOffset) )
-			for y in range(SuN): # y = row
-				for x in range(SuN): # x = column
-					bb = (y // SuH)*SuH + (x // SuH)
+			highlight = 0
+			bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
+			if b == bc :
+				highlight = 2
+			nb.addChild( Node(Axes.H_AX, highlight) )
+			for x in range(SuN): # x = row
+				for y in range(SuN): # y = column
+					bb = (x // SuH)*SuH + (y // SuH)
 					if b == bb: 
 						nb.addChild( board_nodes[x][y] )
 			bsets.addChild(nb)
-			nodes.append(nb)
-		nboard.addChild(bsets)
-		nodes.append(bsets)
-		nodes.append(nboard)
+		
+		# nodes.append(nboard)
 	
 	na = sudokuActionNodes(action_type, action_value)
 	
@@ -226,16 +245,18 @@ def nodesToCoo(nodes):
 	# coo is [dst, src] -- see l1attnSparse
 	edges = [] # edges from kids to parents
 	# to get from parents to kids, switch dst and src. 
+	a2a_set = set() # nodes that have no set relation, for a2a attention
+					# aka top-level nodes or objects.
 	for n in nodes: 
 		n.resetRefcnt()
+		a2a_set.add(n)
 	for n in nodes: 
-		if n.refcnt <= 0: 
-			n.refcnt = n.refcnt+1
-			for k in n.kids:
-				edges.append((n.loc, k.loc))
-				# for kk in k.kids:
-				# 	edges.append((n.loc, kk.loc))
-	return torch.tensor(edges)
+		edges,a2a_set = n.gatherEdges(edges,a2a_set)
+	a2a = []
+	for n in a2a_set: 
+		a2a.append(n.loc)
+	a2a.sort() # in-place
+	return torch.tensor(edges), torch.tensor(a2a)
 	
 def encodeNodes(nodes): 
 	# returns a matrix encoding of the nodes + coo vector
@@ -257,24 +278,25 @@ def encodeNodes(nodes):
 	for n in nodes_flat: 
 		i = n.loc # muct be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
-		ii = 20
-		if n.typ.value >= Axes.N_AX.value and n.typ.value <= Axes.G_AX.value:
-			ii = n.typ.value + 10
+		ii = 31
+		if n.typ.value <= Axes.N_AX.value and n.typ.value >= Axes.G_AX.value:
+			ii = n.typ.value
 		benc[i, ii] = n.value
-		# ntv = n.typ.value
-		# if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
-		# 	if n.value >= 0.7 and n.value <= 4.3: 
-		# 		vi = round(n.value)
-		# 		benc[i,20-vi] = 1.0 # also categorical.
+		# add in categorical encoding of value
+		ntv = n.typ.value
+		if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
+			if n.value >= 0.6 and n.value <= 9.4: 
+				vi = round(n.value)
+				benc[i,25-vi] = 1.0
 		
-	coo = nodesToCoo(nodes)
-	return torch.tensor(benc, dtype=g_dtype), coo
+	coo,a2a = nodesToCoo(nodes)
+	return torch.tensor(benc, dtype=g_dtype), coo, a2a
 	
 def encodeActionNodes(action_type, action_value): 
 	# action nodes are at the beginning of the board encoding, 
 	# easy to replace. 
 	na = sudokuActionNodes(action_type, action_value)
-	aenc, _ = encodeNodes([na])
+	aenc,_,_ = encodeNodes([na])
 	return aenc
 	
 def decodeNodes(benc, locs): 
@@ -355,8 +377,8 @@ if __name__ == "__main__":
 	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 	im = [0,0]
 	
-	benc,coo = encodeNodes(nodes)
-	print('benc shape:',benc.shape,'coo shape',coo.shape)
+	benc,coo,a2a = encodeNodes(nodes)
+	print('benc shape:',benc.shape,'coo shape',coo.shape,"a2a shape",a2a.shape)
 	
 	im[0] = axs[0].imshow(benc.T.numpy())
 	plt.colorbar(im[0], ax=axs[0])

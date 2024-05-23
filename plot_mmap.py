@@ -107,7 +107,8 @@ if __name__ == "__main__":
 	maxattn = th.ones(n_heads*2)
 	maxqkv = th.ones(n_heads*2)
 	mask = torch.zeros(cl, world_dim)
-	mask[:,20:26] = 1.0; 
+	mask[:,26:] = 1.0; 
+	lines = None
 
 	while True:
 		# i = np.random.randint(batch_size) # checking
@@ -120,7 +121,12 @@ if __name__ == "__main__":
 			reward = read_mmap(fd_reward, [batch_size, reward_dim])
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
+			guess = 15 + torch.argmax(new_board[i,0,15:25])
+			
 			plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
+			if lines is not None: 
+				lines.pop(0).remove()
+			lines = axs[0,0].plot([0,token_cnt-1],[guess,guess], 'g', alpha=0.4)
 			plot_tensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
 			plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
 			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
@@ -128,7 +134,7 @@ if __name__ == "__main__":
 			# if not initialized: 
 			# 	axs[0,2].plot([0,token_cnt-1],[21,21], 'g', alpha=0.4) # make easier
 			# plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
-			plot_tensor(1, 2, rewardp[:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
+			plot_tensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
 			
 		if mode == 1: 
 			
@@ -161,7 +167,7 @@ if __name__ == "__main__":
 		fig.tight_layout()
 		fig.canvas.draw()
 		fig.canvas.flush_events()
-		time.sleep(10.0)
+		time.sleep(5.0)
 		print("tock")
 		initialized=True
 		u = u + 1

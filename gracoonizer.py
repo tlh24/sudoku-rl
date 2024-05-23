@@ -10,8 +10,10 @@ import matplotlib.pyplot as plt
 from constants import n_heads, token_cnt, g_zeroinit, g_dtype
 import graph_encoding
 from nanogpt_model import GPTConfig, GPT
+from netdenoise import NetDenoise
 
 USE_GRAPH_XFRMR = True
+USE_NANOGPT = False
 
 class Gracoonizer(nn.Module):
 	
@@ -32,10 +34,10 @@ class Gracoonizer(nn.Module):
 				d_model = xfrmr_dim,
 				layers = 9,
 				n_head = self.n_head,
-				repeat = 3,
+				repeat = 2,
 				init_zeros = g_zeroinit
 				)
-		else:
+		elif USE_NANOGPT:
 			model_args = dict(
 				n_layer=6,
 				n_head=6,
@@ -46,6 +48,8 @@ class Gracoonizer(nn.Module):
 				dropout=False)
 			gptconf = GPTConfig(**model_args)
 			self.xfrmr = nanogpt_model.GPT(gptconf)
+		else:
+			self.xfrmr = NetDenoise(token_cnt * world_dim)
 		
 		# self.xfrmr_to_world = graph_transformer.LinearM(xfrmr_dim, world_dim, True) 
 		# with torch.no_grad(): 
@@ -66,8 +70,17 @@ class Gracoonizer(nn.Module):
 			record.append(actenc)
 		if USE_GRAPH_XFRMR: 
 			y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
-		else: 
+		elif USE_NANOGPT: 
 			y = self.xfrmr(benc)
+			w1 = None
+			w2 = None
+		else: 
+			bs = benc.shape[0]
+			ntok = benc.shape[1]
+			w = benc.shape[2]
+			benc = torch.reshape(benc, (bs, ntok*w))
+			y = self.xfrmr(benc, torch.zeros(bs, device=benc.device))
+			y = torch.reshape(y, (bs, ntok, w))
 			w1 = None
 			w2 = None
 		return y, w1, w2

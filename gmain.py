@@ -86,14 +86,14 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 		which defines the attention mask used in the transformer heads
 	'''
 	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
-	benc,coo = sparse_encoding.encodeNodes(nodes)
+	benc,coo,a2a = sparse_encoding.encodeNodes(nodes)
 	
 	reward = runAction(sudoku, guess_mat, curs_pos, action, action_val)
 	
 	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, reward) # action_val doesn't matter
-	newbenc,coo = sparse_encoding.encodeNodes(nodes)
+	newbenc,coo,a2a = sparse_encoding.encodeNodes(nodes)
 	
-	return benc, newbenc, coo, reward, reward_loc
+	return benc, newbenc, coo, a2a, reward, reward_loc
 
 
 def generateActionValue(action: int, min_dist: int, max_dist: int):
@@ -169,15 +169,14 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		curs_pos = torch.randint(SuN, (2,),dtype=int)
 		action_val = generateActionValue(ep[0], min_dist, max_dist)
 		
-		# benc, actenc, newbenc, msk, reward = oneHotEncodeBoard(sudoku, curs_pos, ep[0], action_val)
-		benc,newbenc,coo,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
+		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
 		orig_boards.append(benc)
 		new_boards.append(newbenc)
 		rewards[i] = reward
 		
 	orig_board_enc = torch.stack(orig_boards)
 	new_board_enc = torch.stack(new_boards)
-	return orig_board_enc, new_board_enc, coo, rewards, reward_loc
+	return orig_board_enc, new_board_enc, coo, a2a, rewards, reward_loc
 
 def trainValSplit(data_matrix: torch.Tensor, num_validate):
 	'''
@@ -220,7 +219,7 @@ def getDataLoaders(puzzles, num_samples, num_validate):
 	'''
 	Returns a pytorch train and test dataloader
 	'''
-	data_dict, coo, reward_loc = getDataDict(puzzles, num_samples, num_validate)
+	data_dict, coo, a2a, reward_loc = getDataDict(puzzles, num_samples, num_validate)
 	train_dataset = SudokuDataset(data_dict['train_orig_board'],
 											data_dict['train_new_board'], 
 											data_dict['train_rewards'])
@@ -232,14 +231,14 @@ def getDataLoaders(puzzles, num_samples, num_validate):
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-	return train_dataloader, test_dataloader, coo, reward_loc
+	return train_dataloader, test_dataloader, coo, a2a, reward_loc
 
 
 def getDataDict(puzzles, num_samples, num_validate):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board, new_board, coo, rewards, reward_loc = enumerateBoards(puzzles, num_samples)
+	orig_board, new_board, coo, a2a, rewards, reward_loc = enumerateBoards(puzzles, num_samples)
 	print(orig_board.shape, new_board.shape, rewards.shape)
 	train_orig_board, test_orig_board = trainValSplit(orig_board, num_validate)
 	train_new_board, test_new_board = trainValSplit(new_board, num_validate)
@@ -253,7 +252,7 @@ def getDataDict(puzzles, num_samples, num_validate):
 		'test_new_board': test_new_board,
 		'test_rewards': test_rewards
 	}
-	return dataDict, coo, reward_loc
+	return dataDict, coo, a2a, reward_loc
 
 def getMemoryDict():
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
@@ -303,8 +302,8 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict['fd_board'], pred_dict['old_board'][0:4,:,:].cpu())
 	write_mmap(memory_dict['fd_new_board'], pred_dict['new_board'][0:4,:,:].cpu())
 	write_mmap(memory_dict['fd_boardp'], pred_dict['new_state_preds'][0:4,:,:].cpu().detach())
-	write_mmap(memory_dict['fd_reward'], pred_dict['rewards'][0:4].cpu())
-	write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'][0:4].cpu().detach())
+	write_mmap(memory_dict['fd_reward'], pred_dict['rewards'].cpu())
+	write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'].cpu().detach())
 	if 'a1' in pred_dict and 'a2' in pred_dict:
 		if (pred_dict['a1'] is not None) and (pred_dict['a2'] is not None):
 			write_mmap(memory_dict['fd_attention'], torch.stack((pred_dict['a1'], pred_dict['a2']), 0))
@@ -324,12 +323,12 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			optimizer.zero_grad()
 			new_state_preds,w1,w2 = \
 				model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 20]
+			reward_preds = new_state_preds[:,reward_loc, 31]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
-					  		'rewards': rewards, 'reward_preds': reward_preds,
+					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
 			# new_state_preds dimensions bs,t,w 
-			loss = torch.sum((new_state_preds[:,:,20:26] - new_board[:,:,20:26])**2)
+			loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2)
 			# adam is unstable -- attempt to stabilize?
 			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
@@ -340,11 +339,11 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			def closure():
 				nonlocal pred_data
 				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
-				reward_preds = new_state_preds[:,reward_loc, 20]
+				reward_preds = new_state_preds[:,reward_loc, 31]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
-					  		'rewards': rewards, 'reward_preds': reward_preds,
+					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds[:,:,20:26] - new_board[:,:,20:26])**2) + \
+				loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 					# torch.sum((new_state_preds[:,:,:20] - new_board[:,:,:20])**2)*1e-4 + \
@@ -380,8 +379,8 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 20]
-			loss = torch.sum((new_state_preds[:,:,20:25] - new_board[:,:,20:25])**2)
+			reward_preds = new_state_preds[:,reward_loc, 31]
+			loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
 			fd_losslog.write(f'{uu}\t{lloss}\n')
@@ -508,7 +507,7 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 	print(f"curs_pos {curs_pos[0]},{curs_pos[1]}")
 	
 	nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, 0, 0, 0.0) # action will be replaced.
-	board,_ = sparse_encoding.encodeNodes(nodes)
+	board,_,_ = sparse_encoding.encodeNodes(nodes)
 	
 	board = board.cuda()
 	
@@ -533,7 +532,7 @@ if __name__ == '__main__':
 	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device, "fd_losslog": fd_losslog}
 	
 	# get our train and test dataloaders
-	train_dataloader, test_dataloader, coo, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
+	train_dataloader, test_dataloader, coo, a2a, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
 	print(reward_loc)
 	print(coo)
 	
@@ -545,18 +544,19 @@ if __name__ == '__main__':
 	coo_[:,1] = coo[:,0]
 	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
 	# add global attention
-	coo_ = torch.zeros((token_cnt**2-token_cnt, 2), dtype=int)
-	k = 0
-	for i in range(token_cnt): 
-		for j in range(token_cnt): 
-			if i != j: # don't add the diagonal.
-				coo_[k,:] = torch.tensor([i,j],dtype=int)
-				k = k+1
-	all2all, dst_mxlen_a2a, _ = expandCoo(coo_)
+	all2all = torch.Tensor(a2a); 
+	# coo_ = torch.zeros((token_cnt**2-token_cnt, 2), dtype=int)
+	# k = 0
+	# for i in range(token_cnt): 
+	# 	for j in range(token_cnt): 
+	# 		if i != j: # don't add the diagonal.
+	# 			coo_[k,:] = torch.tensor([i,j],dtype=int)
+	# 			k = k+1
+	# all2all, dst_mxlen_a2a, _ = expandCoo(coo_)
 	kids2parents = kids2parents.cuda()
 	parents2kids = parents2kids.cuda()
 	all2all = all2all.cuda()
-	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), (all2all,dst_mxlen_a2a)]
+	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), all2all]
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
