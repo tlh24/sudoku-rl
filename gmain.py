@@ -532,7 +532,7 @@ if __name__ == '__main__':
 	NUM_TRAIN = batch_size * 1000
 	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 90000
+	NUM_ITERS = 160000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -576,7 +576,7 @@ if __name__ == '__main__':
 		print("not loading any model weights.")
 	else:
 		try:
-			model.load_checkpoint('checkpoints/gracoonizer.pth')
+			model.load_checkpoint('checkpoints/racoonizer_10.pth')
 			print(colored("loaded model checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:

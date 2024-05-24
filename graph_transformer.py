@@ -129,9 +129,9 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.init_zeros = init_zeros
-		self.wqv = LinearM(d_model, 3*d_model, init_zeros) 
-		# self.bk = LinearNobias(d_model, n_head, True) # zeroinit
-		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
+		self.wq = LinearM(d_model, 3*n_head*d_model, init_zeros) 
+		self.wk = torch.nn.Parameter( torch.ones(3*n_head, d_model) )
+		self.wv = LinearM(d_model, 3*n_head*16, init_zeros)
 			# wk is just a weighting, not a full matrix 
 			# to avoid double permutation invariance.
 			# starts out at zero = head gated off.
@@ -151,39 +151,27 @@ class ResidualAttentionBlock(nn.Module):
 		n_head = self.n_head
 		# x is [batch, tokens, d_model]
 		bs,n_tok,width = x.shape
-		d_head = self.d_model # split it up later
 		
-		if pas == 0 and self.init_zeros: 
-			schedule = 2000 # slower for SGD
-			init_head = n // schedule
-			if n % schedule == layer*(schedule//2) and init_head < self.n_head and (not self.head_enabled[init_head]): # only 2 layers! 
-				with torch.no_grad(): 
-					w = self.wk.w
-					w[init_head, :] = 1.0 # no division -- just a gate! 
-					# indx = init_head*d_head
-					# w[indx:indx+d_head, :] = torch.randn(d_head, d_head) / math.sqrt(d_head) # full rank key calc
-					self.wk.w.copy_( w )
-					self.head_enabled[init_head] = True
-					print(f"initialized head {init_head} of layer {layer}")
-		
-		y = self.wqv(x)
-		if record is not None: 
-			record.append( y ) # with grad!
-		q,k,v = torch.split(y, width, dim=-1) 
+		q = self.wq(x)
+		q = q.reshape(bs,n_tok,3,n_head,width)
+		k = x.unsqueeze(2).expand(bs,n_tok,3*n_head,width) * self.wk.unsqueeze(0).unsqueeze(0).expand(bs,n_tok,3*n_head,width)
+		k = k.reshape(bs,n_tok,3,n_head,width)
+		v = self.wv(x)
+		v = v.reshape(bs,n_tok,3,n_head,16)
 		
 		b = torch.zeros_like(x)
 		
 		# calculate the a2 attention
 		a2a = hcoo[2]
 		a2len = a2a.shape[0]
-		q1 = q[:,a2a,72:].reshape(bs,a2len,n_head,6)
-		k1 = k[:,a2a,72:].reshape(bs,a2len,n_head,6)
-		v1 = v[:,a2a,72:].reshape(bs,a2len,n_head,6)
+		q1 = q[:,a2a,0,:,:].squeeze()
+		k1 = k[:,a2a,0,:,:].squeeze()
+		v1 = v[:,a2a,0,:,:].squeeze()
 		# pad out to BLKSIZ tokens.
 		padn = ((a2len + 15) // 16) * 16 - a2len
 		assert(padn > 0) # for noop
-		q2 = torch.cat((q1, torch.zeros(bs,padn,n_head,6, device=v.device)), axis=1)
-		k2 = torch.cat((k1, torch.zeros(bs,padn,n_head,6, device=v.device)), axis=1)
+		q2 = torch.cat((q1, torch.zeros(bs,padn,n_head,width, device=v.device)), axis=1)
+		k2 = torch.cat((k1, torch.zeros(bs,padn,n_head,width, device=v.device)), axis=1)
 		a = self.l1a_f(q2, k2) # includes 1 / sqrt(width)
 		a = a[:, :a2len+1, :a2len+1, :]
 		# add in e^0=1 as a 'noop' option
@@ -194,20 +182,20 @@ class ResidualAttentionBlock(nn.Module):
 		b1 = torch.einsum('bsdh, bshw -> bdhw', a, v1)
 		# scatter to original sites
 		indx = torch.arange(0, a2len, device=v.device)
-		b2 = torch.zeros(bs, n_tok, n_head, 6, device=x.device)
+		b2 = torch.zeros(bs, n_tok, n_head, 16, device=x.device)
 		b2[:,a2a,:,:] = b1[:,indx,:,:] # only writes some tokens
-		b[:,:,72:] = b2.reshape(bs,n_tok,n_head*6)
+		b[:,:,32:48] = b2.sum(axis = 2)
 		
 		# sparse attentions
 		for i in range(2): 
-			sta = 32 + 20*i
-			fin = 32 + 20*(i+1)
-			q1 = q[:,:,sta:fin].reshape(bs,n_tok,n_head,5)
-			k1 = k[:,:,sta:fin].reshape(bs,n_tok,n_head,5)
-			v1 = v[:,:,sta:fin].reshape(bs,n_tok,n_head,5)
+			sta = 32 + 16*(i+1)
+			fin = 32 + 16*(i+2)
+			q1 = q[:,:,0,:,:].squeeze()
+			k1 = k[:,:,0,:,:].squeeze()
+			v1 = v[:,:,0,:,:].squeeze()
 			coo,dst_mxlen = hcoo[i] 
 			b1 = self.l1a_s(v1,q1,k1,coo,dst_mxlen) 
-			b[:,:,sta:fin] = b1.reshape(bs,n_tok,n_head*5)
+			b[:,:,sta:fin] = b1.sum(axis = 2)
 		 
 		return b
 
@@ -226,7 +214,7 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
 		# y = self.ln_2(y) # stabilize learning? 
-		return x + y, self.wqv.w[:,:-1].detach().cpu()
+		return x + y, self.wq.w[:,:-1].detach().cpu()
 		
 	def allHeadsOn(self): 
 		self.head_enabled = [True for _ in range(self.n_head)]
