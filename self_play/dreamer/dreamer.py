@@ -304,7 +304,6 @@ def main(config):
             logprob = random_actor.log_prob(action)
             return {"action": action, "logprob": logprob}, None
         
-        breakpoint()
         # return_logits True for masked env 
         rand_agent = mask_random_agent if return_logits else random_agent
 

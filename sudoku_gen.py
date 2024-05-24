@@ -3,7 +3,9 @@ import math
 import numpy as np
 from termcolor import colored
 import pdb
-import torch 
+import torch
+import time  
+import random, copy
 
 # TODO: Improve puzzle generation speed with https://github.com/Kyubyong/sudoku
 
@@ -145,6 +147,141 @@ class Sudoku:
 			print()
 
 
+def generateInitialBoard(percent_filled=0.75):
+	'''
+	Generates 9x9 sudoku boards and their solutions. Adaped from https://github.com/Kyubyong/sudoku
+	'''
+	def construct_puzzle_solution():
+		# Loop until we're able to fill all 81 cells with numbers, while
+		# satisfying the constraints above.
+		while True:
+			try:
+				puzzle  = [[0]*9 for i in range(9)] # start with blank puzzle
+				rows    = [set(range(1,10)) for i in range(9)] # set of available
+				columns = [set(range(1,10)) for i in range(9)] #   numbers for each
+				squares = [set(range(1,10)) for i in range(9)] #   row, column and square
+				for i in range(9):
+					for j in range(9):
+						# pick a number for cell (i,j) from the set of remaining available numbers
+						choices = rows[i].intersection(columns[j]).intersection(squares[(i//3)*3 + j//3])
+						choice  = random.choice(list(choices))
+			
+						puzzle[i][j] = choice
+			
+						rows[i].discard(choice)
+						columns[j].discard(choice)
+						squares[(i//3)*3 + j//3].discard(choice)
+
+				# success! every cell is filled.
+				return puzzle
+				
+			except IndexError:
+				# if there is an IndexError, we have worked ourselves in a corner (we just start over)
+				pass
+
+
+	def run(num_given_cells, iter=1):
+		'''
+		Attempts to create a puzzle with num_given_cells, but if it can't returns puzzle
+			as close to that and larger in set of iter puzzles generated
+		'''
+		all_results = {}
+	#     print "Constructing a sudoku puzzle."
+	#     print "* creating the solution..."
+		a_puzzle_solution = construct_puzzle_solution()
+		
+	#     print "* constructing a puzzle..."
+		for i in range(iter):
+			puzzle = copy.deepcopy(a_puzzle_solution)
+			(result, number_of_cells) = pluck(puzzle, num_given_cells)
+			all_results.setdefault(number_of_cells, []).append(result)
+			if number_of_cells <= num_given_cells: break
+	
+		return all_results, a_puzzle_solution
+
+	def best(set_of_puzzles):
+		# Could run some evaluation function here. For now just pick
+		# the one with the fewest "givens".
+		return set_of_puzzles[min(set_of_puzzles.keys())][0]
+
+	def pluck(puzzle, n=0):
+		"""
+		Answers the question: can the cell (i,j) in the puzzle "puz" contain the number
+		in cell "c"? """
+		def canBeA(puz, i, j, c):
+			v = puz[c//9][c%9]
+			if puz[i][j] == v: return True
+			if puz[i][j] in range(1,10): return False
+				
+			for m in range(9): # test row, col, square
+				# if not the cell itself, and the mth cell of the group contains the value v, then "no"
+				if not (m==c//9 and j==c%9) and puz[m][j] == v: return False
+				if not (i==c//9 and m==c%9) and puz[i][m] == v: return False
+				if not ((i//3)*3 + m//3==c//9 and (j//3)*3 + m%3==c%9) and puz[(i//3)*3 + m//3][(j//3)*3 + m%3] == v:
+					return False
+
+			return True
+
+
+		"""
+		starts with a set of all 81 cells, and tries to remove one (randomly) at a time
+		but not before checking that the cell can still be deduced from the remaining cells. """
+		cells     = set(range(81))
+		cellsleft = cells.copy()
+		while len(cells) > n and len(cellsleft):
+			cell = random.choice(list(cellsleft)) # choose a cell from ones we haven't tried
+			cellsleft.discard(cell) # record that we are trying this cell
+
+			# row, col and square record whether another cell in those groups could also take
+			# on the value we are trying to pluck. (If another cell can, then we can't use the
+			# group to deduce this value.) If all three groups are True, then we cannot pluck
+			# this cell and must try another one.
+			row = col = square = False
+
+			for i in range(9):
+				if i != cell//9:
+					if canBeA(puzzle, i, cell%9, cell): row = True
+				if i != cell%9:
+					if canBeA(puzzle, cell//9, i, cell): col = True
+				if not (((cell//9)//3)*3 + i//3 == cell//9 and ((cell//9)%3)*3 + i%3 == cell%9):
+					if canBeA(puzzle, ((cell//9)//3)*3 + i//3, ((cell//9)%3)*3 + i%3, cell): square = True
+
+			if row and col and square:
+				continue # could not pluck this cell, try again.
+			else:
+				# this is a pluckable cell!
+				puzzle[cell//9][cell%9] = 0 # 0 denotes a blank cell
+				cells.discard(cell) # remove from the set of visible cells (pluck it)
+				# we don't need to reset "cellsleft" because if a cell was not pluckable
+				# earlier, then it will still not be pluckable now (with less information
+				# on the board).
+
+		# This is the puzzle we found, in all its glory.
+		return (puzzle, len(cells))
+
+
+	num_given_cells = int(81*percent_filled)
+	
+	all_results, solution = run(num_given_cells, iter=10)
+	quiz = best(all_results)
+	return quiz
+		
+class FasterSudoku(Sudoku):
+	'''
+	Sudoku class that generates a puzzle following the satnet puzzle generation code
+	'''
+	def __init__(self, N, percent_filled):
+		super().__init__(N,0)
+		self.percent_filled = percent_filled 
+	
+	def fillValues(self):
+		'''
+		Populates the board and generates an initial board
+		'''
+		self.mat = np.array(generateInitialBoard(self.percent_filled), dtype=np.int32)
+		
+
+
 class LoadSudoku(Sudoku):
 	'''
 	Sudoku class but "generates" a puzzle by sampling from a file containg a list of puzzles
@@ -175,5 +312,25 @@ if __name__ == "__main__":
 	#sudoku = LoadSudoku(N, K)
 	#sudoku.fillValues()
 	#sudoku.printSudoku()
+	puzzles_file = "/home/justin/Desktop/Code/sudoku-rl/satnet_puzzle_0.95_filled_10000.pt"
+	puzzles_list = torch.load(puzzles_file)
+	start = time.perf_counter()
+	for _ in range(1000):
+		sudoku = FasterSudoku(9, 0.75)
+		sudoku.fillValues()
+	end = time.perf_counter()
+	elapsed = end-start 
+	print(f"Faster sudoku took: {elapsed}s for 1000 iters")
+
+	start = time.perf_counter()
+	for _ in range(1000):
+		sudoku = LoadSudoku(9, puzzles_list)
+		sudoku.fillValues()
+	end = time.perf_counter()
+	elapsed = end-start 
+	print(f"Load sudoku took: {elapsed}s for 1000 iters")
+
+
+
 
 

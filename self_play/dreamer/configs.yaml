@@ -46,6 +46,7 @@ defaults:
     {mlp_keys: '.*', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 5, mlp_units: 1024, symlog_inputs: True}
   decoder:
     {mlp_keys: '.*', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 5, mlp_units: 1024, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
+  #the unimix_ratio must be > 0 to prevent funky behavior with OneHotDist reconstruction in sudoku env
   actor:
     {layers: 2, dist: 'normal', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0}
   critic:
@@ -82,7 +83,7 @@ defaults:
   eval_state_mean: False
 
   # Exploration
-  expl_behavior: 'greedy'
+  expl_behavior: 'greedy' #current sudoku code only works with greedy since we require the actor to be able to be generated from a one-hot distribution from the logits
   expl_until: 0
   expl_extr_scale: 0.0
   expl_intr_scale: 1.0

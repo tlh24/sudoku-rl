@@ -217,7 +217,7 @@ def convertToTorch(np_satnet_file):
 	torch.save(sols_tens, sol_filename)
 
 if __name__ == "__main__":
-	#generateSATNetPuzzles(10000, 0.9)
+	generateSATNetPuzzles(10000000, 0.75)
 	#vizSatNetFile("satnet_both_0.9_filled_10000.npz")
 	#convertToTorch("satnet_both_0.75_filled_10000.npz")
 

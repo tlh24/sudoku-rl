@@ -166,7 +166,7 @@ def simulate(
         # step agents
         obs = {k: np.stack([o[k] for o in obs])
                for k in obs[0] if "log_" not in k}
-        breakpoint()
+
         action, agent_state = agent(obs, done, agent_state)
         if isinstance(action, dict):
             action = [
@@ -176,7 +176,7 @@ def simulate(
         else:
             action = np.array(action)
         assert len(action) == len(envs)
-        breakpoint()
+
         # step envs
         _results = [] 
         for e,a in zip(envs, action):

@@ -1,6 +1,5 @@
 '''
 Used to work with https://github.com/NM512/dreamerv3-torch/tree/main/envs dreamer code 
-Note: no action masking 
 '''
 import sys 
 from pathlib import Path  
@@ -12,10 +11,17 @@ from gymnasium import spaces
 from gymnasium.spaces import Discrete
 import numpy as np
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from sudoku_gen import Sudoku, LoadSudoku
+from sudoku_gen import FasterSudoku, LoadSudoku
 import torch 
+from torch.nn import functional as F
+from torch import distributions as torchd
 
-         
+'''
+DreamerSudokuEnv is non-masked and works with dreamer code.
+NMSudoku is a copied version of NoMaskSudoku which works with stable baselines/gymnasium
+OneHotMask is masked wrapper that works with dreamer code.
+'''
+
 class NoMaskSudoku(gym.Env):
     '''
     Sudoku to be used with no action masking. Assumes that generated puzzle is solvable.
@@ -55,7 +61,7 @@ class NoMaskSudoku(gym.Env):
         return (i, j, digit)       
     
     def _setupGame(self):
-        sudoku = LoadSudoku(self.board_width, self.puzzles_list)
+        sudoku = FasterSudoku(self.board_width, self.percent_filled)
         self.sudoku = sudoku
         self.sudoku.fillValues()
 
@@ -168,11 +174,10 @@ class DreamerSudokuEnv(NoMaskSudoku):
         }
         return obs, reward, done, info
     
-'''
-Really bad code, refactor. NoMaskSudoku doesn't have a proper obs/action space to work with dreamer
-'''
+
 class NMSudoku(gymnasium.Env):
     '''
+    Gymansium code to work with stable-baselines
     Sudoku to be used with no action masking. Assumes that generated puzzle is solvable
     '''
     def __init__(self, env_config):
@@ -210,7 +215,7 @@ class NMSudoku(gymnasium.Env):
         return (i, j, digit)       
     
     def _setupGame(self):
-        sudoku = LoadSudoku(self.board_width, self.puzzles_list)
+        sudoku = FasterSudoku(self.board_width, self.percent_filled)
         self.sudoku = sudoku
         self.sudoku.fillValues()
 
@@ -273,16 +278,21 @@ class NMSudoku(gymnasium.Env):
 
 class MaskSudoku(gym.Env):
     '''
-    Manually implemented action masking, uses gym versus gymansium.  
+    Not to be used directly by itself. See DreamerMaskEnv
+    Manually implemented action masking, uses gym versus gymansium for dreamer.
+    is_eval: (bool) If dreamer is in eval mode, then step (in wrapper OneHotMask) returns mode() of logits versus sample()   
+    is_image: (bool) If true, then board obs is now an 2d matrix. 
     '''
-    def __init__(self, n_blocks: int, percent_filled: float, puzzles_file="satnet_puzzles_100k.pt"):
+    def __init__(self, n_blocks: int, percent_filled: float, puzzles_file="satnet_puzzles_100k.pt", is_eval: bool = False, is_image: bool = False):
         self.n_blocks = n_blocks
         self.percent_filled = percent_filled 
         self.board_width = self.n_blocks**2
+        self.is_eval = is_eval
+        self.is_image = is_image 
         # board consists of digits and 0 (for empty cells). Board positions i,j are 0-indexed. 
         # Note that observation is a flattened matrix
-        self.observation_space = spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
-        self.action_space = spaces.Discrete(self.board_width**3, start=0)
+        self._observation_space = spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
+        self._action_space = spaces.Discrete(self.board_width**3, start=0)
        
         self.puzzles_list = torch.load(puzzles_file)
         self.action_mask = np.zeros(self.board_width**3, dtype=np.int8)
@@ -310,15 +320,11 @@ class MaskSudoku(gym.Env):
         return (i, j, digit)       
     
     def _setupGame(self):
-        sudoku = LoadSudoku(self.board_width, self.puzzles_list)
+        sudoku = FasterSudoku(self.board_width, self.percent_filled)
         self.sudoku = sudoku
-        num_attempts = 0
-        while np.sum(self.action_mask) == 0:
-            if num_attempts > 10:
-                raise RuntimeError(f"Failed to get a valid board 10 times board={self.sudoku.mat}")
-            self.sudoku.fillValues()
-            self.getActionMask()
-            num_attempts += 1
+        # assumes that generated sudoku puzzle is solvable
+        self.sudoku.fillValues()
+        self.getActionMask()
         
 
     def getActionMask(self):
@@ -383,7 +389,7 @@ class MaskSudoku(gym.Env):
         return 1 	
     
 
-    def step(self, action: int):
+    def _step(self, action: int):
         '''
         action: (int) Later converted to a tuple (i,j,act) where i,j represent board indices and act 
             represents digit placed 
@@ -407,4 +413,151 @@ class MaskSudoku(gym.Env):
     def reset(self):
         self._setupGame()
         return self.sudoku.mat.flatten(), {} 
+
+class DreamerMaskEnv(MaskSudoku):
+    """
+    Written to work with https://github.com/NM512/dreamerv3-torch/tree/main/envs
+    """
+    def __init__(self, config):
+        n_blocks = config.get("n_blocks", 3)
+        percent_filled = config.get("percent_filled", 0.75)
+        puzzles_file = config.get("puzzles_file", "break.pt")
+        is_eval = config.get("is_eval", False)
+
+        super().__init__(n_blocks, percent_filled, puzzles_file, is_eval)
+        self._skip_env_checking = False
+
+    @property
+    def observation_space(self):
+        spaces = {
+            "board": gym.spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8),
+            "is_first": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.float32),
+            "is_last": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.float32),
+            "is_terminal": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.float32)
+        }
+        return gym.spaces.Dict(spaces)
+
+    @property
+    def action_space(self):
+        action_space = self._action_space
+        action_space.discrete = True
+        return action_space
+
+    def reset(self):
+        board, info = super().reset()
+        obs = {
+            "board": board, 
+            "is_first": True,
+            "is_last": False,
+            "is_terminal": False,
+        }
+        return obs 
+
+    def step(self, action):
+        board, reward, done, _, info = self._step(action)
+        reward = np.float32(reward)
+        obs = {
+            "board": board,
+            "is_first": False,
+            "is_last": done,
+            "is_terminal": done
+        }
+        return obs, reward, done, info
+
+
+
+class OneHotMask(gym.Wrapper):
+    '''
+    Wrapper to be wrapped on DreamerMaskEnv- uses mask vector to generate new logits to sample from 
+    '''
+    def __init__(self, env):
+        assert isinstance(env.action_space, gym.spaces.Discrete) or isinstance(env.action_space, gymnasium.spaces.Discrete)
+        super().__init__(env)
+        self._random = np.random.RandomState()
+        self.shape = (self.env.action_space.n,)
+        space = gym.spaces.Box(low=0, high=1, shape=self.shape, dtype=np.float32)
+        space.discrete = True
+        self.action_space = space
+
+    def step(self, action):
+        '''
+        action: (np.array) logits from OneHotDist. TODO: check that this accurate matches OneHotDist in tools.py
+        If self.env.is_eval True, then return mode() rather than sample() from logits
+        '''
+        def mode(logits):
+            _mode = F.one_hot(
+                torch.argmax(logits, axis=-1), logits.shape[-1]
+            )
+            return _mode.detach() + logits - logits.detach()
+
+        def sample(logits):
+            # note: If there is a shape error, it's becauase the logits shape doesn't dictate the 
+            # sample_shape as in OneHotDist in tools.py
+           
+            cat = torchd.one_hot_categorical.OneHotCategorical(logits=logits)
+            sample = cat.sample() #TODO: Only works for 1d input logits tensors
+            sample += logits - logits.detach()
+            return sample
     
+        # replace all masked locations to have very negative value
+        logits = torch.tensor(action).masked_fill(torch.tensor(self.action_mask == 0), -1e8) 
+        #print(f"Masked logits: {logits}")
+
+        if self.env.is_eval:
+            onehot_act = mode(logits)
+        else:
+            onehot_act = sample(logits)
+        
+        index = int(np.argmax(onehot_act))
+
+        return self.env.step(index)
+
+    def reset(self):
+        return self.env.reset()
+
+    def _sample_action(self):
+        actions = self.env.action_space.n
+        # choose a random index that is a valid action element
+        indices = torch.nonzero(self.action_mask == 1).squeeze()
+        random_index = indices[torch.randint(len(indices), size=(1,))]
+
+        reference = np.zeros(actions, dtype=np.float32)
+        reference[random_index] = 1.0
+        return reference
+
+
+class StableMaskEnv(MaskSudoku):
+    '''
+    MaskSudoku for stable baselines PPO. Unlike dreamer, doesn't have weird booleans and observation is a vector, not a dict
+    '''
+    def __init__(self, config):
+        n_blocks = config.get("n_blocks", 3)
+        percent_filled = config.get("percent_filled", 0.75)
+        puzzles_file = config.get("puzzles_file", "break.pt")
+        is_eval = config.get("is_eval", False)
+        is_image = config.get("is_image", False)
+
+        super().__init__(n_blocks, percent_filled, puzzles_file, is_eval, is_image)
+        self._skip_env_checking = False
+
+    @property
+    def observation_space(self):
+        return gym.spaces.Box(low=0,high=self.board_width, shape=(self.board_width**2,), dtype=np.uint8)
+
+    @property
+    def action_space(self):
+        action_space = self._action_space
+        action_space.discrete = True
+        return action_space
+    
+    def reset(self):
+        board, info = super().reset()
+        return board
+
+    def step(self, action):
+        board, reward, done, _, info = self._step(action)
+        reward = np.float32(reward)
+       
+        return board, reward, done, info
+
+
