@@ -26,7 +26,7 @@ class LinearM(nn.Module):
 	# with the bias merged -- used for PSGD optimizer.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearM, self).__init__()
-		scl = 0.02 / math.sqrt(2*9)
+		scl = 0.02 # / math.sqrt(2)
 		if initzeros: 
 			scl = 0.0
 		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1,dtype=g_dtype))
@@ -40,7 +40,7 @@ class LinearNobias(nn.Module):
 	# with the bias merged.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearNobias, self).__init__()
-		scl = 0.02 / math.sqrt(2 * 9)
+		scl = 0.02 # / math.sqrt(2 * 9)
 		if initzeros: 
 			scl = 0.0
 		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim,dtype=g_dtype) )
@@ -129,8 +129,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.init_zeros = init_zeros
-		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
-		self.wk = LinearNobias(d_model, n_head, False) # not zeroinit
+		self.wqv = LinearM(d_model, 3*d_model, init_zeros) 
 		# self.bk = LinearNobias(d_model, n_head, True) # zeroinit
 		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
 			# wk is just a weighting, not a full matrix 
@@ -150,8 +149,9 @@ class ResidualAttentionBlock(nn.Module):
 		
 	def attention(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
 		n_head = self.n_head
-		d_head = self.d_model ## no sub-spaces!
-		width = x.shape[2]
+		# x is [batch, tokens, d_model]
+		bs,n_tok,width = x.shape
+		d_head = self.d_model # split it up later
 		
 		if pas == 0 and self.init_zeros: 
 			schedule = 2000 # slower for SGD
@@ -166,100 +166,53 @@ class ResidualAttentionBlock(nn.Module):
 					self.head_enabled[init_head] = True
 					print(f"initialized head {init_head} of layer {layer}")
 		
-		# x is [batch, tokens, d_model]
-		batch_size = x.shape[0]
-		ntok = x.shape[1]
-		
 		y = self.wqv(x)
 		if record is not None: 
 			record.append( y ) # with grad!
-		y = torch.reshape(y, (batch_size, ntok, self.n_head, d_head*2) )
-		q,v = torch.split(y, d_head, dim=-1) 
-			# q-v hence becomes second to last dim
+		q,k,v = torch.split(y, width, dim=-1) 
 		
-		# per-axis gate k by wk, uniformly across tokens; different per head.
-		# this should be information-preserving.
-		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
-		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		# bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		k = k * gk # + bk # with bias to allow for centering.
+		b = torch.zeros_like(x)
 		
-		# full-rank key calculation (worse!)
-		# kw = self.wk.w.reshape([self.n_head, self.d_model, -1])
-		# k = torch.einsum("btd,hde -> bthe", x, kw)
-	
-		# gate the value by head_enabled. 
-		# during sampling, all heads enabled, so no need to save. 
-		gv = torch.tensor(self.head_enabled, dtype=g_dtype, device=v.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand([batch_size,ntok,-1,d_head])
-		v = v * gv  
+		# calculate the a2 attention
+		a2a = hcoo[2]
+		a2len = a2a.shape[0]
+		q1 = q[:,a2a,72:].reshape(bs,a2len,n_head,6)
+		k1 = k[:,a2a,72:].reshape(bs,a2len,n_head,6)
+		v1 = v[:,a2a,72:].reshape(bs,a2len,n_head,6)
+		# pad out to BLKSIZ tokens.
+		padn = ((a2len + 15) // 16) * 16 - a2len
+		assert(padn > 0) # for noop
+		q2 = torch.cat((q1, torch.zeros(bs,padn,n_head,6, device=v.device)), axis=1)
+		k2 = torch.cat((k1, torch.zeros(bs,padn,n_head,6, device=v.device)), axis=1)
+		a = self.l1a_f(q2, k2) # includes 1 / sqrt(width)
+		a = a[:, :a2len+1, :a2len+1, :]
+		# add in e^0=1 as a 'noop' option
+		# (hence max attention is 0.5, not 1)
+		# output is b,src,dst,heads
+		a = F.softmax(a, 1) # see l1attn.py -- sm over src
+		a = a[:, :a2len, :a2len, :] # remove noop
+		b1 = torch.einsum('bsdh, bshw -> bdhw', a, v1)
+		# scatter to original sites
+		indx = torch.arange(0, a2len, device=v.device)
+		b2 = torch.zeros(bs, n_tok, n_head, 6, device=x.device)
+		b2[:,a2a,:,:] = b1[:,indx,:,:] # only writes some tokens
+		b[:,:,72:] = b2.reshape(bs,n_tok,n_head*6)
 		
-		if g_l1atten: 
-			# cycle through the coo vectors.  
-			if layer % 3 == 2: 
-				if True:
-					# extract all global / all-to-all tokens
-					# really could do this with pure sparse attn.. will have to compare. 
-					a2a = hcoo[2]
-					a2len = a2a.shape[0]
-					q = q[:,a2a,:,:]
-					k = k[:,a2a,:,:]
-					v = v[:,a2a,:,:]
-					# pad out to BLKSIZ tokens.
-					padn = ((a2len + 15) // 16) * 16 - a2len
-					assert(padn > 0) # for noop
-					qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-					kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-					a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
-					a = a[:, :a2len+1, :a2len+1, :]
-					# add in e^0=1 as a 'noop' option
-					# (hence max attention is 0.5, not 1)
-					# output is b,src,dst,heads
-					a = F.softmax(a, 1) # see l1attn.py -- sm over src
-					a = a[:, :a2len, :a2len, :] # remove noop
-					bb = torch.einsum('bsdh, bshw -> bdhw', a, v)
-					# scatter to original sites
-					b = torch.zeros(batch_size, ntok, n_head, width, device=v.device)
-					indx = torch.arange(0, a2len, device=v.device)
-					b[:,a2a,:,:] = bb[:,indx,:,:]
-				# else: 
-				# 	# this is dot-product attention
-				# 	a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
-				# 	a = self.soft(a)
-				# 	b = torch.einsum('btsh,bshd -> bthd', a, v)
-				# else: 
-				# 	# flashAttention only supports float16
-				# 	b = flash_attn_func(q.half(), k.half(), v.half())
-				# 	b = b.float()
-			else: 
-				coo,dst_mxlen = hcoo[layer%3] 
-				b = self.l1a_s(v,q,k,coo,dst_mxlen) 
-			ap = torch.zeros(ntok, ntok, n_head) # dummy.
-		else: 
-			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
-			a = self.soft(a)
-			# a = a * msk 
-			b = torch.einsum('btsh,bshd -> bthd', a, v) # regular attention
-			# ap = (a[0,:,:,:] - 1.0 + msk[0,:,:,:]).squeeze().detach().cpu()
-			ap = (a[0,:,:,:]).squeeze().detach().cpu()
-		
-		# multiply b by a symmetry-breaking mask
-		# d_model = self.d_model
-		# msk = torch.ones(self.n_head, d_model) * 1e-3
-		# msk[:, 0:21] = 1
-		# for i in range(self.n_head):
-		# 	msk[i, d_model-(i+1)*3:d_model-i*3] = 1
-		# msk = msk.to(b.device)
-		# msk = msk.unsqueeze(0).unsqueeze(1).expand([batch_size,ntok,-1,-1])
-		# b = torch.sum(b*msk, dim=2) # sum along the heads
-		
-		b = torch.sum(b, dim=2) # sum along the heads
-		
-		b = torch.reshape(b, (batch_size, ntok, self.d_model))
+		# sparse attentions
+		for i in range(2): 
+			sta = 32 + 20*i
+			fin = 32 + 20*(i+1)
+			q1 = q[:,:,sta:fin].reshape(bs,n_tok,n_head,5)
+			k1 = k[:,:,sta:fin].reshape(bs,n_tok,n_head,5)
+			v1 = v[:,:,sta:fin].reshape(bs,n_tok,n_head,5)
+			coo,dst_mxlen = hcoo[i] 
+			b1 = self.l1a_s(v1,q1,k1,coo,dst_mxlen) 
+			b[:,:,sta:fin] = b1.reshape(bs,n_tok,n_head*5)
 		 
-		return b,ap # residual sum later.
+		return b
 
 	def forward(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
-		y,ap = self.attention(x,hcoo,n,layer,pas,record)
+		y = self.attention(x,hcoo,n,layer,pas,record)
 		if record is not None: 
 			record.append( y )
 		# y = self.ln_1(y) # stabilize learning? 
@@ -273,7 +226,7 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
 		# y = self.ln_2(y) # stabilize learning? 
-		return x + y, ap, self.wqv.w[:,:-1].detach().cpu()
+		return x + y, self.wqv.w[:,:-1].detach().cpu()
 		
 	def allHeadsOn(self): 
 		self.head_enabled = [True for _ in range(self.n_head)]
@@ -294,11 +247,8 @@ class Transformer(nn.Module):
 			for j, layer in enumerate(self.resblocks):
 				# linearly encode the repeat position on all tokens. 
 				x[:,:,0] = i*2
-				x,a1,w1 = layer(x,hcoo,n,j,i,record)
-				if j == 1: 
-					a2 = a1
-					w2 = w1
-		return x, w1, w2 # dumb way to do this
+				x,w1 = layer(x,hcoo,n,j,i,record)
+		return x,w1
 
 	def allHeadsOn(self): 
 		self.layer1.allHeadsOn()

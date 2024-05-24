@@ -307,8 +307,8 @@ def updateMemory(memory_dict, pred_dict):
 	if 'a1' in pred_dict and 'a2' in pred_dict:
 		if (pred_dict['a1'] is not None) and (pred_dict['a2'] is not None):
 			write_mmap(memory_dict['fd_attention'], torch.stack((pred_dict['a1'], pred_dict['a2']), 0))
-	if (pred_dict['w1'] is not None) and (pred_dict['w2'] is not None):
-		write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
+	# if (pred_dict['w1'] is not None) and (pred_dict['w2'] is not None):
+	# 	write_mmap(memory_dict['fd_wqkv'], torch.stack((pred_dict['w1'], pred_dict['w2']), 0))
 	return 
 
 def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu):
@@ -319,8 +319,9 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 		
 		# scale down the highlight, see if the model can learn.. 
-		uu_scl = 1.0 - uu / args["NUM_ITERS"]
-		uu_scl = uu_scl / 10
+		# uu_scl = 1.0 - uu / args["NUM_ITERS"]
+		# uu_scl = uu_scl / 10
+		uu_scl = 1.0
 		old_board[:,:,Axes.H_AX.value] = old_board[:,:,Axes.H_AX.value] * uu_scl
 		new_board[:,:,Axes.H_AX.value] = new_board[:,:,Axes.H_AX.value] * uu_scl
 
@@ -334,7 +335,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
 			# new_state_preds dimensions bs,t,w 
-			loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2)
+			loss = torch.sum((new_state_preds[:,:,26:32] - new_board[:,:,26:32])**2)
 			# adam is unstable -- attempt to stabilize?
 			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
@@ -344,12 +345,12 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			# psgd library internally does loss.backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
+				new_state_preds,w1 = model.forward(old_board, hcoo, uu, None)
 				reward_preds = new_state_preds[:,reward_loc, 31]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
-							'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2) + \
+							'w1':w1, 'w2':w1}
+				loss = torch.sum((new_state_preds[:,:,26:32] - new_board[:,:,26:32])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 					# torch.sum((new_state_preds[:,:,:20] - new_board[:,:,:20])**2)*1e-4 + \
@@ -384,9 +385,9 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 	with torch.no_grad():
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
-			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
+			new_state_preds,w1 = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 31]
-			loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2)
+			loss = torch.sum((new_state_preds[:,:,26:32] - new_board[:,:,26:32])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
 			fd_losslog.write(f'{uu}\t{lloss}\n')
@@ -487,7 +488,7 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, locs):
 			s = aenc.shape[0]
 			new_boards[i, 0:s, :] = aenc.cuda()
 			
-		boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
+		boards_pred,_ = model.forward(new_boards,hcoo,0,None)
 		reward_pred = boards_pred[:,reward_loc, 20]
 		
 		for i,(at,av) in enumerate(zip(action_types,action_values)):
@@ -528,7 +529,7 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 150
+	NUM_TRAIN = batch_size * 500
 	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 90000
@@ -584,7 +585,7 @@ if __name__ == '__main__':
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	evaluateActionsRecurse(model, puzzles, hcoo)
+	# evaluateActionsRecurse(model, puzzles, hcoo)
 
 	uu = 0
 	while uu < NUM_ITERS:

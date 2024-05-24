@@ -1,8 +1,8 @@
 import torch
 
-n_heads = 8
-world_dim = 32 #
-xfrmr_dim = 32 # default: 128
+n_heads = 4
+world_dim = 96 
+xfrmr_dim = 96 
 reward_dim = 1 # immediate and infinite-horizon
 token_cnt = 253 # run graph_encoding to determine this.
 g_zeroinit = False

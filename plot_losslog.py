@@ -3,6 +3,7 @@ import csv
 import pdb
 import matplotlib.pyplot as plt
 import time
+import os
 # import sklearn
 
 # remove menubar buttons
@@ -17,7 +18,7 @@ initialized = False
 
 current_directory = os.getcwd()
 base_dir = os.path.basename(current_directory)
-fig.canvas.manager.set_window_title(f'plot_losslong {base_dir}')
+fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
 def slidingWindowR2(x, y, window_size, stride):
 	n = len(x)

@@ -32,7 +32,7 @@ class Gracoonizer(nn.Module):
 		if USE_GRAPH_XFRMR:
 			self.xfrmr = graph_transformer.Transformer(
 				d_model = xfrmr_dim,
-				layers = 9,
+				layers = 4,
 				n_head = self.n_head,
 				repeat = 2,
 				init_zeros = g_zeroinit
@@ -69,11 +69,10 @@ class Gracoonizer(nn.Module):
 		if record is not None: 
 			record.append(actenc)
 		if USE_GRAPH_XFRMR: 
-			y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
+			y,w1 = self.xfrmr(benc,hcoo,n,record)
 		elif USE_NANOGPT: 
 			y = self.xfrmr(benc)
 			w1 = None
-			w2 = None
 		else: 
 			bs = benc.shape[0]
 			ntok = benc.shape[1]
@@ -82,8 +81,7 @@ class Gracoonizer(nn.Module):
 			y = self.xfrmr(benc, torch.zeros(bs, device=benc.device))
 			y = torch.reshape(y, (bs, ntok, w))
 			w1 = None
-			w2 = None
-		return y, w1, w2
+		return y, w1
 		
 	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd):
 		# record the real targets for the internal variables. 
