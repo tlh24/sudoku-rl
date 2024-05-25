@@ -126,8 +126,8 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
 		# possible_actions = [ 0,1,2,3 ]
-		# possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
-		possible_actions = [ 4,4,4,4 ]
+		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		# possible_actions = [ 4,4,4,4 ]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
 	outlist = []
@@ -319,10 +319,10 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 		
 		# scale down the highlight, see if the model can learn.. 
-		uu_scl = 1.0 - uu / args["NUM_ITERS"]
-		uu_scl = uu_scl / 10
-		old_board[:,:,Axes.H_AX.value] = old_board[:,:,Axes.H_AX.value] * uu_scl
-		new_board[:,:,Axes.H_AX.value] = new_board[:,:,Axes.H_AX.value] * uu_scl
+		# uu_scl = 1.0 - uu / args["NUM_ITERS"]
+		# uu_scl = uu_scl / 10
+		# old_board[:,:,Axes.H_AX.value] = old_board[:,:,Axes.H_AX.value] * uu_scl
+		# new_board[:,:,Axes.H_AX.value] = new_board[:,:,Axes.H_AX.value] * uu_scl
 
 		pred_data = {}
 		if optimizer_name != 'psgd': 
@@ -528,10 +528,10 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 150
+	NUM_TRAIN = batch_size * 1500
 	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 90000
+	NUM_ITERS = 160000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -575,7 +575,7 @@ if __name__ == '__main__':
 		print("not loading any model weights.")
 	else:
 		try:
-			model.load_checkpoint('checkpoints/gracoonizer.pth')
+			model.load_checkpoint('checkpoints/racoonizer_136.pth')
 			print(colored("loaded model checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
