@@ -99,17 +99,14 @@ if __name__ == "__main__":
 		#cbar[r][c].update_normal(im[r][c]) # probably does nothing
 		axs[r,c].set_title(name)
 		axs[r,c].tick_params(bottom=True, top=True, left=True, right=True)
-
-	bs = batch_size
-	if batch_size > 4: 
-		bs = 4
 		
 	u = 0
-	cl = token_cnt
+	# cl = token_cnt
+	cl = 200
 	
 	maxattn = th.ones(n_heads*2)
 	maxqkv = th.ones(n_heads*2)
-	mask = torch.zeros(cl, world_dim)
+	mask = torch.zeros(token_cnt, world_dim)
 	mask[:,26:] = 1.0; 
 	lines = None
 
@@ -124,16 +121,22 @@ if __name__ == "__main__":
 			reward = read_mmap(fd_reward, [batch_size, reward_dim])
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
+			if u % 2 == 0 or True: 
+				err = torch.sum(torch.abs((boardp - new_board)*mask), [1,2])
+				i = torch.argmax(err).item()
+			else: 
+				i = 0
+			
 			guess = 15 + torch.argmax(new_board[i,0,15:25])
 			
 			plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
 			if lines is not None: 
 				lines.pop(0).remove()
-			lines = axs[0,0].plot([0,token_cnt-1],[guess,guess], 'g', alpha=0.4)
+			lines = axs[0,0].plot([0,cl-1],[guess,guess], 'g', alpha=0.4)
 			plot_tensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
 			plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
 			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(0, 2, (boardp[i,:cl,:].T - new_board[i,:cl,:].T)*mask.T, f"(board_pred - new_board)[{i},:,:]", -4.0, 4.0)
+			plot_tensor(0, 2, (boardp[i,:cl,:].T - new_board[i,:cl,:].T)*mask[:cl,:].T, f"(board_pred - new_board)[{i},:,:]", -4.0, 4.0)
 			# if not initialized: 
 			# 	axs[0,2].plot([0,token_cnt-1],[21,21], 'g', alpha=0.4) # make easier
 			# plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)

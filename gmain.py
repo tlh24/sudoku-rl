@@ -300,9 +300,9 @@ def updateMemory(memory_dict, pred_dict):
 	Returns:
 	None
 	'''
-	write_mmap(memory_dict['fd_board'], pred_dict['old_board'][0:4,:,:].cpu())
-	write_mmap(memory_dict['fd_new_board'], pred_dict['new_board'][0:4,:,:].cpu())
-	write_mmap(memory_dict['fd_boardp'], pred_dict['new_state_preds'][0:4,:,:].cpu().detach())
+	write_mmap(memory_dict['fd_board'], pred_dict['old_board'].cpu())
+	write_mmap(memory_dict['fd_new_board'], pred_dict['new_board'].cpu())
+	write_mmap(memory_dict['fd_boardp'], pred_dict['new_state_preds'].cpu().detach())
 	write_mmap(memory_dict['fd_reward'], pred_dict['rewards'].cpu())
 	write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'].cpu().detach())
 	if 'a1' in pred_dict and 'a2' in pred_dict:
@@ -529,11 +529,12 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 10
-	NUM_VALIDATE = batch_size * 5
+	NUM_TRAIN = batch_size * 500
+	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 150000
-	device = torch.device('cuda:0')
+	NUM_ITERS = 50000
+	device = torch.device('cuda:0') 
+	# can override with export CUDA_VISIBLE_DEVICES=1 
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
 	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device, "fd_losslog": fd_losslog}
@@ -581,7 +582,8 @@ if __name__ == '__main__':
 		print("not loading any model weights.")
 	else:
 		try:
-			model.load_checkpoint('checkpoints/racoonizer_136.pth')
+			# ought to sort based on most recently modified. TODO
+			model.load_checkpoint('checkpoints/racoonizer_14.pth')
 			print(colored("loaded model checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:

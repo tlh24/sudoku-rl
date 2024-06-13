@@ -279,15 +279,15 @@ def encodeNodes(nodes):
 		i = n.loc # muct be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
 		ii = 31
-		if n.typ.value <= Axes.N_AX.value and n.typ.value >= Axes.G_AX.value:
-			ii = n.typ.value
+		if n.typ.value >= Axes.N_AX.value and n.typ.value <= Axes.G_AX.value:
+			ii = (20 - n.typ.value) + 31
 		benc[i, ii] = n.value
 		# add in categorical encoding of value
 		ntv = n.typ.value
 		if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
 			if n.value >= 0.6 and n.value <= 9.4: 
 				vi = round(n.value)
-				benc[i,25-vi] = 1.0
+				benc[i,10+vi] = 1.0
 		
 	coo,a2a = nodesToCoo(nodes)
 	return torch.tensor(benc, dtype=g_dtype), coo, a2a

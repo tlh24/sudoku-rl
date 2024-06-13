@@ -32,7 +32,7 @@ class Gracoonizer(nn.Module):
 		if USE_GRAPH_XFRMR:
 			self.xfrmr = graph_transformer.Transformer(
 				d_model = xfrmr_dim,
-				layers = 12,
+				layers = 8,
 				n_head = self.n_head,
 				repeat = 3,
 				init_zeros = g_zeroinit
@@ -175,3 +175,4 @@ class Gracoonizer(nn.Module):
 			p.numel() for p in self.parameters() if p.requires_grad
 		)
 		print(f"Number of model parameters:{trainable_params/1e6}M")
+		pdb.set_trace()
