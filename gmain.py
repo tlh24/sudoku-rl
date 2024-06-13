@@ -125,8 +125,8 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
-		possible_actions = [ 0,1,2,3 ]
-		# possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		# possible_actions = [ 0,1,2,3 ]
+		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
 		# possible_actions = [ 4,4,4,4 ]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
@@ -529,10 +529,10 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 500
+	NUM_TRAIN = batch_size * 1000
 	NUM_VALIDATE = batch_size * 50
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 50000
+	NUM_ITERS = 150000
 	device = torch.device('cuda:0') 
 	# can override with export CUDA_VISIBLE_DEVICES=1 
 	torch.set_float32_matmul_precision('high')
