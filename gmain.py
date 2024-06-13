@@ -583,16 +583,16 @@ if __name__ == '__main__':
 	else:
 		try:
 			# ought to sort based on most recently modified. TODO
-			model.load_checkpoint('checkpoints/racoonizer_14.pth')
+			model.load_checkpoint('checkpoints/racoonizer_4.pth')
 			print(colored("loaded model checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
 			print(colored(f"could not load model checkpoint {error}", "red"))
 	
-	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
+	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	evaluateActionsRecurse(model, puzzles, hcoo)
+	# evaluateActionsRecurse(model, puzzles, hcoo) FIXME encoding changed
 
 	uu = 0
 	while uu < NUM_ITERS:
