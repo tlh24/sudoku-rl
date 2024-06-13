@@ -32,7 +32,7 @@ class Gracoonizer(nn.Module):
 		if USE_GRAPH_XFRMR:
 			self.xfrmr = graph_transformer.Transformer(
 				d_model = xfrmr_dim,
-				layers = 9,
+				layers = 12,
 				n_head = self.n_head,
 				repeat = 3,
 				init_zeros = g_zeroinit

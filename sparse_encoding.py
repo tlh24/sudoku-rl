@@ -145,13 +145,13 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				# think of these as named attributes, var.x, var.y etc
 				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
 				# can do a bit of both by encoding the axes with integers
-				# nb.addChild( Node(Axes.X_AX, x - posOffset) )
-				# nb.addChild( Node(Axes.Y_AX, y - posOffset) )
-				# nb.addChild( Node(Axes.B_AX, b - posOffset) )
+				nb.addChild( Node(Axes.X_AX, x - posOffset) )
+				nb.addChild( Node(Axes.Y_AX, y - posOffset) )
+				nb.addChild( Node(Axes.B_AX, b - posOffset) )
 				
 				highlight = 0
 				if x == curs_pos[0] and y == curs_pos[1]:
-					highlight = 1 # FIXME
+					highlight = 2 
 				nh = Node(Axes.H_AX, highlight)
 				nb.addChild( nh )
 				
@@ -168,7 +168,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 			nb.addChild( Node(Axes.X_AX, x - posOffset) )
 			highlight = 0
 			if x == curs_pos[0] :
-				highlight = 2 
+				highlight = 1 
 			nb.addChild( Node(Axes.H_AX, highlight) )
 			for y in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -182,7 +182,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 			nb.addChild( Node(Axes.Y_AX, y - posOffset) )
 			highlight = 0
 			if y == curs_pos[1] :
-				highlight = 2
+				highlight = 1
 			nb.addChild( Node(Axes.H_AX, highlight) )
 			for x in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -197,7 +197,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 			highlight = 0
 			bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
 			if b == bc :
-				highlight = 2
+				highlight = 1
 			nb.addChild( Node(Axes.H_AX, highlight) )
 			for x in range(SuN): # x = row
 				for y in range(SuN): # y = column

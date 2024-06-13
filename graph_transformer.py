@@ -195,11 +195,11 @@ class ResidualAttentionBlock(nn.Module):
 		
 		if g_l1atten: 
 			# cycle through the coo vectors.  
-			if layer % 3 == 2: 
+			if layer % 4 == 3: 
 				if True:
 					# extract all global / all-to-all tokens
 					# really could do this with pure sparse attn.. will have to compare. 
-					a2a = hcoo[2]
+					a2a = hcoo[3]
 					a2len = a2a.shape[0]
 					q = q[:,a2a,:,:]
 					k = k[:,a2a,:,:]
@@ -231,7 +231,7 @@ class ResidualAttentionBlock(nn.Module):
 				# 	b = flash_attn_func(q.half(), k.half(), v.half())
 				# 	b = b.float()
 			else: 
-				coo,dst_mxlen = hcoo[layer%3] 
+				coo,dst_mxlen = hcoo[layer%4] 
 				b = self.l1a_s(v,q,k,coo,dst_mxlen) 
 			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 

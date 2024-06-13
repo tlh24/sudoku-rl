@@ -125,8 +125,8 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 	
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
-		# possible_actions = [ 0,1,2,3 ]
-		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		possible_actions = [ 0,1,2,3 ]
+		# possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
 		# possible_actions = [ 4,4,4,4 ]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
@@ -285,7 +285,8 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	elif optimizer_name == 'sgd':
 		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5)
+		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
+			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5)
 	return optimizer 
 
 def updateMemory(memory_dict, pred_dict): 
@@ -528,10 +529,10 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 1500
-	NUM_VALIDATE = batch_size * 50
+	NUM_TRAIN = batch_size * 10
+	NUM_VALIDATE = batch_size * 5
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 160000
+	NUM_ITERS = 150000
 	device = torch.device('cuda:0')
 	torch.set_float32_matmul_precision('high')
 	fd_losslog = open('losslog.txt', 'w')
@@ -549,6 +550,9 @@ if __name__ == '__main__':
 	coo_[:,0] = coo[:,1]
 	coo_[:,1] = coo[:,0]
 	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
+	# and self attention (intra-token attention ops) -- either this or add a second MLP layer. 
+	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
+	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
 	# add global attention
 	all2all = torch.Tensor(a2a); 
 	# coo_ = torch.zeros((token_cnt**2-token_cnt, 2), dtype=int)
@@ -561,8 +565,10 @@ if __name__ == '__main__':
 	# all2all, dst_mxlen_a2a, _ = expandCoo(coo_)
 	kids2parents = kids2parents.cuda()
 	parents2kids = parents2kids.cuda()
+	self2self = self2self.cuda()	
 	all2all = all2all.cuda()
-	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), all2all]
+	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		(self2self, dst_mxlen_s2s), all2all]
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
