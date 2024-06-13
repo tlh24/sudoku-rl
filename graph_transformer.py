@@ -204,13 +204,14 @@ class ResidualAttentionBlock(nn.Module):
 					q = q[:,a2a,:,:]
 					k = k[:,a2a,:,:]
 					v = v[:,a2a,:,:]
-					# pad out to BLKSIZ tokens.
+					# pad out to BLKSIZ tokens (for CUDA kernel).
 					padn = ((a2len + 15) // 16) * 16 - a2len
 					assert(padn > 0) # for noop
 					qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
 					kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
 					a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
-					a = a[:, :a2len+1, :a2len+1, :]
+					a = a[:, :a2len+1, :a2len, :]
+					a[:, a2len, :,:] = 0.0
 					# add in e^0=1 as a 'noop' option
 					# (hence max attention is 0.5, not 1)
 					# output is b,src,dst,heads
