@@ -101,8 +101,8 @@ if __name__ == "__main__":
 		axs[r,c].tick_params(bottom=True, top=True, left=True, right=True)
 		
 	u = 0
-	# cl = token_cnt
-	cl = 200
+	cl = token_cnt
+	# cl = 120
 	
 	maxattn = th.ones(n_heads*2)
 	maxqkv = th.ones(n_heads*2)
@@ -127,7 +127,7 @@ if __name__ == "__main__":
 			else: 
 				i = 0
 			
-			guess = 15 + torch.argmax(new_board[i,0,15:25])
+			guess = 10 + torch.argmax(new_board[i,0,10:20])
 			
 			plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
 			if lines is not None: 

@@ -2,6 +2,7 @@ import math
 import random
 import argparse
 import time
+import os
 import numpy as np
 import torch
 from torch import nn, optim
@@ -330,7 +331,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			optimizer.zero_grad()
 			new_state_preds,w1,w2 = \
 				model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 31]
+			reward_preds = new_state_preds[:,reward_loc, 26]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
@@ -346,7 +347,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			def closure():
 				nonlocal pred_data
 				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
-				reward_preds = new_state_preds[:,reward_loc, 31]
+				reward_preds = new_state_preds[:,reward_loc, 26]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
@@ -386,7 +387,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 31]
+			reward_preds = new_state_preds[:,reward_loc, 26]
 			loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
@@ -529,8 +530,8 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 10
-	NUM_VALIDATE = batch_size * 5
+	NUM_TRAIN = batch_size * 1000 # 10 is too small
+	NUM_VALIDATE = batch_size * 100
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 150000
 	device = torch.device('cuda:0') 
@@ -579,11 +580,20 @@ if __name__ == '__main__':
 	model.printParamCount()
 
 	if cmd_args.c: 
-		print("not loading any model weights.")
+		print(colored("not loading any model weights.", "blue"))
 	else:
 		try:
-			# ought to sort based on most recently modified. TODO
-			model.load_checkpoint('checkpoints/racoonizer_4.pth')
+			checkpoint_dir = 'checkpoints/'
+			files = os.listdir(checkpoint_dir)
+			files = [os.path.join(checkpoint_dir, f) for f in files]
+			# Filter out directories and only keep files
+			files = [f for f in files if os.path.isfile(f)]
+			if not files:
+				raise ValueError("No files found in the checkpoint directory")
+			# Find the most recently modified file
+			latest_file = max(files, key=os.path.getmtime)
+			print(colored(latest_file, "green"))
+			model.load_checkpoint(latest_file)
 			print(colored("loaded model checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
@@ -592,7 +602,7 @@ if __name__ == '__main__':
 	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	# evaluateActionsRecurse(model, puzzles, hcoo) FIXME encoding changed
+	evaluateActionsRecurse(model, puzzles, hcoo) 
 
 	uu = 0
 	while uu < NUM_ITERS:

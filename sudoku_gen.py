@@ -119,13 +119,20 @@ class Sudoku:
 	def setMat(self, mat): 
 		self.mat = mat.astype(np.int32) # must be int!  == comparisons! 
 
-	def printSudoku(self):
+	def printSudoku(self, curs_pos=None):
 		for i in range(self.N):
 			for j in range(self.N):
 				k = i // self.SRN + j // self.SRN
 				color = "black" if k % 2 == 0 else "red"
 				p = math.floor(self.mat[i,j])
-				print(colored(p, color), end=" ")
+				bgcol = None
+				if curs_pos is not None: 
+					if curs_pos[0] == i and curs_pos[1] == j: 
+						bgcol = "on_light_yellow"
+				if bgcol is not None: 
+					print(colored(p, color, bgcol), end=" ")
+				else: 
+					print(colored(p, color), end=" ")
 			print()
 
 # Driver code

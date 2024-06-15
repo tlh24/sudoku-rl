@@ -34,7 +34,7 @@ class Gracoonizer(nn.Module):
 				d_model = xfrmr_dim,
 				layers = 8,
 				n_head = self.n_head,
-				repeat = 3,
+				repeat = 4,
 				init_zeros = g_zeroinit
 				)
 		elif USE_NANOGPT:
@@ -175,4 +175,3 @@ class Gracoonizer(nn.Module):
 			p.numel() for p in self.parameters() if p.requires_grad
 		)
 		print(f"Number of model parameters:{trainable_params/1e6}M")
-		pdb.set_trace()

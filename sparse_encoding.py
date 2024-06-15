@@ -133,6 +133,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	
 	# reward token (used for reward prediction)
 	nreward = Node(Types.REWARD, reward*5)
+	nreward.setAxVal( Axes.N_AX, reward*5 )
 	nodes.append(nreward)
 	
 	full_board = True
@@ -143,8 +144,9 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				b = (x // SuH)*SuH + (y // SuH)
 				v = puzzle[x,y]
 				nb = Node(Types.BOX, v)
+				nb.setAxVal( Axes.N_AX, v )
 				g = guess_mat[x,y]
-				nb.addChild( Node(Axes.G_AX, g) )
+				nb.setAxVal( Axes.G_AX, g )
 				
 				# think of these as named attributes, var.x, var.y etc
 				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
@@ -234,15 +236,13 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		pdb.set_trace()
 	
 	board_loc = torch.zeros((SuN,SuN),dtype=int)
-	guess_loc = torch.zeros((SuN,SuN),dtype=int)
 	if full_board:
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column
 				board_loc[x,y] = board_nodes[x][y].loc
-				guess_loc[x,y] = board_nodes[x][y].kids[0].loc
 	cursor_loc = ncursor.loc
 	
-	return nodes, nreward.loc, (board_loc,guess_loc,cursor_loc)
+	return nodes, nreward.loc, (board_loc,cursor_loc)
 	
 def nodesToCoo(nodes): 
 	# coo is [dst, src] -- see l1attnSparse
@@ -303,20 +303,24 @@ def encodeActionNodes(action_type, action_value):
 	return aenc
 	
 def decodeNodes(benc, locs): 
+	# prints the output; returns nothing.
 	posOffset = (SuN - 1) / 2.0
-	board_loc,guess_loc,cursor_loc = locs
+	board_loc,cursor_loc = locs
 	puzzle = torch.zeros((SuN, SuN), dtype = int)
 	guess_mat = torch.zeros((SuN, SuN), dtype = int)
+	xo = 26 + Axes.X_AX.value - Axes.N_AX.value
+	yo = 26 + Axes.Y_AX.value - Axes.N_AX.value
+	go = 26 + Axes.G_AX.value - Axes.N_AX.value
 	for x in range(SuN): # x = row
 		for y in range(SuN): # y = column
-			puzzle[x,y] = round(benc[board_loc[x,y], 20].item() )
-			guess_mat[x,y] = round(benc[guess_mat[x,y], 20].item() )
-	cursor_pos = [round(benc[cursor_loc[0], 20].item() + posOffset), \
-		round(benc[cursor_loc[1], 20].item() + posOffset ) ]
+			puzzle[x,y] = round(benc[board_loc[x,y], 26].item() )
+			guess_mat[x,y] = round(benc[board_loc[x,y], go].item() )
+	cursor_pos = [round(benc[cursor_loc, xo].item() + posOffset), \
+		round(benc[cursor_loc, yo].item() + posOffset ) ]
 	
 	su = Sudoku(SuN,SuN)
 	su.setMat(puzzle.numpy())
-	su.printSudoku()
+	su.printSudoku(cursor_pos)
 	print("guess_mat", guess_mat)
 	print("cursor_pos", cursor_pos)
 	
