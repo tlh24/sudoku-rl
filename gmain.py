@@ -62,7 +62,7 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 		if curr != 0: 
 			guess_mat[curs_pos[0], curs_pos[1]] = 0
 		else:
-			reward = -0.25
+			reward = -0.5
 			
 	if False: 
 		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}:{action_val}')
@@ -127,7 +127,7 @@ def generateActionValue(action: int, min_dist: int, max_dist: int):
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
 		# possible_actions = [ 0,1,2,3 ]
-		possible_actions = [ 0,1,2,3,4,5,4,4] # FIXME
+		possible_actions = [ 0,1,2,3,4,4,4,4,4,5,5] # FIXME
 		# possible_actions = [ 4,4,4,4 ]
 		# possible_actions.append(Action.SET_GUESS.value) # upweight
 		# possible_actions.append(Action.SET_GUESS.value)
@@ -314,7 +314,7 @@ def updateMemory(memory_dict, pred_dict):
 	return 
 
 def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu):
-	model.train()
+	# model.train()
 	sum_batch_loss = 0.0
 
 	for batch_idx, batch_data in enumerate(train_loader):
@@ -336,7 +336,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
 			# new_state_preds dimensions bs,t,w 
-			loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2)
+			loss = torch.sum((new_state_preds[:,:,:32] - new_board[:,:,:32])**2)
 			# adam is unstable -- attempt to stabilize?
 			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
@@ -349,9 +349,9 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
 				reward_preds = new_state_preds[:,reward_loc, 26]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
-					  		'rewards': rewards*5, 'reward_preds': reward_preds,
-							'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2) + \
+								'rewards': rewards*5, 'reward_preds': reward_preds,
+								'w1':w1, 'w2':w2}
+				loss = torch.sum((new_state_preds[:,:,:32] - new_board[:,:,:32])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 					# torch.sum((new_state_preds[:,:,:20] - new_board[:,:,:20])**2)*1e-4 + \
@@ -388,7 +388,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 26]
-			loss = torch.sum((new_state_preds[:,:,26:] - new_board[:,:,26:])**2)
+			loss = torch.sum((new_state_preds[:,:,:32] - new_board[:,:,:32])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
 			fd_losslog.write(f'{uu}\t{lloss}\n')
@@ -480,27 +480,35 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, locs):
 	# clean up the boards
 	board = torch.round(board * 2.0) / 2.0
 		
-	if depth > 0: 
-		action_types,action_values = makeActionList()
-			
-		new_boards = torch.Tensor.repeat(board, (len(action_types), 1, 1))
-		for i,(at,av) in enumerate(zip(action_types,action_values)):
-			aenc = sparse_encoding.encodeActionNodes(at, av)
-			s = aenc.shape[0]
-			new_boards[i, 0:s, :] = aenc.cuda()
-			
-		boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
-		reward_pred = boards_pred[:,reward_loc, 20]
-		
-		for i,(at,av) in enumerate(zip(action_types,action_values)):
-			reward = reward_pred[i].item()
-			board = boards_pred[i,:,:]
-			an = ANode(at, av, reward)
-			action_node.addKid(an)
-			print(f"action {getActionName(at)} {av} reward {reward}")
-			sparse_encoding.decodeNodes(board, locs)
-			if reward > -2.0: 
-				evaluateActionsRec(model, board, hcoo, an, depth-1, locs)
+	action_types,action_values = makeActionList()
+
+	# make a batch with the new actions & replicated boards
+	new_boards = board.repeat(len(action_types), 1, 1 )
+	for i,(at,av) in enumerate(zip(action_types,action_values)):
+		aenc = sparse_encoding.encodeActionNodes(at, av)
+		s = aenc.shape[0]
+		new_boards[i, 0:s, :] = aenc.cuda()
+
+	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
+	reward_pred = boards_pred[:,reward_loc, 26]
+	# copy over the beginning structure - needed!
+	# this will have to be changed! TODO
+	boards_pred[:,:,33:] = 0
+
+	for i,(at,av) in enumerate(zip(action_types,action_values)):
+		reward = reward_pred[i].item()
+		an = ANode(at, av, reward)
+		action_node.addKid(an)
+		indent = " " * depth
+		print(f"{indent}action {getActionName(at)} {av} reward {reward}")
+		sparse_encoding.decodeNodes(indent, boards_pred[i,:,:], locs)
+		if reward > -1.0 and depth < 1:
+			print(colored(f"{indent}->", "green"))
+			evaluateActionsRec(model, boards_pred[i,:,:], hcoo, an, depth+1, locs)
+		elif reward > -1.0:
+			print(colored(f"{indent}-o", "green"))
+		else:
+			print(colored(f"{indent}-x", "yellow"))
 
 	
 def evaluateActionsRecurse(model, puzzles, hcoo): 
@@ -508,19 +516,20 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 	puzzle = puzzles[i,:,:]
 	sudoku = Sudoku(SuN, SuK)
 	sudoku.setMat(puzzle.numpy())
-	print("-- initial state --")
-	sudoku.printSudoku()
 	guess_mat = np.zeros((SuN, SuN))
 	curs_pos = torch.randint(SuN, (2,),dtype=int)
+	print("-- initial state --")
+	sudoku.printSudoku("", curs_pos, guess_mat)
 	print(f"curs_pos {curs_pos[0]},{curs_pos[1]}")
+	print(colored("-----", "green"))
 	
 	nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, 0, 0, 0.0) # action will be replaced.
 	board,_,_ = sparse_encoding.encodeNodes(nodes)
 	
 	board = board.cuda()
 	
-	action_node = ANode(0,0,0.0)
-	evaluateActionsRec(model, board, hcoo, action_node, 1, locs)
+	action_node = ANode(8,0,0.0) # root node
+	evaluateActionsRec(model, board, hcoo, action_node, 0, locs)
 	
 	action_node.print("")
 
@@ -530,8 +539,8 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 1000 # 10 is too small
-	NUM_VALIDATE = batch_size * 100
+	NUM_TRAIN = batch_size * 10 # 10 is too small
+	NUM_VALIDATE = batch_size * 25
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 150000
 	device = torch.device('cuda:0') 
@@ -542,8 +551,8 @@ if __name__ == '__main__':
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo, a2a, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
-	print(reward_loc)
-	print(coo)
+	# print(reward_loc)
+	# print(coo)
 	
 	# first half of heads are kids to parents
 	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
@@ -576,7 +585,7 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device) 
 	model.printParamCount()
 
 	if cmd_args.c: 
@@ -602,14 +611,14 @@ if __name__ == '__main__':
 	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	evaluateActionsRecurse(model, puzzles, hcoo) 
+	evaluateActionsRecurse(model, puzzles, hcoo)
 
-	uu = 0
-	while uu < NUM_ITERS:
-		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
- 
-	# save after training
-	model.save_checkpoint()
+	# uu = 0
+	# while uu < NUM_ITERS:
+	# 	uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
+ #
+	# # save after training
+	# model.save_checkpoint()
  
 	print("validation")
 	validate(args, model, test_dataloader, optimizer_name, hcoo, uu)

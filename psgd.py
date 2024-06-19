@@ -748,6 +748,11 @@ class LRA:
         self._preconditioner_type = preconditioner_type
 
 
+    def setParams(self, params_with_grad): 
+        # update for model-switching. 
+        # no idea if this will work (probably not)
+        self._params_with_grad = [param for param in params_with_grad if param.requires_grad] # double check requires_grad flag
+
     @torch.no_grad()
     def step(self, closure):
         """
@@ -944,7 +949,7 @@ class XMat:
         num_params = self._param_cumsizes[-1]
         if preconditioner_init_scale is None:
             self._a = None # set it on the fly
-        else:
+        else:   
             self._a = torch.ones(num_params, dtype=dtype, device=device)*preconditioner_init_scale
         self._b = torch.zeros(num_params, dtype=dtype, device=device)
         self._m = None # buffer for momentum

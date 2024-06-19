@@ -288,7 +288,7 @@ def encodeNodes(nodes):
 		# add in categorical encoding of value
 		ntv = n.typ.value
 		if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
-			if n.value >= 0.6 and n.value <= 9.4: 
+			if n.value >= 0.6 and n.value <= 9.4:
 				vi = round(n.value)
 				benc[i,10+vi] = 1.0
 		
@@ -302,7 +302,7 @@ def encodeActionNodes(action_type, action_value):
 	aenc,_,_ = encodeNodes([na])
 	return aenc
 	
-def decodeNodes(benc, locs): 
+def decodeNodes(indent, benc, locs):
 	# prints the output; returns nothing.
 	posOffset = (SuN - 1) / 2.0
 	board_loc,cursor_loc = locs
@@ -320,9 +320,9 @@ def decodeNodes(benc, locs):
 	
 	su = Sudoku(SuN,SuN)
 	su.setMat(puzzle.numpy())
-	su.printSudoku(cursor_pos)
-	print("guess_mat", guess_mat)
-	print("cursor_pos", cursor_pos)
+	su.printSudoku(indent, cursor_pos, guess_mat.numpy())
+	# print("guess_mat", guess_mat)
+	print(f"{indent}cursor_pos", cursor_pos)
 	
 def outputGexf(nodes): 
 	for n in nodes: 
