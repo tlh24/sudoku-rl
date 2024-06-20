@@ -130,7 +130,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.d_model = d_model
 		self.init_zeros = init_zeros
 		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
-		self.wk = torch.nn.Parameter( torch.ones(n_head, d_model) )
+		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
 		# self.wk = LinearNobias(d_model, n_head, False) # not zeroinit
 		# self.bk = LinearNobias(d_model, n_head, True) # zeroinit
 		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
@@ -142,9 +142,9 @@ class ResidualAttentionBlock(nn.Module):
 		self.l1a_s = l1attn_sparse_cuda.L1AttnSparse()
 		self.l1a_f = l1attn_cuda.L1Attn()
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
-		# self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
-		self.fanout = torch.nn.Parameter( torch.ones(2, d_model) )
-		self.fanout[1,:] = 0.0
+		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		# self.fanout = torch.nn.Parameter( torch.ones(2, d_model) )
+		# self.fanout[1,:] = 0.0
 		#self.fanout_stn = StraightThroughNormal() # try this again?
 		self.gelu = QuickGELU()
 		# self.fanin = nn.Linear(d_model * 3, d_model)
@@ -183,7 +183,7 @@ class ResidualAttentionBlock(nn.Module):
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
-		pdb.set_trace()
+		
 		gk = self.wk.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		# bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk # + bk # with bias to allow for centering.
@@ -272,8 +272,8 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanout(y)
 		# y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
 		y = self.gelu(y)
-		y = self.fanout[0,:] * y + self.fanout.w[1,:]
-		# y = self.fanout(y) # allow sign inversions & mixing; no dim change
+		# y = self.fanout[0,:] * y + self.fanout.w[1,:]
+		y = self.fanout(y) # allow sign inversions & mixing; no dim change
 		# y = self.gelu(y) # this destroys performance! 
 		# y = self.fanout_stn(y, 0.01)
 		# y = self.fanin(y)

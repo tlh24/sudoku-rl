@@ -560,7 +560,7 @@ if __name__ == '__main__':
 	NUM_TRAIN = batch_size * 1000 # 10 is too small
 	NUM_VALIDATE = batch_size * 100
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
-	NUM_ITERS = 150000
+	NUM_ITERS = 100000
 	device = torch.device('cuda:0') 
 	# can override with export CUDA_VISIBLE_DEVICES=1 
 	torch.set_float32_matmul_precision('high')
