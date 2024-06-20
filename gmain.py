@@ -80,11 +80,9 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 	The board and action nodes have the same encoding- contains one hot of node type and node value
 	
 	Returns:
-	board encoding: Shape (#board nodes x 20)
-	action encoding: Shape (#action nodes x 20)
-	new board encoding: Shape (#newboard nodes x 20)
-	msk: Shape (#board&action nodes x #board&action) represents nodes parent/child relationships
-		which defines the attention mask used in the transformer heads
+	board encoding: Shape (#board nodes x world_dim)
+	action encoding: Shape (#action nodes x world_dim)
+	new board encoding: Shape (#newboard nodes x world_dim)
 	'''
 	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
 	benc,coo,a2a = sparse_encoding.encodeNodes(nodes)
@@ -97,32 +95,48 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 	return benc, newbenc, coo, a2a, reward, reward_loc
 
 
-def generateActionValue(action: int, min_dist: int, max_dist: int):
-	'''
-	Generates an action value corresponding to the action.
-	For movement actions, samples a dist unif on [min_dist, max_dist] and 
-		chooses - or + direction based on the action (ex: -1 for left, +1 for right).
+# def generateActionValue(action: int, min_dist: int, max_dist: int):
+# 	'''
+# 	Generates an action value corresponding to the action.
+# 	For movement actions, samples a dist unif on [min_dist, max_dist] and 
+# 		chooses - or + direction based on the action (ex: -1 for left, +1 for right).
+# 
+# 	min_dist: (int) Represents the min distance travelled.
+# 	max_dist: (int) Represents the max distance travelled.
+# 	'''
+# 	# movement action
+# 	dist = np.random.randint(low=min_dist, high=max_dist+1)
+# 	if action in [Action.DOWN.value, Action.LEFT.value]:
+# 		direction = -1
+# 		return dist * direction 
+# 
+# 	if action in [Action.UP.value, Action.RIGHT.value]:
+# 		direction = 1
+# 		return dist * direction 
+# 
+# 	# guess or set note action
+# 	if action in [Action.SET_GUESS.value, Action.SET_NOTE.value]:
+# 		return np.random.randint(1,SuN+1)
+# 
+# 	# nop
+# 	return 0
 
-	min_dist: (int) Represents the min distance travelled.
-	max_dist: (int) Represents the max distance travelled.
-	'''
-	# movement action
-	dist = np.random.randint(low=min_dist, high=max_dist+1)
-	if action in [Action.DOWN.value, Action.LEFT.value]:
-		direction = -1
-		return dist * direction 
-
-	if action in [Action.UP.value, Action.RIGHT.value]:
-		direction = 1
-		return dist * direction 
-
-	# guess or set note action
-	if action in [Action.SET_GUESS.value, Action.SET_NOTE.value]:
-		return np.random.randint(1,SuN+1)
-
-	# nop
-	return 0
-
+	
+def makeActionList(): 
+	action_types = []
+	action_values = []
+	# # directions
+	# for at in [0,1,2,3]: 
+	# 	action_types.append(at)
+	# 	action_values.append(0)
+	at = Action.SET_GUESS.value
+	for av in range(SuN):
+		action_types.append(at)
+		action_values.append(av+1)
+	# # unset guess action
+	# action_types.append( Action.UNSET_GUESS.value )
+	# action_values.append( 0 )
+	return action_types,action_values
 	
 def enumerateMoves(depth, episode, possible_actions=[]): 
 	if not possible_actions:
@@ -151,26 +165,39 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	new_board_enc: (tensor) Shape (N x #board nodes x 20), all of the resulting board encodings due to actions
 	rewards: (tensor) Shape (N,) Rewards of each episode 
 	'''
-	lst = enumerateMoves(1, [], possible_actions)
-	if len(lst) < n: 
-		rep = n // len(lst) + 1
-		lst = lst * rep
-	if len(lst) > n: 
-		lst = random.sample(lst, n)
+	# changing the strategy: for each board, do all possible actions. 
+	# this serves as a stronger set of constraints than random enumeration.
+	action_types,action_values = makeActionList()
+	nactions = len(action_types)
+	if len(action_types) < n: 
+		rep = n // len(action_types) + 1
+		action_types = action_types * rep
+		action_values = action_values * rep
+	if len(action_types) > n: 
+		action_types = action_types[:n]
+		action_values = action_values[:n]
 	sudoku = Sudoku(SuN, SuK)
 	orig_boards = [] 
 	new_boards = []
 	actions = []
-	masks = []
 	rewards = torch.zeros(n, dtype=g_dtype)
-	for i, ep in enumerate(lst): 
-		puzzl = puzzles[i, :, :]
+	npuzzles = (n + nactions - 1) // nactions
+	curs_pos_b = torch.randint(SuN, (npuzzles,2),dtype=int)
+	
+	# select only open positions. 
+	for pi in range( npuzzles ): 
+		puzzl = puzzles[pi, :, :]
+		while puzzl[curs_pos_b[pi,0], curs_pos_b[pi,1]] > 0: 
+			curs_pos_b[pi,:] = torch.randint(SuN, (1,2),dtype=int)
+	
+	for i,(at,av) in enumerate(zip(action_types,action_values)):
+		pi = i // nactions
+		puzzl = puzzles[pi, :, :]
 		sudoku.setMat(puzzl.numpy())
 		guess_mat = np.zeros((SuN, SuN))
-		curs_pos = torch.randint(SuN, (2,),dtype=int)
-		action_val = generateActionValue(ep[0], min_dist, max_dist)
+		curs_pos = curs_pos_b[pi, :] # force constraints! 
 		
-		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, ep[0], action_val)
+		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, at, av )
 		orig_boards.append(benc)
 		new_boards.append(newbenc)
 		rewards[i] = reward
@@ -184,6 +211,8 @@ def trainValSplit(data_matrix: torch.Tensor, num_validate):
 	Split data matrix into train and val data matrices
 	data_matrix: (torch.tensor) Containing rows of data
 	num_validate: (int) If provided, is the number of rows in the val matrix
+	
+	This is OK wrt constraints, as the split is non-stochastic in the order.
 	'''
 	num_samples = data_matrix.size(0)
 	if num_samples <= 1:
@@ -287,7 +316,7 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
-			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5)
+			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
 	return optimizer 
 
 def updateMemory(memory_dict, pred_dict): 
@@ -325,6 +354,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		# uu_scl = uu_scl / 10
 		# old_board[:,:,Axes.H_AX.value] = old_board[:,:,Axes.H_AX.value] * uu_scl
 		# new_board[:,:,Axes.H_AX.value] = new_board[:,:,Axes.H_AX.value] * uu_scl
+		# appears much harder! 
 
 		pred_data = {}
 		if optimizer_name != 'psgd': 
@@ -336,7 +366,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
 			# new_state_preds dimensions bs,t,w 
-			loss = torch.sum((new_state_preds[:,:,:32] - new_board[:,:,:32])**2)
+			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			# adam is unstable -- attempt to stabilize?
 			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
@@ -351,7 +381,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 								'rewards': rewards*5, 'reward_preds': reward_preds,
 								'w1':w1, 'w2':w2}
-				loss = torch.sum((new_state_preds[:,:,:32] - new_board[:,:,:32])**2) + \
+				loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 					# torch.sum((new_state_preds[:,:,:20] - new_board[:,:,:20])**2)*1e-4 + \
@@ -388,7 +418,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 26]
-			loss = torch.sum((new_state_preds[:,:,:32] - new_board[:,:,:32])**2)
+			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
 			fd_losslog.write(f'{uu}\t{lloss}\n')
@@ -446,18 +476,6 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 # 	boards_pred, reward_pred = evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo)
 # 
 # 	return boards_pred, reward_pred
-
-def makeActionList(): 
-	action_types = []
-	action_values = []
-	for at in [0,1,2,3]: #directions
-		action_types.append(at)
-		action_values.append(0)
-	at = Action.SET_GUESS.value
-	for av in range(SuN):
-		action_types.append(at)
-		action_values.append(av+1)
-	return action_types,action_values
 	
 class ANode: 
 	def __init__(self, typ, val, reward): 
@@ -539,8 +557,8 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 10 # 10 is too small
-	NUM_VALIDATE = batch_size * 25
+	NUM_TRAIN = batch_size * 1000 # 10 is too small
+	NUM_VALIDATE = batch_size * 100
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 150000
 	device = torch.device('cuda:0') 
@@ -608,15 +626,15 @@ if __name__ == '__main__':
 		except Exception as error:
 			print(colored(f"could not load model checkpoint {error}", "red"))
 	
-	optimizer_name = "adamw" # adam, adamw, psgd, or sgd
+	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	evaluateActionsRecurse(model, puzzles, hcoo)
+	# evaluateActionsRecurse(model, puzzles, hcoo)
 
-	# uu = 0
-	# while uu < NUM_ITERS:
-	# 	uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
- #
+	uu = 0
+	while uu < NUM_ITERS:
+		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
+	#
 	# # save after training
 	# model.save_checkpoint()
  

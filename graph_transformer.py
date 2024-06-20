@@ -130,7 +130,8 @@ class ResidualAttentionBlock(nn.Module):
 		self.d_model = d_model
 		self.init_zeros = init_zeros
 		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
-		self.wk = LinearNobias(d_model, n_head, False) # not zeroinit
+		self.wk = torch.nn.Parameter( torch.ones(n_head, d_model) )
+		# self.wk = LinearNobias(d_model, n_head, False) # not zeroinit
 		# self.bk = LinearNobias(d_model, n_head, True) # zeroinit
 		# self.wk = LinearNobias(d_model, n_head*d_model, True) # full rank key calc
 			# wk is just a weighting, not a full matrix 
@@ -141,7 +142,9 @@ class ResidualAttentionBlock(nn.Module):
 		self.l1a_s = l1attn_sparse_cuda.L1AttnSparse()
 		self.l1a_f = l1attn_cuda.L1Attn()
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
-		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		# self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		self.fanout = torch.nn.Parameter( torch.ones(2, d_model) )
+		self.fanout[1,:] = 0.0
 		#self.fanout_stn = StraightThroughNormal() # try this again?
 		self.gelu = QuickGELU()
 		# self.fanin = nn.Linear(d_model * 3, d_model)
@@ -158,11 +161,11 @@ class ResidualAttentionBlock(nn.Module):
 			init_head = n // schedule
 			if n % schedule == layer*(schedule//2) and init_head < self.n_head and (not self.head_enabled[init_head]): # only 2 layers! 
 				with torch.no_grad(): 
-					w = self.wk.w
+					w = self.wk
 					w[init_head, :] = 1.0 # no division -- just a gate! 
 					# indx = init_head*d_head
 					# w[indx:indx+d_head, :] = torch.randn(d_head, d_head) / math.sqrt(d_head) # full rank key calc
-					self.wk.w.copy_( w )
+					self.wk.copy_( w )
 					self.head_enabled[init_head] = True
 					print(f"initialized head {init_head} of layer {layer}")
 		
@@ -180,7 +183,8 @@ class ResidualAttentionBlock(nn.Module):
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
-		gk = self.wk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
+		pdb.set_trace()
+		gk = self.wk.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		# bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
 		k = k * gk # + bk # with bias to allow for centering.
 		
@@ -268,7 +272,8 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanout(y)
 		# y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
 		y = self.gelu(y)
-		y = self.fanout(y) # allow sign inversions & mixing; no dim change
+		y = self.fanout[0,:] * y + self.fanout.w[1,:]
+		# y = self.fanout(y) # allow sign inversions & mixing; no dim change
 		# y = self.gelu(y) # this destroys performance! 
 		# y = self.fanout_stn(y, 0.01)
 		# y = self.fanin(y)

@@ -107,7 +107,7 @@ if __name__ == "__main__":
 	maxattn = th.ones(n_heads*2)
 	maxqkv = th.ones(n_heads*2)
 	mask = torch.zeros(token_cnt, world_dim)
-	mask[:,26:] = 1.0; 
+	mask[:,:32] = 1.0; 
 	lines = None
 
 	while True:

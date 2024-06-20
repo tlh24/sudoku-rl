@@ -173,7 +173,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 			nb.setAxVal( Axes.X_AX, x - posOffset )
 			highlight = 0
 			if x == curs_pos[0] :
-				highlight = 1 
+				highlight = -1 
 			nb.setAxVal( Axes.H_AX, highlight )
 			for y in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -187,7 +187,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 			nb.setAxVal( Axes.Y_AX, y - posOffset )
 			highlight = 0
 			if y == curs_pos[1] :
-				highlight = 1
+				highlight = -1
 			nb.setAxVal( Axes.H_AX, highlight )
 			for x in range(SuN): 
 				nb.addChild( board_nodes[x][y] )
@@ -202,7 +202,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 			highlight = 0
 			bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
 			if b == bc :
-				highlight = 1
+				highlight = -1
 			nb.setAxVal( Axes.H_AX, highlight )
 			for x in range(SuN): # x = row
 				for y in range(SuN): # y = column
@@ -287,10 +287,16 @@ def encodeNodes(nodes):
 		benc[i, 26:32] = n.axval
 		# add in categorical encoding of value
 		ntv = n.typ.value
-		if ntv == Types.BOX.value or ntv == Types.GUESS.value or ntv == Types.GUESS_ACTION.value:
+		if ntv == Types.BOX.value or ntv == Types.GUESS_ACTION.value:
 			if n.value >= 0.6 and n.value <= 9.4:
 				vi = round(n.value)
 				benc[i,10+vi] = 1.0
+		# encode the guess in the same way - just different vector encoding.
+		# should be OK from a game dynamics perspective; illegal guesses aren't added.
+		guess_val = n.axval[Axes.G_AX.value - Axes.N_AX.value]
+		if guess_val > 0.5: 
+			vi = round(guess_val)
+			benc[i,10+vi] = 1.0
 		
 	coo,a2a = nodesToCoo(nodes)
 	return torch.tensor(benc, dtype=g_dtype), coo, a2a
