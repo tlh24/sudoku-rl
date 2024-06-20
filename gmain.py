@@ -167,6 +167,15 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	'''
 	# changing the strategy: for each board, do all possible actions. 
 	# this serves as a stronger set of constraints than random enumeration.
+	try: 
+		orig_board_enc = torch.load(f'orig_board_enc_{n}.pt')
+		new_board_enc = torch.load(f'new_board_enc_{n}.pt')
+		rewards_enc = torch.load(f'rewards_enc_{n}.pt')
+		# need to get the coo, a2a, etc variables - so run one encoding.
+		n = 1
+	except Exception as error:
+		print(colored(f"could not load precomputed data {error}", "red"))
+		
 	action_types,action_values = makeActionList()
 	nactions = len(action_types)
 	if len(action_types) < n: 
@@ -202,9 +211,15 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		new_boards.append(newbenc)
 		rewards[i] = reward
 		
-	orig_board_enc = torch.stack(orig_boards)
-	new_board_enc = torch.stack(new_boards)
-	return orig_board_enc, new_board_enc, coo, a2a, rewards, reward_loc
+	if n > 1: 
+		orig_board_enc = torch.stack(orig_boards)
+		new_board_enc = torch.stack(new_boards)
+		rewards_enc = rewards
+		torch.save(orig_board_enc, f'orig_board_enc_{n}.pt')
+		torch.save(new_board_enc, f'new_board_enc_{n}.pt')
+		torch.save(rewards_enc, f'rewards_enc_{n}.pt')
+		
+	return orig_board_enc, new_board_enc, coo, a2a, rewards_enc, reward_loc
 
 def trainValSplit(data_matrix: torch.Tensor, num_validate):
 	'''
@@ -361,7 +376,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			optimizer.zero_grad()
 			new_state_preds,w1,w2 = \
 				model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 26]
+			reward_preds = new_state_preds[:,reward_loc, 32+26]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
@@ -377,7 +392,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			def closure():
 				nonlocal pred_data
 				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
-				reward_preds = new_state_preds[:,reward_loc, 26]
+				reward_preds = new_state_preds[:,reward_loc, 32+26]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 								'rewards': rewards*5, 'reward_preds': reward_preds,
 								'w1':w1, 'w2':w2}
@@ -417,7 +432,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 26]
+			reward_preds = new_state_preds[:,reward_loc, 32+26]
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')

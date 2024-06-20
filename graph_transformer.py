@@ -129,6 +129,8 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.init_zeros = init_zeros
+		# what if we init the query with 0.005 * diag(d_model)? 
+		# then you rely only on the value & output MLP (both randomly initialized) to push differentiation of the heads. 
 		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
 		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
 		# self.wk = LinearNobias(d_model, n_head, False) # not zeroinit

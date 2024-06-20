@@ -122,7 +122,7 @@ if __name__ == "__main__":
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
 			if u % 2 == 0 or True: 
-				err = torch.sum(torch.abs((boardp - new_board)*mask), [1,2])
+				err = torch.sum(torch.abs((boardp[:,:,33:] - new_board[:,:,1:32])), [1,2])
 				i = torch.argmax(err).item()
 			else: 
 				i = 0
@@ -136,7 +136,7 @@ if __name__ == "__main__":
 			plot_tensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
 			plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
 			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(0, 2, (boardp[i,:cl,:].T - new_board[i,:cl,:].T)*mask[:cl,:].T, f"(board_pred - new_board)[{i},:,:]", -4.0, 4.0)
+			plot_tensor(0, 2, (boardp[i,:cl,33:].T - new_board[i,:cl,1:32].T), f"(board_pred - new_board)[{i},:,:]", -4.0, 4.0)
 			# if not initialized: 
 			# 	axs[0,2].plot([0,token_cnt-1],[21,21], 'g', alpha=0.4) # make easier
 			# plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
