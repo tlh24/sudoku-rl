@@ -93,33 +93,30 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 	newbenc,coo,a2a = sparse_encoding.encodeNodes(nodes)
 	
 	return benc, newbenc, coo, a2a, reward, reward_loc
+	
+def encode1DBoard():  
+	# simple 1-D version of sudoku. 
+	puzzle = np.arange(1, 10)
+	mask = np.random.randint(0,3,9)
+	puzzle = puzzle * (mask > 0)
+	curs_pos = np.random.randint(0,9)
+	action = 4
+	action_val = np.random.randint(0,9)
+	guess_mat = np.zeros((9,))
 
-
-# def generateActionValue(action: int, min_dist: int, max_dist: int):
-# 	'''
-# 	Generates an action value corresponding to the action.
-# 	For movement actions, samples a dist unif on [min_dist, max_dist] and 
-# 		chooses - or + direction based on the action (ex: -1 for left, +1 for right).
-# 
-# 	min_dist: (int) Represents the min distance travelled.
-# 	max_dist: (int) Represents the max distance travelled.
-# 	'''
-# 	# movement action
-# 	dist = np.random.randint(low=min_dist, high=max_dist+1)
-# 	if action in [Action.DOWN.value, Action.LEFT.value]:
-# 		direction = -1
-# 		return dist * direction 
-# 
-# 	if action in [Action.UP.value, Action.RIGHT.value]:
-# 		direction = 1
-# 		return dist * direction 
-# 
-# 	# guess or set note action
-# 	if action in [Action.SET_GUESS.value, Action.SET_NOTE.value]:
-# 		return np.random.randint(1,SuN+1)
-# 
-# 	# nop
-# 	return 0
+	nodes, reward_loc,_ = sparse_encoding.sudoku1DToNodes(puzzle, guess_mat, curs_pos, action, action_val, 0.0)
+	benc,coo,a2a = sparse_encoding.encodeNodes(nodes)
+	
+	# run the action. 
+	reward = -1
+	if puzzle[action_val-1] == 0 and puzzle[curs_pos] == 0: 
+		guess_mat[curs_pos] = action_val
+		reward = 1
+	
+	nodes, reward_loc,_ = sparse_encoding.sudoku1DToNodes(puzzle, guess_mat, curs_pos, action, action_val, reward) # action_val doesn't matter
+	newbenc,coo,a2a = sparse_encoding.encodeNodes(nodes)
+	
+	return benc, newbenc, coo, a2a, reward, reward_loc
 
 	
 def makeActionList(): 
@@ -206,7 +203,8 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		guess_mat = np.zeros((SuN, SuN))
 		curs_pos = curs_pos_b[pi, :] # force constraints! 
 		
-		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, at, av )
+		# benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, at, av )
+		benc,newbenc,coo,a2a,reward,reward_loc = encode1DBoard()
 		orig_boards.append(benc)
 		new_boards.append(newbenc)
 		rewards[i] = reward
@@ -572,7 +570,7 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 1000 # 10 is too small
+	NUM_TRAIN = batch_size * 1001 # 10 is too small
 	NUM_VALIDATE = batch_size * 100
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 100000

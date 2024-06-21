@@ -165,7 +165,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		# make the sets
 		# nboard = Node(Types.SET, 2) # node of the whole board
 		
-		xsets = Node(Types.SET, 1.25)
+		xsets = Node(Types.SET2, 1.25)
 		nodes.append(xsets)
 		# nboard.addChild(xsets)
 		for x in range(SuN): 
@@ -179,7 +179,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				nb.addChild( board_nodes[x][y] )
 			xsets.addChild(nb)
 		
-		ysets = Node(Types.SET, 1.5)
+		ysets = Node(Types.SET2, 1.5)
 		nodes.append(ysets)
 		# nboard.addChild(ysets)
 		for y in range(SuN): 
@@ -193,7 +193,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 				nb.addChild( board_nodes[x][y] )
 			ysets.addChild(nb)
 			
-		bsets = Node(Types.SET, 1.75)
+		bsets = Node(Types.SET2, 1.75)
 		nodes.append(bsets)
 		# nboard.addChild(bsets)
 		for b in range(SuN): 
@@ -240,6 +240,68 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column
 				board_loc[x,y] = board_nodes[x][y].loc
+	cursor_loc = ncursor.loc
+	
+	return nodes, nreward.loc, (board_loc,cursor_loc)
+	
+def sudoku1DToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int, reward:float):
+	# really boring 1D sudoku!  
+	# to teach our angent what a set is.. 
+	# ax can be Axes.X_AX, Y_AX, B_AX
+	nodes = []
+	posOffset = (SuN - 1) / 2.0
+	# d = np.random.randint(0,3)
+	# if d == 0:
+	# 	ax = Axes.X_AX
+	# elif d == 1:
+	# 	ax = Axes.Y_AX
+	# else:
+	# 	ax = Axes.B_AX
+	ax = Axes.X_AX
+	
+	ncursor = Node(Types.CURSOR, 0)
+	ncursor.setAxVal( ax, curs_pos - posOffset )
+	nodes.append(ncursor)
+	
+	# reward token (used for reward prediction)
+	nreward = Node(Types.REWARD, reward*5)
+	nreward.setAxVal( Axes.N_AX, reward*5 )
+	nodes.append(nreward)
+	
+	board_nodes = []
+	for x in range(SuN):
+		v = puzzle[x]
+		nb = Node(Types.BOX, v)
+		nb.setAxVal( Axes.N_AX, v )
+		g = guess_mat[x]
+		nb.setAxVal( Axes.G_AX, g )
+		
+		nb.setAxVal( ax, x - posOffset )
+		highlight = 2 
+		nb.setAxVal( Axes.H_AX, highlight )
+		
+		board_nodes.append(nb)
+		
+	nset = Node(Types.SET, 0.25)
+	nset.setAxVal( Axes.H_AX, -1 )
+	nodes.append(nset)
+	for x in range(SuN): 
+		nset.addChild( board_nodes[x] )
+		
+	na = sudokuActionNodes(action_type, action_value)
+	nodes.insert(0,na)
+	
+	for n in nodes: 
+		n.clearLoc()
+	i = 0
+	for n in nodes: 
+		i = n.setLoc(i)
+	if i != token_cnt:
+		pdb.set_trace()
+		
+	board_loc = torch.zeros((SuN,),dtype=int)
+	for x in range(SuN): 
+		board_loc[x] = board_nodes[x].loc
 	cursor_loc = ncursor.loc
 	
 	return nodes, nreward.loc, (board_loc,cursor_loc)

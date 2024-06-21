@@ -28,8 +28,9 @@ class LinearM(nn.Module):
 		super(LinearM, self).__init__()
 		scl = 0.02 / math.sqrt(2*9)
 		if initzeros: 
-			scl = 0.0
-		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1,dtype=g_dtype))
+			self.w = torch.nn.Parameter( scl * torch.ones(outdim,indim+1,dtype=g_dtype))
+		else:
+			self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1,dtype=g_dtype))
 		with torch.no_grad(): 
 			self.w[:,-1] = 0.0 # bias starts at 0
 		
@@ -131,7 +132,9 @@ class ResidualAttentionBlock(nn.Module):
 		self.init_zeros = init_zeros
 		# what if we init the query with 0.005 * diag(d_model)? 
 		# then you rely only on the value & output MLP (both randomly initialized) to push differentiation of the heads. 
-		self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
+		self.wq = LinearM(d_model, n_head*d_model, init_zeros) # constant init works fine, just a bit slower. 
+		self.wv = LinearM(d_model, n_head*d_model, init_zeros)
+		#self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
 		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
 		# self.wk = LinearNobias(d_model, n_head, False) # not zeroinit
 		# self.bk = LinearNobias(d_model, n_head, True) # zeroinit
@@ -175,12 +178,17 @@ class ResidualAttentionBlock(nn.Module):
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
 		
-		y = self.wqv(x)
-		if record is not None: 
-			record.append( y ) # with grad!
-		y = torch.reshape(y, (batch_size, ntok, self.n_head, d_head*2) )
-		q,v = torch.split(y, d_head, dim=-1) 
+		# y = self.wqv(x)
+		# if record is not None: 
+		# 	record.append( y ) # with grad!
+		# y = torch.reshape(y, (batch_size, ntok, self.n_head, d_head*2) )
+		# q,v = torch.split(y, d_head, dim=-1) 
 			# q-v hence becomes second to last dim
+		q = self.wq(x)
+		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
+		v = self.wv(x)
+		v = torch.reshape(v, (batch_size, ntok, self.n_head, d_head))
+		
 		
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
@@ -239,7 +247,8 @@ class ResidualAttentionBlock(nn.Module):
 				# 	b = b.float()
 			else: 
 				coo,dst_mxlen = hcoo[layer%4] 
-				b = self.l1a_s(v,q,k,coo,dst_mxlen) 
+				use_softmax = True 
+				b = self.l1a_s(v,q,k,coo,dst_mxlen,use_softmax) 
 			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 
 			a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
@@ -280,8 +289,8 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanout_stn(y, 0.01)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
-		# y = self.ln_2(y) # stabilize learning? 
-		return x + y, ap, self.wqv.w[:,:-1].detach().cpu()
+		# y = self.ln_2(y) # stabilize	 learning? 
+		return x + y, ap, None
 		
 	def allHeadsOn(self): 
 		self.head_enabled = [True for _ in range(self.n_head)]
