@@ -11,6 +11,15 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+class TrainerConfig:
+    num_epochs = 100
+    batch_size = 64
+    learning_rate = 3e-4
+    grad_norm_clip = 1.0
+    val_interval = 10
+    def __init__(self, **kwargs):
+        for k,v in kwargs.items():
+            setattr(self, k, v)
 class Trainer:
     def __init__(self, model, train_dataset, val_dataset, test_dataset, config):
         self.model = model
@@ -56,18 +65,22 @@ class Trainer:
             if epoch % self.config.val_interval == 0:
                 total_val_loss = 0
                 self.model.eval()
+                batch_accs = []
             
                 with torch.no_grad():
                     for batch in self.val_dataloader:
                         x,y = batch 
                         x,y = x.to(self.device), y.to(self.device)
 
-                        outputs, loss = self.model(x, y)
+                        logits, loss = self.model(x, y)
                         loss = loss.mean()
                         total_val_loss += loss.item() 
+                        batch_accs.append(Trainer.return_accuracy(logits, y))
 
                 avg_val_loss = total_val_loss / len(self.val_dataloader)
-                print(f"Epoch {epoch + 1}/{self.config.num_epochs}, Val Loss: {avg_val_loss:.4f}")
+                avg_avg_acc = np.mean(batch_accs)
+                print(f"Epoch {epoch + 1}/{self.config.num_epochs}, Val Loss: {avg_val_loss:.4f}\
+                        Val Avg Avg Acc: {avg_avg_acc:.4f}")
 
                 # Save the best model 
                 if avg_val_loss < best_val_loss:
@@ -76,22 +89,47 @@ class Trainer:
                     print(f'New best model saved with val loss {best_val_loss}')
         print("Training completed.")
 
-    def evaluate(self, test_dataset):
-        test_loader = DataLoader(test_dataset, batch_size=self.config.batch_size, shuffle=False)
+    def evaluate(self):
+        breakpoint()
         self.model.eval()
         total_eval_loss = 0
+        batch_accs = []
 
         with torch.no_grad():
-            for batch in test_loader:
+            for batch in self.test_dataloader:
                 x, y = batch
                 x, y = x.to(self.device), y.to(self.device)
 
-                _, loss = self.model(x, y)
+                logits, loss = self.model(x, y)
                 loss = loss.mean()
                 total_eval_loss += loss.item()
+                batch_accs.append(Trainer.return_accuracy(logits, y))
 
-        avg_eval_loss = total_eval_loss / len(test_loader)
-        print(f"Test Loss: {avg_eval_loss:.4f}")
+        avg_eval_loss = total_eval_loss / len(self.test_dataloader)
+        avg_avg_accuracy = np.mean(batch_accs) 
+        print(f"Avg_eval_loss is {avg_eval_loss:.4f} Avg Avg Acc: {avg_avg_accuracy:.4f}")
+        return avg_avg_accuracy
+    
+    @staticmethod
+    def return_accuracy(batch_logits, batch_targets):
+        total_predicted = 0
+        total_correct = 0
+        for batch_idx in range(len(batch_logits)):
+            logits = batch_logits[batch_idx]
+            targets = batch_targets[batch_idx]
+            for i in range(0, len(targets)):
+                # only count accuracy on initially empty cells
+                if targets[i] > 0:
+                    predicted_num = torch.argmax(logits[i]) 
+                    total_predicted += 1
+                    total_correct += int(predicted_num == targets[i])
+        
+        return total_correct/total_predicted
+
+
+                
+            
+            
 
 
 class GPTConfig:
