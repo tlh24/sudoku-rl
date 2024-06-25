@@ -119,35 +119,45 @@ def encode1DBoard():
 	return benc, newbenc, coo, a2a, reward, reward_loc
 
 	
-def makeActionList(): 
+def enumerateActionList(n:int): 
 	action_types = []
 	action_values = []
-	# # directions
-	# for at in [0,1,2,3]: 
-	# 	action_types.append(at)
-	# 	action_values.append(0)
+	# directions
+	for at in [0,1,2,3]: 
+		action_types.append(at)
+		action_values.append(0)
 	at = Action.SET_GUESS.value
 	for av in range(SuN):
 		action_types.append(at)
 		action_values.append(av+1)
-	# # unset guess action
-	# action_types.append( Action.UNSET_GUESS.value )
-	# action_values.append( 0 )
+	# unset guess action
+	action_types.append( Action.UNSET_GUESS.value )
+	action_values.append( 0 )
+	
+	nactions = len(action_types)
+	if len(action_types) < n: 
+		rep = n // len(action_types) + 1
+		action_types = action_types * rep
+		action_values = action_values * rep
+	if len(action_types) > n: 
+		action_types = action_types[:n]
+		action_values = action_values[:n]
 	return action_types,action_values
 	
-def enumerateMoves(depth, episode, possible_actions=[]): 
-	if not possible_actions:
-		# possible_actions = [ 0,1,2,3 ]
-		possible_actions = [ 0,1,2,3,4,4,4,4,4,5,5] # FIXME
-		# possible_actions = [ 4,4,4,4 ]
-		# possible_actions.append(Action.SET_GUESS.value) # upweight
-		# possible_actions.append(Action.SET_GUESS.value)
-	outlist = []
-	if depth > 0: 
-		for action in possible_actions:
-			outlist.append(episode + [action])
-			outlist = outlist + enumerateMoves(depth-1, episode + [action], possible_actions)
-	return outlist
+def sampleActionList(n:int): 
+	# this is slow but whatever, only needs to run once
+	action_types = []
+	action_values = []
+	possible_actions = [ 0,1,2,3,4,4,4,4,4,5,5 ] # FIXME
+	for i in range(n): 
+		action = possible_actions[np.random.randint(len(possible_actions))]
+		actval = 0
+		if action == Action.SET_GUESS.value: 
+			actval = np.random.randint(1,10)
+		action_types.append(action)
+		action_values.append(actval)
+	
+	return action_types,action_values
 
 
 def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1): 
@@ -172,39 +182,33 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		n = 1
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
+	
+	# action_types,action_values = enumerateActionList(n)
+	action_types,action_values = sampleActionList(n)
 		
-	action_types,action_values = makeActionList()
-	nactions = len(action_types)
-	if len(action_types) < n: 
-		rep = n // len(action_types) + 1
-		action_types = action_types * rep
-		action_values = action_values * rep
-	if len(action_types) > n: 
-		action_types = action_types[:n]
-		action_values = action_values[:n]
 	sudoku = Sudoku(SuN, SuK)
 	orig_boards = [] 
 	new_boards = []
 	actions = []
 	rewards = torch.zeros(n, dtype=g_dtype)
-	npuzzles = (n + nactions - 1) // nactions
-	curs_pos_b = torch.randint(SuN, (npuzzles,2),dtype=int)
+	curs_pos_b = torch.randint(SuN, (n,2),dtype=int)
 	
-	# select only open positions. 
-	for pi in range( npuzzles ): 
-		puzzl = puzzles[pi, :, :]
-		while puzzl[curs_pos_b[pi,0], curs_pos_b[pi,1]] > 0: 
-			curs_pos_b[pi,:] = torch.randint(SuN, (1,2),dtype=int)
+	# for half the boards, select only open positions. 
+	for i in range( n // 2 ): 
+		puzzl = puzzles[i, :, :]
+		while puzzl[curs_pos_b[i,0], curs_pos_b[i,1]] > 0: 
+			curs_pos_b[i,:] = torch.randint(SuN, (1,2),dtype=int)
 	
 	for i,(at,av) in enumerate(zip(action_types,action_values)):
-		pi = i // nactions
-		puzzl = puzzles[pi, :, :]
-		sudoku.setMat(puzzl.numpy())
-		guess_mat = np.zeros((SuN, SuN))
-		curs_pos = curs_pos_b[pi, :] # force constraints! 
+		puzzl = puzzles[i, :, :]
+		mask = np.random.randint(0,4, (SuN,SuN)) == 3
+		guess_mat = puzzl * mask
+		puzzl_m = puzzl * (1-mask)
+		sudoku.setMat(puzzl_m.numpy())
+		curs_pos = curs_pos_b[i, :] # force constraints! 
 		
-		# benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, at, av )
-		benc,newbenc,coo,a2a,reward,reward_loc = encode1DBoard()
+		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, at, av )
+		# benc,newbenc,coo,a2a,reward,reward_loc = encode1DBoard()
 		orig_boards.append(benc)
 		new_boards.append(newbenc)
 		rewards[i] = reward
@@ -501,17 +505,34 @@ class ANode:
 		self.kids.append(node)
 		
 	def print(self, indent): 
-		print(indent, self.action_type, self.action_value, self.reward)
+		color = "black"
+		if self.reward > 0: 
+			color = "green"
+		if self.reward < -1.0: 
+			color = "red"
+		print(colored(f"{indent}{self.action_type},{self.action_value},{self.reward}", color))
 		indent = indent + " "
 		for k in self.kids: 
 			k.print(indent)
 
+def plot_tensor(v, name, lo, hi):
+	cmap_name = 'seismic'
+	fig, axs = plt.subplots(1, 1, figsize=(12,6))
+	data = np.linspace(lo, hi, v.shape[0] * v.shape[1])
+	data = np.reshape(data, (v.shape[0], v.shape[1]))
+	im = axs.imshow(data, cmap = cmap_name)
+	plt.colorbar(im, ax=axs)
+	im.set_data(v)
+	axs.set_title(name)
+	axs.tick_params(bottom=True, top=True, left=True, right=True)
+	plt.show()
 	
-def evaluateActionsRec(model, board, hcoo, action_node, depth, locs): 
+def evaluateActionsRec(model, board, hcoo, action_node, depth, reward_loc, locs): 
 	# clean up the boards
-	board = torch.round(board * 2.0) / 2.0
+	board = torch.round(board * 4.0) / 4.0
+	# plot_tensor(board.detach().cpu().numpy().T, "board", -4.0, 4.0)
 		
-	action_types,action_values = makeActionList()
+	action_types,action_values = enumerateActionList(9+4+1)
 
 	# make a batch with the new actions & replicated boards
 	new_boards = board.repeat(len(action_types), 1, 1 )
@@ -521,25 +542,27 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, locs):
 		new_boards[i, 0:s, :] = aenc.cuda()
 
 	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
-	reward_pred = boards_pred[:,reward_loc, 26]
+	reward_pred = boards_pred[:,reward_loc, 32+26].clone()
 	# copy over the beginning structure - needed!
-	# this will have to be changed! TODO
-	boards_pred[:,:,33:] = 0
+	# this will have to be changed for longer-term memory TODO
+	boards_pred[:,:,1:32] = boards_pred[:,:,33:]
+	boards_pred[:,:,32:] = 0 # don't mess up forward computation
+	boards_pred[:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
 
 	for i,(at,av) in enumerate(zip(action_types,action_values)):
 		reward = reward_pred[i].item()
 		an = ANode(at, av, reward)
 		action_node.addKid(an)
 		indent = " " * depth
-		print(f"{indent}action {getActionName(at)} {av} reward {reward}")
-		sparse_encoding.decodeNodes(indent, boards_pred[i,:,:], locs)
-		if reward > -1.0 and depth < 1:
-			print(colored(f"{indent}->", "green"))
-			evaluateActionsRec(model, boards_pred[i,:,:], hcoo, an, depth+1, locs)
-		elif reward > -1.0:
-			print(colored(f"{indent}-o", "green"))
-		else:
-			print(colored(f"{indent}-x", "yellow"))
+		# print(f"{indent}action {getActionName(at)} {av} reward {reward}")
+		# sparse_encoding.decodeNodes(indent, boards_pred[i,:,:], locs)
+		if reward > -1.0 and depth < 4:
+			# print(colored(f"{indent}->", "green"))
+			evaluateActionsRec(model, boards_pred[i,:,:], hcoo, an, depth+1, reward_loc, locs)
+		# elif reward > -1.0:
+		# 	print(colored(f"{indent}-o", "green"))
+		# else:
+		# 	print(colored(f"{indent}-x", "yellow"))
 
 	
 def evaluateActionsRecurse(model, puzzles, hcoo): 
@@ -560,7 +583,7 @@ def evaluateActionsRecurse(model, puzzles, hcoo):
 	board = board.cuda()
 	
 	action_node = ANode(8,0,0.0) # root node
-	evaluateActionsRec(model, board, hcoo, action_node, 0, locs)
+	evaluateActionsRec(model, board, hcoo, action_node, 0, reward_loc,locs)
 	
 	action_node.print("")
 
@@ -570,8 +593,8 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 1001 # 10 is too small
-	NUM_VALIDATE = batch_size * 100
+	NUM_TRAIN = batch_size * 1500 
+	NUM_VALIDATE = batch_size * 200
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 100000
 	device = torch.device('cuda:0') 
@@ -642,14 +665,14 @@ if __name__ == '__main__':
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	# evaluateActionsRecurse(model, puzzles, hcoo)
+	evaluateActionsRecurse(model, puzzles, hcoo)
 
 	uu = 0
-	while uu < NUM_ITERS:
-		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
-	#
-	# # save after training
-	# model.save_checkpoint()
- 
-	print("validation")
-	validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
+# 	while uu < NUM_ITERS:
+# 		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
+# 	
+# 	# save after training
+# 	model.save_checkpoint()
+#  
+# 	# print("validation")
+# 	validate(args, model, test_dataloader, optimizer_name, hcoo, uu)

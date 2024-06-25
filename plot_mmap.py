@@ -86,7 +86,6 @@ if __name__ == "__main__":
 
 	def plot_tensor(r, c, v, name, lo, hi, colorbar=True):
 		if not initialized:
-			# seed with random data so we get the range right
 			cmap_name = 'PuRd' # purple-red
 			if lo == -1*hi:
 				cmap_name = 'seismic'

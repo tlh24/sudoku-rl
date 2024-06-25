@@ -10,8 +10,8 @@ import os
 plt.rcParams['toolbar'] = 'None'
 
 plot_rows = 2
-plot_cols = 2
-figsize = (12, 6)
+plot_cols = 1
+figsize = (8, 6)
 plt.ion()
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 initialized = False
@@ -40,10 +40,10 @@ while True:
 	data = data.astype(float)
 	
 	if len(data.shape) > 1 and data.shape[0] > 1: 
-		ax[0,0].cla()
-		ax[0,0].plot(data[:,0], np.log(data[:, 1]), 'b')
-		ax[0,0].set(xlabel='iteration / batch #')
-		ax[0,0].set_title('log loss') 
+		ax[0].cla()
+		ax[0].plot(data[:,0], np.log(data[:, 1]), 'b')
+		ax[0].set(xlabel='iteration / batch #')
+		ax[0].set_title('log loss') 
 		
 		# with open("rewardlog.txt", 'r') as x:
 		# 	data = list(csv.reader(x, delimiter="\t"))

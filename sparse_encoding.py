@@ -232,8 +232,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	if i != token_cnt:
-		pdb.set_trace()
+	assert(i == token_cnt)
 	
 	board_loc = torch.zeros((SuN,SuN),dtype=int)
 	if full_board:
