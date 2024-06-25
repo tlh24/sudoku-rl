@@ -445,54 +445,6 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 	avg_batch_loss = sum_batch_loss / len(test_loader)
 			
 	return 
-
-# def evaluateActions(model, sudoku, guess_mat, curs_pos, action_type, action_value, hcoo):
-# 	# evaluate a batch of actions on the model, return the new predicted states.
-# 	l = len(action_type)
-# 	boards = torch.zeros(l, token_cnt, world_dim)
-# 
-# 	for i,(action,action_val) in enumerate(zip(action_type, action_value)):
-# 		nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
-# 		benc,coo = sparse_encoding.encodeNodes(nodes)
-# 		boards[i,:,:] = benc
-# 
-# 	boards = boards.cuda()
-# 	boards_pred,_,_,_,_ = model.forward(boards,hcoo,0,None)
-# 	reward_pred = boards_pred[:,reward_loc, 20]
-# 
-# 	return boards_pred,reward_pred,locs
-# 
-# # seems slightly stupid to simulate the world through the model
-# # when we have a perfectly good simulator at hand..
-# # but, the point is to learn the dynamics,
-# # and from that features of the world that are useful in predicting policy and value ..
-# # (the original plan was to use value gradients, but Dreamer v2 v3 seems to indicate that does not work well with discrete domains -- instead, they use REINFORCE gradients.
-# 
-# 
-# def evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo):
-# 	action_types,action_values = makeActionList()
-# 
-# 	boards_pred, reward_pred, locs = evaluateActions(model, sudoku, guess_mat, curs_pos, action_types, action_values, hcoo)
-# 
-# 	for i,(at,av) in enumerate(zip(action_types,action_values)):
-# 		reward = reward_pred[i]
-# 		print(f"action type:{at} value:{av} reward:{reward}")
-# 
-# 	return boards_pred, reward_pred
-# 
-# # need some way of updating the actions without updating the whole board...
-# 
-# def evaluateActionsMany2(model, puzzles, hcoo):
-# 	i = np.random.randint(puzzles.shape[0])
-# 	puzzle = puzzles[i,:,:]
-# 	sudoku = Sudoku(SuN, SuK)
-# 	sudoku.setMat(puzzle.numpy())
-# 	guess_mat = np.zeros((SuN, SuN))
-# 	curs_pos = torch.randint(SuN, (2,),dtype=int)
-# 
-# 	boards_pred, reward_pred = evaluateActionsMany(model, sudoku, guess_mat, curs_pos, hcoo)
-# 
-# 	return boards_pred, reward_pred
 	
 class ANode: 
 	def __init__(self, typ, val, reward): 
@@ -556,7 +508,7 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, reward_loc, locs)
 		indent = " " * depth
 		# print(f"{indent}action {getActionName(at)} {av} reward {reward}")
 		# sparse_encoding.decodeNodes(indent, boards_pred[i,:,:], locs)
-		if reward > -1.0 and depth < 4:
+		if reward > -1.0 and depth < 6:
 			# print(colored(f"{indent}->", "green"))
 			evaluateActionsRec(model, boards_pred[i,:,:], hcoo, an, depth+1, reward_loc, locs)
 		# elif reward > -1.0:
