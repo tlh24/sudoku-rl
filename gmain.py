@@ -9,6 +9,7 @@ from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
 import pdb
 from termcolor import colored
+import pickle
 import matplotlib.pyplot as plt
 import sparse_encoding
 from gracoonizer import Gracoonizer
@@ -447,11 +448,13 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 	return 
 	
 class ANode: 
-	def __init__(self, typ, val, reward): 
+	def __init__(self, typ, val, reward, board_enc):
 		self.action_type = typ
 		self.action_value = val
 		self.kids = []
 		self.reward = reward
+		# board_enc is the *result* of applying the action.
+		self.board_enc = board_enc
 		
 	def addKid(self, node): 
 		self.kids.append(node)
@@ -503,7 +506,10 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, reward_loc, locs)
 
 	for i,(at,av) in enumerate(zip(action_types,action_values)):
 		reward = reward_pred[i].item()
-		an = ANode(at, av, reward)
+		if reward > -1.0:
+			an = ANode(at, av, reward, boards_pred[i,:,:].detach().cpu().numpy())
+		else:
+			an = ANode(at, av, reward, None)
 		action_node.addKid(an)
 		indent = " " * depth
 		# print(f"{indent}action {getActionName(at)} {av} reward {reward}")
@@ -517,31 +523,39 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, reward_loc, locs)
 		# 	print(colored(f"{indent}-x", "yellow"))
 
 	
-def evaluateActionsRecurse(model, puzzles, hcoo): 
-	i = np.random.randint(puzzles.shape[0])
-	puzzle = puzzles[i,:,:]
-	sudoku = Sudoku(SuN, SuK)
-	sudoku.setMat(puzzle.numpy())
-	guess_mat = np.zeros((SuN, SuN))
-	curs_pos = torch.randint(SuN, (2,),dtype=int)
-	print("-- initial state --")
-	sudoku.printSudoku("", curs_pos, guess_mat)
-	print(f"curs_pos {curs_pos[0]},{curs_pos[1]}")
-	print(colored("-----", "green"))
-	
-	nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, 0, 0, 0.0) # action will be replaced.
-	board,_,_ = sparse_encoding.encodeNodes(nodes)
-	
-	board = board.cuda()
-	
-	action_node = ANode(8,0,0.0) # root node
-	evaluateActionsRec(model, board, hcoo, action_node, 0, reward_loc,locs)
-	
-	action_node.print("")
+def evaluateActionsRecurse(model, puzzles, hcoo, nn, fname):
+	pi = np.random.randint(0, puzzles.shape[0], (nn,))
+	anode_list = []
+	for i in range(nn):
+		puzzle = puzzles[pi[i],:,:]
+		sudoku = Sudoku(SuN, SuK)
+		sudoku.setMat(puzzle.numpy())
+		guess_mat = np.zeros((SuN, SuN))
+		curs_pos = torch.randint(SuN, (2,),dtype=int)
+		print("-- initial state --")
+		sudoku.printSudoku("", curs_pos, guess_mat)
+		print(f"curs_pos {curs_pos[0]},{curs_pos[1]}")
+		print(colored("-----", "green"))
+
+		nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, 0, 0, 0.0) # action will be replaced.
+		board,_,_ = sparse_encoding.encodeNodes(nodes)
+
+		action_node = ANode(8,0,0.0,board.numpy()) # noop, root node
+		board = board.cuda()
+		evaluateActionsRec(model, board, hcoo, action_node, 0, reward_loc,locs)
+
+		action_node.print("")
+		anode_list.append(action_node)
+		if i % 5 == 4:
+			with open(fname, 'wb') as handle:
+				print(colored(f"saving rollouts to {fname}", "blue"))
+				pickle.dump(anode_list, handle, protocol=pickle.HIGHEST_PROTOCOL)
+	return anode_list
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
 	parser.add_argument('-c', action='store_true', help='start fresh')
+	parser.add_argument('-r', type=int, default=1, help='rollout file number')
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
@@ -617,7 +631,28 @@ if __name__ == '__main__':
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	evaluateActionsRecurse(model, puzzles, hcoo)
+	instance = cmd_args.r
+	fname = f"rollouts_{instance}.pickle"
+	if True:
+		anode_list = evaluateActionsRecurse(model, puzzles, hcoo, 1000, fname)
+
+	anode_list = []
+	with open(fname, 'rb') as handle:
+		print(colored(f"loading rollouts from {fname}", "blue"))
+		anode_list = pickle.load(handle)
+
+	# need to sum the rewards along each episode - infinite horizon reward.
+	def sumRewards(an):
+		reward = an.reward
+		rewards = [sumRewards(k) for k in an.kids]
+		if len(rewards) > 0:
+			reward = reward + max(rewards)
+		an.reward = reward
+		return reward
+	for an in anode_list:
+		sumRewards(an)
+		an.print("")
+
 
 	uu = 0
 # 	while uu < NUM_ITERS:
