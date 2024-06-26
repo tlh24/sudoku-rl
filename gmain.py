@@ -484,7 +484,8 @@ def plot_tensor(v, name, lo, hi):
 	
 def evaluateActionsRec(model, board, hcoo, action_node, depth, reward_loc, locs): 
 	# clean up the boards
-	board = torch.round(board * 4.0) / 4.0
+	board = np.round(board * 4.0) / 4.0
+	board = torch.tensor(board).cuda()
 	# plot_tensor(board.detach().cpu().numpy().T, "board", -4.0, 4.0)
 		
 	action_types,action_values = enumerateActionList(9+4+1)
@@ -504,23 +505,23 @@ def evaluateActionsRec(model, board, hcoo, action_node, depth, reward_loc, locs)
 	boards_pred[:,:,32:] = 0 # don't mess up forward computation
 	boards_pred[:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
 
-	for i,(at,av) in enumerate(zip(action_types,action_values)):
+	mask = reward_pred > -1.0
+	if torch.sum(mask) > 0 and depth < 256:
+		i = torch.multinomial(mask / torch.sum(mask), 1)
+		boards_pred_np = boards_pred[i,:,:].detach().squeeze().cpu().numpy()
 		reward = reward_pred[i].item()
-		if reward > -1.0:
-			an = ANode(at, av, reward, boards_pred[i,:,:].detach().cpu().numpy())
-		else:
-			an = ANode(at, av, reward, None)
+		del boards_pred
+		del reward_pred
+		del new_boards
+		del board
+		at = action_types[i]
+		av = action_values[i]
+		an = ANode(at, av, reward, boards_pred_np)
 		action_node.addKid(an)
-		indent = " " * depth
-		# print(f"{indent}action {getActionName(at)} {av} reward {reward}")
-		# sparse_encoding.decodeNodes(indent, boards_pred[i,:,:], locs)
-		if reward > -1.0 and depth < 6:
-			# print(colored(f"{indent}->", "green"))
-			evaluateActionsRec(model, boards_pred[i,:,:], hcoo, an, depth+1, reward_loc, locs)
-		# elif reward > -1.0:
-		# 	print(colored(f"{indent}-o", "green"))
-		# else:
-		# 	print(colored(f"{indent}-x", "yellow"))
+		indent = " " # * depth
+		print(f"{indent}action {getActionName(at)} {av} reward {reward}")
+		sparse_encoding.decodeNodes(indent, boards_pred_np, locs)
+		evaluateActionsRec(model, boards_pred_np, hcoo, an, depth+1, reward_loc, locs)
 
 	
 def evaluateActionsRecurse(model, puzzles, hcoo, nn, fname):
@@ -541,7 +542,7 @@ def evaluateActionsRecurse(model, puzzles, hcoo, nn, fname):
 		board,_,_ = sparse_encoding.encodeNodes(nodes)
 
 		action_node = ANode(8,0,0.0,board.numpy()) # noop, root node
-		board = board.cuda()
+		board = board.numpy()
 		evaluateActionsRec(model, board, hcoo, action_node, 0, reward_loc,locs)
 
 		action_node.print("")
@@ -634,24 +635,24 @@ if __name__ == '__main__':
 	instance = cmd_args.r
 	fname = f"rollouts_{instance}.pickle"
 	if True:
-		anode_list = evaluateActionsRecurse(model, puzzles, hcoo, 1000, fname)
+		anode_list = evaluateActionsRecurse(model, puzzles, hcoo, 1, fname)
+	else:
+		anode_list = []
+		with open(fname, 'rb') as handle:
+			print(colored(f"loading rollouts from {fname}", "blue"))
+			anode_list = pickle.load(handle)
 
-	anode_list = []
-	with open(fname, 'rb') as handle:
-		print(colored(f"loading rollouts from {fname}", "blue"))
-		anode_list = pickle.load(handle)
-
-	# need to sum the rewards along each episode - infinite horizon reward.
-	def sumRewards(an):
-		reward = an.reward
-		rewards = [sumRewards(k) for k in an.kids]
-		if len(rewards) > 0:
-			reward = reward + max(rewards)
-		an.reward = reward
-		return reward
-	for an in anode_list:
-		sumRewards(an)
-		an.print("")
+		# need to sum the rewards along each episode - infinite horizon reward.
+		def sumRewards(an):
+			reward = an.reward
+			rewards = [sumRewards(k) for k in an.kids]
+			if len(rewards) > 0:
+				reward = reward + max(rewards)
+			an.reward = reward
+			return reward
+		for an in anode_list:
+			sumRewards(an)
+			an.print("")
 
 
 	uu = 0
