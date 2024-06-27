@@ -27,7 +27,7 @@ class TrainerConfig:
 class Trainer:
     def __init__(self, model, train_dataset, config):
         '''
-        train_dataset: (torch dataset)  training trajectories
+        train_dataset: (torch Dataset)  training trajectories
         '''
         self.model = model
         self.train_dataset = train_dataset
@@ -62,9 +62,7 @@ class Trainer:
 
 
 
-
 def set_seed(seed):
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
