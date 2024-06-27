@@ -405,10 +405,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 				loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
-					# torch.sum((new_state_preds[:,:,:20] - new_board[:,:,:20])**2)*1e-4 + \
-					# torch.sum((new_state_preds[:,:,21:] - new_board[:,:,21:])**2)*1e-4 + \
-					# we seem to have lost the comment explaining why this was here 
-					# but it was recommended by the psgd authors to break symmetries w a L2 norm on the weights. 
+					# this was recommended by the psgd authors to break symmetries w a L2 norm on the weights. 
 				return loss
 			loss = optimizer.step(closure)
 		
@@ -419,7 +416,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		uu = uu + 1
 		
 		if uu % 1000 == 999: 
-			model.save_checkpoint(f"checkpoints/racoonizer_{uu//1000}.pth") #fixme
+			model.save_checkpoint(f"checkpoints/racoonizer_{uu//1000}.pth")
 
 		sum_batch_loss += lloss
 		if batch_idx % 25 == 0:
@@ -450,14 +447,66 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			
 	return 
 	
-def trainPolicy(rollouts_board, rollouts_reward_sum, rollouts_action, nn):
+def trainQfun(rollouts_board, rollouts_reward_sum, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs):
+	n_time = rollouts_board.shape[0]
 	n_roll = rollouts_board.shape[1]
-	for i in range(nn): 
-		indx = torch.randint(0,nroll,batch_size)
-		boards = rollouts_board[:,indx,:,:]
-		reward_sum = rollouts_reward_sum[:,indx]
-		actions = rollouts_action[:,indx]
-	
+	n_tok = rollouts_board.shape[2]
+	width = rollouts_board.shape[3]
+	pred_data = {}
+	for uu in range(nn): 
+		indx = torch.randint(0,n_roll,(batch_size,))
+		boards = rollouts_board[:,indx,:,:].squeeze()
+		reward_sum = rollouts_reward_sum[:,indx].squeeze()
+		actions = rollouts_action[:,indx,:].squeeze()
+		
+		lin = torch.arange(batch_size)
+		tindx = torch.randint(0, 150, (batch_size,))
+		boards = rollouts_board[tindx,lin,:].squeeze().float()
+		# expnd boards
+		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width)), dim=2)
+		# remove the layer encoding; will be replaced in the model.
+		boards[:,:,0] = 0
+		boards = torch.round(boards * 4.0) / 4.0
+		reward_sum = rollouts_reward_sum[tindx,lin].squeeze()
+		actions = rollouts_action[tindx,lin,:].squeeze()
+		
+		# sparse_encoding.decodeNodes("", boards[0,:,:].squeeze().float(), locs)
+		# do we even need to encode the action? 
+		# it should not have changed!  
+		# for j in range(batch_size): 
+		# 	at = actions[j,0]
+		# 	av = actions[j,1]
+		# 	aenc = sparse_encoding.encodeActionNodes(at, av)
+		# 	s = aenc.shape[0]
+		# 	print(torch.sum((boards[j,0:s,:] - aenc)**2).item())
+			
+		boards = boards.cuda()
+		reward_sum = reward_sum.cuda()
+		with torch.no_grad(): 
+			model_boards,_,_ = model.forward(boards,hcoo,0,None)
+			
+		def closure(): 
+			nonlocal pred_data
+			qfun_boards,_,_ = qfun.forward(model_boards,hcoo,i,None)
+			reward_preds = qfun_boards[:,reward_loc, 32+26]
+			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
+								'rewards': reward_sum, 'reward_preds': reward_preds,
+								'w1':None, 'w2':None}
+			loss = torch.sum((reward_sum - reward_preds)**2) + \
+				sum([torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in qfun.parameters()])
+			return loss
+		
+		loss = optimizer.step(closure)
+		lloss = loss.detach().cpu().item()
+		print(lloss)
+		args["fd_losslog"].write(f'{uu}\t{lloss}\n')
+		args["fd_losslog"].flush()
+		if uu % 25 == 0:
+			updateMemory(memory_dict, pred_data)
+			
+		if uu % 1000 == 999: 
+			qfun.save_checkpoint(f"checkpoints/quailizer_{uu//1000}.pth")
+		
 	
 class ANode: 
 	def __init__(self, typ, val, reward, board_enc):
@@ -589,7 +638,7 @@ if __name__ == '__main__':
 	parser.add_argument('-c', action='store_true', help='clear, start fresh')
 	parser.add_argument('-e', action='store_true', help='evaluate')
 	parser.add_argument('-t', action='store_true', help='train')
-	parser.add_argument('-p', action='store_true', help='train policy')
+	parser.add_argument('-q', action='store_true', help='train Q function')
 	parser.add_argument('-r', type=int, default=1, help='rollout file number')
 	cmd_args = parser.parse_args()
 	
@@ -640,7 +689,7 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, reward_dim=1).to(device) 
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8).to(device) 
 	model.printParamCount()
 
 	if cmd_args.c: 
@@ -689,9 +738,9 @@ if __name__ == '__main__':
 				sumRewards(an)
 				an.print("")
 				
-	if cmd_args.p: 
+	if cmd_args.q: 
 		bs = 96
-		nfiles = 45
+		nfiles = 55
 		rollouts_board = torch.zeros(257, bs*nfiles, token_cnt, 32, dtype=torch.float16)
 		rollouts_reward = torch.zeros(257, bs*nfiles)
 		rollouts_action = torch.zeros(257, bs*nfiles, 2, dtype=int)
@@ -707,13 +756,29 @@ if __name__ == '__main__':
 		# plot one of the reward backward cumsums. no discount!
 		ro_reward_sum = torch.cumsum(torch.flip(rollouts_reward, [0,]), 0)
 		ro_reward_sum = torch.flip(ro_reward_sum, [0,])
-		reward_baseline = torch.sum(ro_reward_sum, 1) / (bs*nfiles)
-		ro_reward_sum = ro_reward_sum - reward_baseline.unsqueeze(1).expand(-1,bs*nfiles)
-		for i in range(5):
+		reward_mean = torch.sum(ro_reward_sum, 1) / (bs*nfiles)
+		ro_reward_sum = ro_reward_sum - \
+			reward_mean.unsqueeze(1).expand(-1,bs*nfiles)
+		# calculate the standard deviation too
+		reward_std = torch.sqrt(torch.sum(ro_reward_sum**2,1)/(bs*nfiles))
+		ro_reward_sum = ro_reward_sum / \
+			( reward_std.unsqueeze(1).expand(-1,bs*nfiles) + 1)
+		for i in range(0):
 			indx = torch.randint(0, bs*nfiles, (10,))
-			plt.plot(reward_baseline.numpy(), 'k')
+			plt.plot(reward_mean.numpy(), 'k')
+			plt.plot(reward_std.numpy(), 'k-')
 			plt.plot(ro_reward_sum[:,indx].numpy())
 			plt.show()
+			
+		qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4).to(device) 
+		qfun.printParamCount()
+		optimizer = getOptimizer(optimizer_name, qfun)
+		
+		# get the locations of the board nodes. 
+		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2),0,0,0.0)
+		
+		trainQfun(rollouts_board, ro_reward_sum, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
+		
 	
 	uu = 0
 	if cmd_args.t:

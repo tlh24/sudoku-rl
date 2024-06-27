@@ -7,7 +7,7 @@ import nanogpt_model
 import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
-from constants import n_heads, token_cnt, g_zeroinit, g_dtype
+from constants import token_cnt, g_zeroinit, g_dtype
 import graph_encoding
 from nanogpt_model import GPTConfig, GPT
 from netdenoise import NetDenoise
@@ -21,18 +21,19 @@ class Gracoonizer(nn.Module):
 		self,
 		xfrmr_dim:int, 
 		world_dim:int,
-		reward_dim:int
+		n_heads:int,
+		n_layers:int
 		): 
 		super().__init__()
 		self.xfrmr_dim = xfrmr_dim
 		self.world_dim = world_dim
-		self.reward_dim = reward_dim
-		self.n_head = n_heads # need one head for each of the 4 connection types.
+		self.n_head = n_heads 
+		assert(n_layers % 4 == 0) # one layer for each of the different types.
 		
 		if USE_GRAPH_XFRMR:
 			self.xfrmr = graph_transformer.Transformer(
 				d_model = xfrmr_dim,
-				layers = 8,
+				layers = n_layers,
 				n_head = self.n_head,
 				repeat = 3,
 				init_zeros = g_zeroinit
