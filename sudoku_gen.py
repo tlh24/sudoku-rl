@@ -75,6 +75,26 @@ class Sudoku:
 			if self.mat[i,j] == num:
 				return False
 		return True
+		
+	def checkIfValid(self): 
+		# verify that the current puzzle has no contradictions. 
+		valid = True
+		for i in range(self.N): 
+			match = self.mat == i+1
+			if np.max(np.sum(match, 1)) > 1: 
+				valid = False
+			if np.max(np.sum(match, 0)) > 1: 
+				valid = False
+			blocks = []
+			for i in range(0, self.N, self.SRN):
+				for j in range(0, self.N, self.SRN):
+					block = match[i:i+3, j:j+3].flatten()
+					blocks.append(block)
+			match = np.array(blocks)
+			if np.max(np.sum(match, 1)) > 1: 
+				valid = False
+		return valid
+			
 	
 	def fillRemaining(self, i, j):
 		# Check if we have reached the end of the matrix
@@ -106,26 +126,24 @@ class Sudoku:
 
 	def removeKDigits(self):
 		count = self.K
-
 		while (count != 0):
 			i = self.randomGenerator(self.N) - 1
 			j = self.randomGenerator(self.N) - 1
 			if (self.mat[i,j] != 0):
 				count -= 1
 				self.mat[i,j] = 0
-	
 		return
 		
 	def setMat(self, mat): 
 		self.mat = mat.astype(np.int32) # must be int!  == comparisons! 
 
-	def printSudoku(self, indent="", curs_pos=None, guess_mat=None):
+	def printSudoku(self, indent, puzzl_mat, guess_mat=None, curs_pos=None):
 		for i in range(self.N):
 			print(indent, end="")
 			for j in range(self.N):
 				k = i // self.SRN + j // self.SRN
 				color = "black" if k % 2 == 0 else "red"
-				p = math.floor(self.mat[i,j])
+				p = math.floor(puzzl_mat[i,j])
 				if guess_mat is not None:
 					if np.round(guess_mat[i,j]) > 0:
 						p = guess_mat[i,j]
@@ -139,13 +157,26 @@ class Sudoku:
 				else: 
 					print(colored(p, color), end=" ")
 			print()
+		self.mat = puzzl_mat
+		if guess_mat is not None: 
+			self.mat = self.mat + guess_mat
+		print(f"{indent}Valid:", self.checkIfValid())
 
 # Driver code
 if __name__ == "__main__":
-	# N = 9
-	# K = 81-37
-	N = 4
-	K = 16-6
+	N = 9
+	K = 81-37
+	# N = 4
+	# K = 16-6
 	sudoku = Sudoku(N, K)
 	sudoku.fillValues()
-	sudoku.printSudoku()
+	sudoku.printSudoku("", sudoku.mat)
+	print("base",sudoku.checkIfValid())
+	# check the validate fn. 
+	for r in range(N): 
+		for c in range(N): 
+			if sudoku.mat[r,c] == 0: 
+				for i in range(N):
+					sudoku.mat[r,c] = i+1
+					print(r,c,i+1,sudoku.checkIfValid())
+				sudoku.mat[r,c] = 0

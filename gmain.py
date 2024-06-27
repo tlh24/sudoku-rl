@@ -24,7 +24,7 @@ import psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
-def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int): 
+def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int): 
 	
 	# run the action, update the world, return the reward.
 	# act = b % 4
@@ -50,8 +50,9 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 	# curs_pos[1] = curs_pos[1] % SuN # works for negative nums
 	
 	if action == Action.SET_GUESS.value:
-		clue = sudoku.mat[curs_pos[0], curs_pos[1]]
+		clue = puzzl_mat[curs_pos[0], curs_pos[1]]
 		curr = guess_mat[curs_pos[0], curs_pos[1]]
+		sudoku.setMat(puzzl_mat + guess_mat) # so that checkIfSafe works properly.
 		if clue == 0 and curr == 0 and sudoku.checkIfSafe(curs_pos[0], curs_pos[1], action_val):
 			# updateNotes(curs_pos, action_val, notes)
 			reward = 1
@@ -62,8 +63,9 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 		curr = guess_mat[curs_pos[0], curs_pos[1]]
 		if curr != 0: 
 			guess_mat[curs_pos[0], curs_pos[1]] = 0
+			reward = -1 # must exactly cancel, o/w best strategy is to simply set/unset guess repeatedly.
 		else:
-			reward = -0.5
+			reward = -1.25
 			
 	if False: 
 		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}:{action_val}')
@@ -71,7 +73,7 @@ def runAction(sudoku, guess_mat, curs_pos, action:int, action_val:int):
 	return reward
 
 	
-def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):  
+def encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val):  
 	'''
 	Encodes the current board state and encodes the given action,
 		runs the action, and then encodes the new board state.
@@ -85,12 +87,12 @@ def encodeBoard(sudoku, guess_mat, curs_pos, action, action_val):
 	action encoding: Shape (#action nodes x world_dim)
 	new board encoding: Shape (#newboard nodes x world_dim)
 	'''
-	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, 0.0)
+	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action, action_val, 0.0)
 	benc,coo,a2a = sparse_encoding.encodeNodes(nodes)
 	
-	reward = runAction(sudoku, guess_mat, curs_pos, action, action_val)
+	reward = runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val)
 	
-	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, action, action_val, reward) # action_val doesn't matter
+	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action, action_val, reward) # action_val doesn't matter
 	newbenc,coo,a2a = sparse_encoding.encodeNodes(nodes)
 	
 	return benc, newbenc, coo, a2a, reward, reward_loc
@@ -201,14 +203,15 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 			curs_pos_b[i,:] = torch.randint(SuN, (1,2),dtype=int)
 	
 	for i,(at,av) in enumerate(zip(action_types,action_values)):
-		puzzl = puzzles[i, :, :]
-		mask = np.random.randint(0,4, (SuN,SuN)) == 3
+		puzzl = puzzles[i, :, :].numpy()
+		# move half the clues to guesses (on average)
+		# to force generalization over both!
+		mask = np.random.randint(0,2, (SuN,SuN)) == 1
 		guess_mat = puzzl * mask
-		puzzl_m = puzzl * (1-mask)
-		sudoku.setMat(puzzl_m.numpy())
-		curs_pos = curs_pos_b[i, :] # force constraints! 
+		puzzl_mat = puzzl * (1-mask)
+		curs_pos = curs_pos_b[i, :] # see above.
 		
-		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, guess_mat, curs_pos, at, av )
+		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, at, av )
 		# benc,newbenc,coo,a2a,reward,reward_loc = encode1DBoard()
 		orig_boards.append(benc)
 		new_boards.append(newbenc)
@@ -447,6 +450,15 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			
 	return 
 	
+def trainPolicy(rollouts_board, rollouts_reward_sum, rollouts_action, nn):
+	n_roll = rollouts_board.shape[1]
+	for i in range(nn): 
+		indx = torch.randint(0,nroll,batch_size)
+		boards = rollouts_board[:,indx,:,:]
+		reward_sum = rollouts_reward_sum[:,indx]
+		actions = rollouts_action[:,indx]
+	
+	
 class ANode: 
 	def __init__(self, typ, val, reward, board_enc):
 		self.action_type = typ
@@ -466,7 +478,7 @@ class ANode:
 		if self.reward < -1.0: 
 			color = "red"
 		print(colored(f"{indent}{self.action_type},{self.action_value},{self.reward}", color))
-		indent = indent + " "
+		# indent = indent + " "
 		for k in self.kids: 
 			k.print(indent)
 
@@ -482,86 +494,108 @@ def plot_tensor(v, name, lo, hi):
 	axs.tick_params(bottom=True, top=True, left=True, right=True)
 	plt.show()
 	
-def evaluateActionsRec(model, board, hcoo, action_node, depth, reward_loc, locs): 
+def evaluateActions(model, board, hcoo, depth, reward_loc, locs): 
 	# clean up the boards
 	board = np.round(board * 4.0) / 4.0
 	board = torch.tensor(board).cuda()
+	bs = board.shape[0]
+	ntok = board.shape[1]
+	width = board.shape[2]
 	# plot_tensor(board.detach().cpu().numpy().T, "board", -4.0, 4.0)
 		
 	action_types,action_values = enumerateActionList(9+4+1)
+	nact = len(action_types)
 
 	# make a batch with the new actions & replicated boards
-	new_boards = board.repeat(len(action_types), 1, 1 )
+	board = board.unsqueeze(1)
+	new_boards = board.repeat(1, nact, 1, 1 )
 	for i,(at,av) in enumerate(zip(action_types,action_values)):
-		aenc = sparse_encoding.encodeActionNodes(at, av)
+		aenc = sparse_encoding.encodeActionNodes(at, av) # only need one eval!
 		s = aenc.shape[0]
-		new_boards[i, 0:s, :] = aenc.cuda()
+		new_boards[:, i, 0:s, :] = aenc.cuda()
 
+	new_boards = new_boards.reshape(bs * nact, ntok, width)
 	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
-	reward_pred = boards_pred[:,reward_loc, 32+26].clone()
+	boards_pred = boards_pred.detach().reshape(bs, nact, ntok, width)
+	reward_pred = boards_pred[:, :,reward_loc, 32+26].clone().squeeze()
 	# copy over the beginning structure - needed!
 	# this will have to be changed for longer-term memory TODO
-	boards_pred[:,:,1:32] = boards_pred[:,:,33:]
-	boards_pred[:,:,32:] = 0 # don't mess up forward computation
-	boards_pred[:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
+	boards_pred[:,:,:,1:32] = boards_pred[:,:,:,33:]
+	boards_pred[:,:,:,32:] = 0 # don't mess up forward computation
+	boards_pred[:,:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
 
-	mask = reward_pred > -1.0
-	if torch.sum(mask) > 0 and depth < 256:
-		i = torch.multinomial(mask / torch.sum(mask), 1)
-		boards_pred_np = boards_pred[i,:,:].detach().squeeze().cpu().numpy()
-		reward = reward_pred[i].item()
-		del boards_pred
-		del reward_pred
-		del new_boards
-		del board
-		at = action_types[i]
-		av = action_values[i]
-		an = ANode(at, av, reward, boards_pred_np)
-		action_node.addKid(an)
-		indent = " " # * depth
-		print(f"{indent}action {getActionName(at)} {av} reward {reward}")
-		sparse_encoding.decodeNodes(indent, boards_pred_np, locs)
-		evaluateActionsRec(model, boards_pred_np, hcoo, an, depth+1, reward_loc, locs)
+	mask = torch.clip(reward_pred + 1.0, 0.0, 10.0) # reward-weighted.
+	mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
+	indx = torch.multinomial(mask, 1).squeeze()
+	lin = torch.arange(0,bs)
+	boards_pred_np = boards_pred[lin,indx,:,:].detach().squeeze().cpu().numpy()
+	reward_np = reward_pred[lin,indx]
+	
+	action_node_new = []
+	indent = " " # * depth
+	for j in range(bs):
+		at = action_types[indx[j]]
+		av = action_values[indx[j]]
+		an = ANode(at, av, reward_np[j], boards_pred_np[j,:,:].squeeze())
+		action_node_new.append(an)
+		if j == 0: 
+			print(f"{indent}action {getActionName(at)} {av} reward {reward_np[0].item()}")
+	sparse_encoding.decodeNodes(indent, boards_pred_np[0,:,:], locs)
+		
+	return boards_pred_np, action_node_new
 
 	
 def evaluateActionsRecurse(model, puzzles, hcoo, nn, fname):
-	pi = np.random.randint(0, puzzles.shape[0], (nn,))
+	bs = 96
+	pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
 	anode_list = []
+	sudoku = Sudoku(SuN, SuK)
 	for i in range(nn):
-		puzzle = puzzles[pi[i],:,:]
-		sudoku = Sudoku(SuN, SuK)
-		sudoku.setMat(puzzle.numpy())
-		guess_mat = np.zeros((SuN, SuN))
-		curs_pos = torch.randint(SuN, (2,),dtype=int)
+		puzzl_mat = np.zeros((bs,SuN,SuN))
+		for j in range(bs):
+			puzzl_mat[j,:,:] = puzzles[pi[i,j],:,:].numpy()
+		guess_mat = np.zeros((bs,SuN,SuN))
+		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
 		print("-- initial state --")
-		sudoku.printSudoku("", curs_pos, guess_mat)
-		print(f"curs_pos {curs_pos[0]},{curs_pos[1]}")
+		sudoku.printSudoku("", puzzl_mat[0,:,:], guess_mat[0,:,:], curs_pos[0,:])
+		print(f"curs_pos {curs_pos[0,0]},{curs_pos[0,1]}")
 		print(colored("-----", "green"))
 
-		nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(sudoku.mat, guess_mat, curs_pos, 0, 0, 0.0) # action will be replaced.
-		board,_,_ = sparse_encoding.encodeNodes(nodes)
-
-		action_node = ANode(8,0,0.0,board.numpy()) # noop, root node
+		board = torch.zeros(bs,token_cnt,world_dim)
+		for j in range(bs):
+			nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[j,:,:], guess_mat[j,:,:], curs_pos[j,:], 0, 0, 0.0) # action will be replaced.
+			board[j,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
+		
+		rollouts_board = torch.zeros(257, bs, token_cnt, 32, dtype=torch.float16)
+		rollouts_reward = torch.zeros(257, bs)
+		rollouts_action = torch.zeros(257, bs, 2, dtype=int)
+		rollouts_board[0,:,:,:] = board[:,:,:32]
 		board = board.numpy()
-		evaluateActionsRec(model, board, hcoo, action_node, 0, reward_loc,locs)
+		for j in range(256): 
+			board_new, action_node_new = evaluateActions(model, board, hcoo, 0, reward_loc,locs)
+			board = board_new
+			rollouts_board[j+1,:,:,:] = torch.tensor(board[:,:,:32])
+			for k in range(bs):
+				rollouts_reward[j+1,k] = action_node_new[k].reward
+				rollouts_action[j+1,k, 0] = action_node_new[k].action_type
+				rollouts_action[j+1,k, 1] = action_node_new[k].action_value
 
-		action_node.print("")
-		anode_list.append(action_node)
-		if i % 5 == 4:
-			with open(fname, 'wb') as handle:
-				print(colored(f"saving rollouts to {fname}", "blue"))
-				pickle.dump(anode_list, handle, protocol=pickle.HIGHEST_PROTOCOL)
-	return anode_list
+		torch.save(rollouts_board, f'rollouts/rollouts_board_{i}.pt')
+		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{i}.pt')
+		torch.save(rollouts_action, f'rollouts/rollouts_action_{i}.pt')
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
-	parser.add_argument('-c', action='store_true', help='start fresh')
+	parser.add_argument('-c', action='store_true', help='clear, start fresh')
+	parser.add_argument('-e', action='store_true', help='evaluate')
+	parser.add_argument('-t', action='store_true', help='train')
+	parser.add_argument('-p', action='store_true', help='train policy')
 	parser.add_argument('-r', type=int, default=1, help='rollout file number')
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 1500 
-	NUM_VALIDATE = batch_size * 200
+	NUM_TRAIN = batch_size * 1800 
+	NUM_VALIDATE = batch_size * 300
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 100000
 	device = torch.device('cuda:0') 
@@ -632,35 +666,62 @@ if __name__ == '__main__':
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	instance = cmd_args.r
-	fname = f"rollouts_{instance}.pickle"
-	if True:
-		anode_list = evaluateActionsRecurse(model, puzzles, hcoo, 1, fname)
-	else:
-		anode_list = []
-		with open(fname, 'rb') as handle:
-			print(colored(f"loading rollouts from {fname}", "blue"))
-			anode_list = pickle.load(handle)
-
-		# need to sum the rewards along each episode - infinite horizon reward.
-		def sumRewards(an):
-			reward = an.reward
-			rewards = [sumRewards(k) for k in an.kids]
-			if len(rewards) > 0:
-				reward = reward + max(rewards)
-			an.reward = reward
-			return reward
-		for an in anode_list:
-			sumRewards(an)
-			an.print("")
-
-
+	if cmd_args.e: 
+		instance = cmd_args.r
+		fname = f"rollouts_{instance}.pickle"
+		if True:
+			anode_list = evaluateActionsRecurse(model, puzzles, hcoo, 250, fname)
+		else:
+			anode_list = []
+			with open(fname, 'rb') as handle:
+				print(colored(f"loading rollouts from {fname}", "blue"))
+				anode_list = pickle.load(handle)
+	
+			# need to sum the rewards along each episode - infinite horizon reward.
+			def sumRewards(an):
+				reward = an.reward
+				rewards = [sumRewards(k) for k in an.kids]
+				if len(rewards) > 0:
+					reward = reward + max(rewards)
+				an.reward = reward
+				return reward
+			for an in anode_list:
+				sumRewards(an)
+				an.print("")
+				
+	if cmd_args.p: 
+		bs = 96
+		nfiles = 45
+		rollouts_board = torch.zeros(257, bs*nfiles, token_cnt, 32, dtype=torch.float16)
+		rollouts_reward = torch.zeros(257, bs*nfiles)
+		rollouts_action = torch.zeros(257, bs*nfiles, 2, dtype=int)
+		
+		for i in range(nfiles): 
+			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt')
+			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt')
+			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt')
+			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
+			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward
+			rollouts_action[:,bs*i:bs*(i+1),:] = r_action
+			
+		# plot one of the reward backward cumsums. no discount!
+		ro_reward_sum = torch.cumsum(torch.flip(rollouts_reward, [0,]), 0)
+		ro_reward_sum = torch.flip(ro_reward_sum, [0,])
+		reward_baseline = torch.sum(ro_reward_sum, 1) / (bs*nfiles)
+		ro_reward_sum = ro_reward_sum - reward_baseline.unsqueeze(1).expand(-1,bs*nfiles)
+		for i in range(5):
+			indx = torch.randint(0, bs*nfiles, (10,))
+			plt.plot(reward_baseline.numpy(), 'k')
+			plt.plot(ro_reward_sum[:,indx].numpy())
+			plt.show()
+	
 	uu = 0
-# 	while uu < NUM_ITERS:
-# 		uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
-# 	
-# 	# save after training
-# 	model.save_checkpoint()
-#  
-# 	# print("validation")
-# 	validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
+	if cmd_args.t:
+		while uu < NUM_ITERS:
+			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
+		
+		# save after training
+		model.save_checkpoint()
+ 
+		# print("validation")
+		validate(args, model, test_dataloader, optimizer_name, hcoo, uu)

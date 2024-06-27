@@ -119,7 +119,7 @@ def sudokuActionNodes(action_type, action_value):
 			assert(False)
 	return na
 		
-def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
+def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
 	
@@ -142,7 +142,7 @@ def sudokuToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column
 				b = (x // SuH)*SuH + (y // SuH)
-				v = puzzle[x,y]
+				v = puzzl_mat[x,y]
 				nb = Node(Types.BOX, v)
 				nb.setAxVal( Axes.N_AX, v )
 				g = guess_mat[x,y]
@@ -386,8 +386,7 @@ def decodeNodes(indent, benc, locs):
 		round(benc[cursor_loc, yo].item() + posOffset ) ]
 	
 	su = Sudoku(SuN,SuN)
-	su.setMat(puzzle.numpy())
-	su.printSudoku(indent, cursor_pos, guess_mat.numpy())
+	su.printSudoku(indent, puzzle.numpy(), guess_mat.numpy(), cursor_pos)
 	# print("guess_mat", guess_mat)
 	print(f"{indent}cursor_pos", cursor_pos)
 	
