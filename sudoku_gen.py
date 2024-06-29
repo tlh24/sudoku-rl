@@ -95,6 +95,18 @@ class Sudoku:
 				valid = False
 		return valid
 			
+	def checkOpen(self, i, j): 
+		# check if there are open moves for this row, column, block
+		ok = np.ones((10,))
+		ok[0] = 0
+		m = self.SRN
+		for k in range(self.N):
+			ok[self.mat[i,k]] = 0
+			ok[self.mat[k,j]] = 0
+			bi = i // m
+			bj = j // m
+			ok[self.mat[bi*m+k//m,bj*m+k%m]] = 0
+		return np.sum(ok) > 0
 	
 	def fillRemaining(self, i, j):
 		# Check if we have reached the end of the matrix
@@ -160,7 +172,7 @@ class Sudoku:
 		self.mat = puzzl_mat
 		if guess_mat is not None: 
 			self.mat = self.mat + guess_mat
-		print(f"{indent}Valid:", self.checkIfValid())
+		print(f"{indent}Valid:", self.checkIfValid(), end=" ")
 
 # Driver code
 if __name__ == "__main__":
@@ -180,3 +192,10 @@ if __name__ == "__main__":
 					sudoku.mat[r,c] = i+1
 					print(r,c,i+1,sudoku.checkIfValid())
 				sudoku.mat[r,c] = 0
+
+	# check the open Fn
+	sudoku.printSudoku("", sudoku.mat)
+	for r in range(N): 
+		for c in range(N): 
+			if sudoku.mat[r,c] == 0: 
+				print(r,c,sudoku.checkOpen(r,c))

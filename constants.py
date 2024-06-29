@@ -9,6 +9,7 @@ g_zeroinit = False
 g_l1atten = True
 g_globalatten = False
 g_dtype = torch.float32 # March 6: I can't get float16 to work stably.
+duration = 512 # length of rollouts
 
 batch_size = 64
 

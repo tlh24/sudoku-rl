@@ -3,6 +3,7 @@ import random
 import argparse
 import time
 import os
+import glob # for file filtering
 import numpy as np
 import torch
 from torch import nn, optim
@@ -46,13 +47,16 @@ def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int
 			reward = -0.5
 			curs_pos[i] = SuN - 1
 		
-	# curs_pos[0] = curs_pos[0] % SuN # wrap at the edges; 
-	# curs_pos[1] = curs_pos[1] % SuN # works for negative nums
+	# if we're on a open cell, but no moves are possible, 
+	# negative reward! 
+	clue = puzzl_mat[curs_pos[0], curs_pos[1]]
+	curr = guess_mat[curs_pos[0], curs_pos[1]]
+	sudoku.setMat(puzzl_mat + guess_mat) # so that checkIfSafe works properly.
+	if clue == 0 and curr == 0: 
+		if not sudoku.checkOpen(curs_pos[0], curs_pos[1]): 
+			reward = -1
 	
 	if action == Action.SET_GUESS.value:
-		clue = puzzl_mat[curs_pos[0], curs_pos[1]]
-		curr = guess_mat[curs_pos[0], curs_pos[1]]
-		sudoku.setMat(puzzl_mat + guess_mat) # so that checkIfSafe works properly.
 		if clue == 0 and curr == 0 and sudoku.checkIfSafe(curs_pos[0], curs_pos[1], action_val):
 			# updateNotes(curs_pos, action_val, notes)
 			reward = 1
@@ -60,7 +64,6 @@ def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int
 		else:
 			reward = -1
 	if action == Action.UNSET_GUESS.value:
-		curr = guess_mat[curs_pos[0], curs_pos[1]]
 		if curr != 0: 
 			guess_mat[curs_pos[0], curs_pos[1]] = 0
 			reward = -1 # must exactly cancel, o/w best strategy is to simply set/unset guess repeatedly.
@@ -460,7 +463,7 @@ def trainQfun(rollouts_board, rollouts_reward_sum, rollouts_action, nn, memory_d
 		actions = rollouts_action[:,indx,:].squeeze()
 		
 		lin = torch.arange(batch_size)
-		tindx = torch.randint(0, 150, (batch_size,))
+		tindx = torch.randint(0, duration, (batch_size,))
 		boards = rollouts_board[tindx,lin,:].squeeze().float()
 		# expnd boards
 		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width)), dim=2)
@@ -516,18 +519,34 @@ class ANode:
 		self.reward = reward
 		# board_enc is the *result* of applying the action.
 		self.board_enc = board_enc
+		self.parent = None
 		
+	def setParent(self, node): 
+		self.parent = node
+	
 	def addKid(self, node): 
 		self.kids.append(node)
+		node.setParent(self)
 		
-	def print(self, indent): 
+	def getParent(self):
+		return self.parent
+		
+	def getAltern(self): 
+		res = []
+		for k in self.kids: 
+			if k.reward > 0.0: 
+				res.append(k)
+		return res
+		
+	def print(self, indent, all_actions=False): 
 		color = "black"
 		if self.reward > 0: 
 			color = "green"
 		if self.reward < -1.0: 
 			color = "red"
-		print(colored(f"{indent}{self.action_type},{self.action_value},{self.reward}", color))
-		# indent = indent + " "
+		if self.action_type == 4 or all_actions: 
+			print(colored(f"{indent}{self.action_type},{self.action_value},{self.reward} nkids:{len(self.kids)}", color))
+			indent = indent + " "
 		for k in self.kids: 
 			k.print(indent)
 
@@ -543,7 +562,7 @@ def plot_tensor(v, name, lo, hi):
 	axs.tick_params(bottom=True, top=True, left=True, right=True)
 	plt.show()
 	
-def evaluateActions(model, board, hcoo, depth, reward_loc, locs): 
+def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum_contradiction, action_nodes): 
 	# clean up the boards
 	board = np.round(board * 4.0) / 4.0
 	board = torch.tensor(board).cuda()
@@ -554,6 +573,10 @@ def evaluateActions(model, board, hcoo, depth, reward_loc, locs):
 		
 	action_types,action_values = enumerateActionList(9+4+1)
 	nact = len(action_types)
+	
+	# check if we could guess here = cursor loc has no clue or guess
+	_,cursor_loc = locs
+	can_guess = torch.clip(board[:,cursor_loc,26+4].clone().squeeze(),0,1)
 
 	# make a batch with the new actions & replicated boards
 	board = board.unsqueeze(1)
@@ -573,65 +596,128 @@ def evaluateActions(model, board, hcoo, depth, reward_loc, locs):
 	boards_pred[:,:,:,32:] = 0 # don't mess up forward computation
 	boards_pred[:,:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
 
-	mask = torch.clip(reward_pred + 1.0, 0.0, 10.0) # reward-weighted.
-	mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
-	indx = torch.multinomial(mask, 1).squeeze()
+	if False: 
+		qfun_pred,_,_ = qfun.forward(boards_pred,hcoo,0,None)
+		qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
+		qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
+		
+		mask = (reward_pred + 1.0) > 0.0 # mask bad moves.
+		qfun_pred = torch.sigmoid(qfun_pred) * mask # qfun is N(0,1) - so ok
+		qfun_pred = qfun_pred / torch.sum(qfun_pred, 1).unsqueeze(1).expand(-1,14)
+		indx = torch.multinomial(qfun_pred, 1).squeeze()
+	else:
+		mask = torch.clip(reward_pred + 0.9, 0.0, 10.0) 
+			# reward-weighted; if you can guess, generally do that. 
+		valid_guesses = reward_pred[:,4:13] > 0
+		mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
+		indx = torch.multinomial(mask, 1).squeeze()
 	lin = torch.arange(0,bs)
-	boards_pred_np = boards_pred[lin,indx,:,:].detach().squeeze().cpu().numpy()
-	reward_np = reward_pred[lin,indx]
+	boards_pred_taken = boards_pred[lin,indx,:,:].detach().squeeze().cpu().numpy()
+	contradiction = can_guess * \
+		(1-torch.clip(torch.sum(reward_pred[:,4:13] > 0, 1), 0, 1))
+	# you only get a contradiction after making a bad guess..
+	reward_pred_taken = reward_pred[lin,indx]
+	reward_pred_taken = reward_pred_taken - 100*contradiction # end of game!
+	reward_np = reward_pred_taken
 	
 	action_node_new = []
 	indent = " " # * depth
 	for j in range(bs):
-		at = action_types[indx[j]]
-		av = action_values[indx[j]]
-		an = ANode(at, av, reward_np[j], boards_pred_np[j,:,:].squeeze())
-		action_node_new.append(an)
+		at_t = action_types[indx[j]]
+		av_t = action_values[indx[j]]
+		an_taken = ANode(at_t, av_t, reward_np[j], boards_pred_taken[j,:,:32].squeeze())
+		action_nodes[j].addKid(an_taken)
+		action_node_new.append(an_taken)
+		if indx[j] >= 4 and indx[j] < 13: # was a guess (!contradiction)
+			valid_guesses[j,indx[j]-4] = False
+			for m in range(9): 
+				if valid_guesses[j,m]: 
+					# store the node & its board encoding.
+					at = action_types[m+4]
+					av = action_values[m+4]
+					an = ANode(at, av, reward_pred[j,m+4], boards_pred[j,m+4,:,:32].cpu().numpy().squeeze())
+					action_nodes[j].addKid(an)
 		if j == 0: 
-			print(f"{indent}action {getActionName(at)} {av} reward {reward_np[0].item()}")
-	sparse_encoding.decodeNodes(indent, boards_pred_np[0,:,:], locs)
+			print(f"{time} action {getActionName(at_t)} {av_t} reward {reward_np[0].item()}")
+			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()}")
+			sparse_encoding.decodeNodes(indent, boards_pred_taken[0,:,:], locs)
 		
-	return boards_pred_np, action_node_new
+	return boards_pred_taken, action_node_new, contradiction
 
 	
-def evaluateActionsRecurse(model, puzzles, hcoo, nn, fname):
+def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 	bs = 96
 	pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
 	anode_list = []
 	sudoku = Sudoku(SuN, SuK)
-	for i in range(nn):
+	for n in range(nn):
 		puzzl_mat = np.zeros((bs,SuN,SuN))
 		for j in range(bs):
-			puzzl_mat[j,:,:] = puzzles[pi[i,j],:,:].numpy()
+			puzzl_mat[j,:,:] = puzzles[pi[n,j],:,:].numpy()
 		guess_mat = np.zeros((bs,SuN,SuN))
 		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
-		print("-- initial state --")
-		sudoku.printSudoku("", puzzl_mat[0,:,:], guess_mat[0,:,:], curs_pos[0,:])
-		print(f"curs_pos {curs_pos[0,0]},{curs_pos[0,1]}")
-		print(colored("-----", "green"))
-
 		board = torch.zeros(bs,token_cnt,world_dim)
 		for j in range(bs):
 			nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[j,:,:], guess_mat[j,:,:], curs_pos[j,:], 0, 0, 0.0) # action will be replaced.
 			board[j,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
+		j = 0
+		print(f"-- initial state {j}--")
+		print(colored("-----", "green"))
 		
-		rollouts_board = torch.zeros(257, bs, token_cnt, 32, dtype=torch.float16)
-		rollouts_reward = torch.zeros(257, bs)
-		rollouts_action = torch.zeros(257, bs, 2, dtype=int)
+		rollouts_board = torch.zeros(duration, bs, token_cnt, 32, dtype=torch.float16)
+		rollouts_reward = torch.zeros(duration, bs)
+		rollouts_action = torch.zeros(duration, bs, 2, dtype=int)
 		rollouts_board[0,:,:,:] = board[:,:,:32]
 		board = board.numpy()
-		for j in range(256): 
-			board_new, action_node_new = evaluateActions(model, board, hcoo, 0, reward_loc,locs)
+		sum_contradiction = torch.zeros(bs)
+		# setup the root action nodes.
+		root_nodes = [ANode(8,0,0.0,board[j,:,:32]) for j in range(bs)]
+		action_nodes = [root_nodes[j] for j in range(bs)]
+		# since the reward will be updated, keep a ref list of nodes
+		rollout_nodes = []
+		rollout_nodes.append(action_nodes)
+		for time in range(duration-1): 
+			with torch.no_grad(): 
+				board_new, action_node_new, contradiction = evaluateActions(model, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
+				sum_contradiction = sum_contradiction + contradiction.cpu()
 			board = board_new
-			rollouts_board[j+1,:,:,:] = torch.tensor(board[:,:,:32])
+			root_nodes[0].print("")
+			# backtracking!
 			for k in range(bs):
-				rollouts_reward[j+1,k] = action_node_new[k].reward
-				rollouts_action[j+1,k, 0] = action_node_new[k].action_type
-				rollouts_action[j+1,k, 1] = action_node_new[k].action_value
+				# default: replace with new node
+				action_nodes[k] = action_node_new[k]
+				if contradiction[k] > 0: 
+					an = action_node_new[k]
+					m = time
+					altern = an.getAltern()
+					while m >= 0 and len(altern) < 1: 
+						an.reward = -100 # propagate the contradiction back. 
+						an = an.getParent()
+						if an is None: 
+							pdb.set_trace()
+						m = m-1
+						altern = an.getAltern()
+					if len(altern) == 0:
+						pdb.set_trace() # puzzle must be solvable!
+					# probably should sort by reward here. meh.
+					action_nodes[k] = altern[0]
+					board[k,:,:32] = altern[0].board_enc
+					board[k,:,32:] = 0.0 # jic
+					if k == 0: 
+						print(colored(f"[{k}] backtracking to {m+1}", "blue"))
+						action_nodes[k].print("")
+			rollout_nodes.append(action_nodes)
+		
+		for j in range(duration-1): 
+			for k in range(bs):
+				rollouts_board[j+1,k,:,:] = torch.tensor(rollout_nodes[j][k].board_enc, dtype=torch.float16)
+				rollouts_reward[j+1,k] = rollout_nodes[j][k].reward
+				rollouts_action[j+1,k, 0] = rollout_nodes[j][k].action_type
+				rollouts_action[j+1,k, 1] = rollout_nodes[j][k].action_value
 
-		torch.save(rollouts_board, f'rollouts/rollouts_board_{i}.pt')
-		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{i}.pt')
-		torch.save(rollouts_action, f'rollouts/rollouts_action_{i}.pt')
+		torch.save(rollouts_board, f'rollouts/rollouts_board_{n}.pt')
+		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{n}.pt')
+		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pt')
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
@@ -691,23 +777,37 @@ if __name__ == '__main__':
 	# define model 
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8).to(device) 
 	model.printParamCount()
+	
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4).to(device) 
+	qfun.printParamCount()
 
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
 	else:
 		try:
 			checkpoint_dir = 'checkpoints/'
-			files = os.listdir(checkpoint_dir)
-			files = [os.path.join(checkpoint_dir, f) for f in files]
+			files = glob.glob(os.path.join(checkpoint_dir, 'r*'))
 			# Filter out directories and only keep files
 			files = [f for f in files if os.path.isfile(f)]
 			if not files:
-				raise ValueError("No files found in the checkpoint directory")
+				raise ValueError("No models found in the checkpoint directory")
 			# Find the most recently modified file
 			latest_file = max(files, key=os.path.getmtime)
 			print(colored(latest_file, "green"))
 			model.load_checkpoint(latest_file)
 			print(colored("loaded model checkpoint", "blue"))
+			# do the same for the qfunction
+			files = glob.glob(os.path.join(checkpoint_dir, 'q*'))
+			# files = [os.path.join(checkpoint_dir, f) for f in files]
+			# Filter out directories and only keep files
+			files = [f for f in files if os.path.isfile(f)]
+			if not files:
+				raise ValueError("No qfun found in the checkpoint directory")
+			# Find the most recently modified file
+			latest_file = max(files, key=os.path.getmtime)
+			print(colored(latest_file, "green"))
+			qfun.load_checkpoint(latest_file)
+			print(colored("loaded qfun checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
 			print(colored(f"could not load model checkpoint {error}", "red"))
@@ -717,33 +817,14 @@ if __name__ == '__main__':
 
 	if cmd_args.e: 
 		instance = cmd_args.r
-		fname = f"rollouts_{instance}.pickle"
-		if True:
-			anode_list = evaluateActionsRecurse(model, puzzles, hcoo, 250, fname)
-		else:
-			anode_list = []
-			with open(fname, 'rb') as handle:
-				print(colored(f"loading rollouts from {fname}", "blue"))
-				anode_list = pickle.load(handle)
-	
-			# need to sum the rewards along each episode - infinite horizon reward.
-			def sumRewards(an):
-				reward = an.reward
-				rewards = [sumRewards(k) for k in an.kids]
-				if len(rewards) > 0:
-					reward = reward + max(rewards)
-				an.reward = reward
-				return reward
-			for an in anode_list:
-				sumRewards(an)
-				an.print("")
+		anode_list = evaluateActionsBacktrack(model, qfun, puzzles, hcoo, 319)
 				
 	if cmd_args.q: 
 		bs = 96
-		nfiles = 55
-		rollouts_board = torch.zeros(257, bs*nfiles, token_cnt, 32, dtype=torch.float16)
-		rollouts_reward = torch.zeros(257, bs*nfiles)
-		rollouts_action = torch.zeros(257, bs*nfiles, 2, dtype=int)
+		nfiles = 3
+		rollouts_board = torch.zeros(duration, bs*nfiles, token_cnt, 32, dtype=torch.float16)
+		rollouts_reward = torch.zeros(duration, bs*nfiles)
+		rollouts_action = torch.zeros(duration, bs*nfiles, 2, dtype=int)
 		
 		for i in range(nfiles): 
 			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt')
@@ -757,25 +838,28 @@ if __name__ == '__main__':
 		ro_reward_sum = torch.cumsum(torch.flip(rollouts_reward, [0,]), 0)
 		ro_reward_sum = torch.flip(ro_reward_sum, [0,])
 		reward_mean = torch.sum(ro_reward_sum, 1) / (bs*nfiles)
-		ro_reward_sum = ro_reward_sum - \
+		ro_reward_sum_zs = ro_reward_sum - \
 			reward_mean.unsqueeze(1).expand(-1,bs*nfiles)
 		# calculate the standard deviation too
-		reward_std = torch.sqrt(torch.sum(ro_reward_sum**2,1)/(bs*nfiles))
-		ro_reward_sum = ro_reward_sum / \
+		reward_std = torch.sqrt(torch.sum(ro_reward_sum_zs**2,1)/(bs*nfiles))
+		ro_reward_sum_zs = ro_reward_sum_zs / \
 			( reward_std.unsqueeze(1).expand(-1,bs*nfiles) + 1)
-		for i in range(0):
+		for i in range(2):
+			fig,axs = plt.subplots(3,1,figsize=(12,14))
 			indx = torch.randint(0, bs*nfiles, (10,))
-			plt.plot(reward_mean.numpy(), 'k')
-			plt.plot(reward_std.numpy(), 'k-')
-			plt.plot(ro_reward_sum[:,indx].numpy())
+			axs[0].plot(reward_mean.numpy(), 'ko')
+			axs[0].plot(reward_std.numpy(), 'k-')
+			axs[0].set_title('mean and std of reward')
+			axs[1].plot(ro_reward_sum[:,indx].numpy())
+			axs[1].set_title('z-scored reward')
+			axs[2].plot(ro_reward_sum_zs[:,indx].numpy())
+			axs[2].set_title('z-scored reward')
 			plt.show()
 			
-		qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4).to(device) 
-		qfun.printParamCount()
 		optimizer = getOptimizer(optimizer_name, qfun)
 		
 		# get the locations of the board nodes. 
-		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2),0,0,0.0)
+		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
 		
 		trainQfun(rollouts_board, ro_reward_sum, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
 		

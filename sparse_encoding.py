@@ -129,6 +129,11 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	ncursor.setAxVal( Axes.Y_AX, curs_pos[1] - posOffset )
 	bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
 	ncursor.setAxVal( Axes.B_AX, bc - posOffset )
+	# if the cursor loc is empty, indicate that.
+	if puzzl_mat[curs_pos[0],curs_pos[1]] == 0 and guess_mat[curs_pos[0],curs_pos[1]] == 0: 
+		ncursor.setAxVal( Axes.H_AX, 1.0 )
+	else:
+		ncursor.setAxVal( Axes.H_AX, 0.0 )
 	nodes.append(ncursor)
 	
 	# reward token (used for reward prediction)
@@ -387,6 +392,8 @@ def decodeNodes(indent, benc, locs):
 	
 	su = Sudoku(SuN,SuN)
 	su.printSudoku(indent, puzzle.numpy(), guess_mat.numpy(), cursor_pos)
+	can_guess = round(benc[cursor_loc, 26 + Axes.H_AX.value - Axes.N_AX.value].item())
+	print(f" can guess:{can_guess}")
 	# print("guess_mat", guess_mat)
 	print(f"{indent}cursor_pos", cursor_pos)
 	

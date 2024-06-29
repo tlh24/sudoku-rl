@@ -15,7 +15,7 @@ class Types(int, Enum): # these are categorical one-hot encoded.
 # this encoding could be one-hot, integer, or both:
 # need to experiment! 
 class Axes(int, Enum): 
-	N_AX = 20 # generic value, including clue
+	N_AX = 20 # generic value, including clue & reward
 	X_AX = 21
 	Y_AX = 22
 	B_AX = 23 # block
