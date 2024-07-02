@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
+import torch.nn.functional as F
 import pdb
 from termcolor import colored
 import pickle
@@ -484,7 +485,7 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			
 		def closure(): 
 			nonlocal pred_data
-			qfun_boards,_,_ = qfun.forward(model_boards,hcoo,i,None)
+			qfun_boards,_,_ = qfun.forward(model_boards,hcoo,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
 			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
 								'rewards': reward, 'reward_preds': reward_preds,
@@ -583,7 +584,11 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 
 	new_boards = new_boards.reshape(bs * nact, ntok, width)
 	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
+	qfun_pred,_,_ = qfun.forward(boards_pred,hcoo,0,None)
+
 	boards_pred = boards_pred.detach().reshape(bs, nact, ntok, width)
+	qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
+	qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
 	reward_pred = boards_pred[:, :,reward_loc, 32+26].clone().squeeze()
 	# copy over the beginning structure - needed!
 	# this will have to be changed for longer-term memory TODO
@@ -601,10 +606,13 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 		qfun_pred = qfun_pred / torch.sum(qfun_pred, 1).unsqueeze(1).expand(-1,14)
 		indx = torch.multinomial(qfun_pred, 1).squeeze()
 	else:
-		mask = torch.clip(reward_pred + 0.9, 0.0, 10.0) 
+
+		mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
 			# reward-weighted; if you can guess, generally do that. 
 		valid_guesses = reward_pred[:,4:13] > 0
-		mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
+		mask[:,0:4] = qfun_pred[:,0:4] * 2
+		mask = F.softmax(mask, 1)
+		# mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
 		indx = torch.multinomial(mask, 1).squeeze()
 	lin = torch.arange(0,bs)
 	boards_pred_taken = boards_pred[lin,indx,:,:].detach().squeeze().cpu().numpy()
@@ -716,12 +724,68 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pt')
 		torch.save(rollouts_parent, f'rollouts/rollouts_parent_{n}.pt')
 
+def moveValueDataset(puzzles, hcoo, bs, nn):
+	# calculate the value of each square
+	# as distance to closest empty square
+	# then calculate move value as the derivative of this.
+	pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
+	boards = torch.zeros(nn,bs,token_cnt,32)
+	actions = torch.zeros(nn,bs,2)
+	rewards = torch.zeros(nn,bs)
+	for n in range(nn):
+		puzzl_mat = np.zeros((bs,SuN,SuN))
+		for k in range(bs):
+			puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
+		guess_mat = np.zeros((bs,SuN,SuN)) # should not matter..
+		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+		empty = torch.tensor(puzzl_mat[:,:,:] == 0, dtype=torch.float32)
+		value_mat = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
+		value_mat = value_mat + 1.0 * empty
+		value = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
+		value = value + value_mat
+		for r in range(3,8,2):
+			filt = torch.ones(1,1,r,r)
+			vf = torch.nn.functional.conv2d(value_mat.unsqueeze(1), filt, padding='same')
+			vf = vf > 0.5
+			value = value + vf.squeeze()
+		print(puzzl_mat[0,:,:].squeeze())
+		plt.imshow(value[0,:,:].squeeze().numpy())
+		plt.colorbar()
+		plt.show()
+		# select a move, calculate value. cursor pos is [x,y]
+		# x is hence row or up/down
+		move = np.random.randint(0,4,(bs,))
+		xnoty = move % 2 == 0
+		direct = (move // 2) * 2 - 1
+		direct = direct * (xnoty*2-1)
+		new_curs = torch.zeros_like(curs_pos)
+		new_curs[:,0] = curs_pos[:,0] + xnoty * direct
+		new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
+		hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
+			(new_curs[:,1] < 0) + (new_curs[:,1] > 8)
+		new_curs = torch.clip(new_curs, 0, 8)
+		lin = torch.arange(0,bs)
+		orig_val = value[lin,curs_pos[:,0],curs_pos[:,1]]
+		new_val = value[lin,new_curs[:,0],new_curs[:,1]]
+		reward = new_val - orig_val
+		reward = reward * (~hit_edge)
+
+		for k in range(bs):
+			nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
+			board,_,_ = sparse_encoding.encodeNodes(nodes)
+			boards[n,k,:,:] = board[:,:32]
+		actions[n,:,0] = torch.tensor(move)
+		rewards[n,:] = reward
+
+	return boards,actions,rewards
+
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
 	parser.add_argument('-c', action='store_true', help='clear, start fresh')
 	parser.add_argument('-e', action='store_true', help='evaluate')
 	parser.add_argument('-t', action='store_true', help='train')
 	parser.add_argument('-q', action='store_true', help='train Q function')
+	parser.add_argument('-m', action='store_true', help='train Q function for movements')
 	parser.add_argument('-r', type=int, default=1, help='rollout file number')
 	cmd_args = parser.parse_args()
 	
@@ -816,6 +880,21 @@ if __name__ == '__main__':
 		instance = cmd_args.r
 		anode_list = evaluateActionsBacktrack(model, qfun, puzzles, hcoo, 319)
 				
+	if cmd_args.m:
+		bs = 96
+		nn = 640
+		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
+		optimizer = getOptimizer(optimizer_name, qfun)
+
+		# get the locations of the board nodes.
+		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
+
+		rollouts_board = rollouts_board.reshape(nn*bs,token_cnt,32)
+		rollouts_action = rollouts_action.reshape(nn*bs,2)
+		rollouts_reward = rollouts_reward.reshape(nn*bs)
+
+		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
+
 	if cmd_args.q: 
 		bs = 96
 		nfiles = 47

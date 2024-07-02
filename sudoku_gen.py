@@ -24,7 +24,7 @@ class Sudoku:
 			done = self.fillRemaining(0, self.SRN)
 		# Remove Randomly K digits to make game
 		self.removeKDigits()
-		print(self.mat)
+		# print(self.mat)
 	
 	def fillDiagonal(self):
 		for i in range(0, self.N, self.SRN):

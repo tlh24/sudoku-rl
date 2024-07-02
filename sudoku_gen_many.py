@@ -9,14 +9,14 @@ from itertools import product
 # the naive sudoku generator is slow. 
 # parallelize and save the results for fast loading later.
 
-N = 500000
-S = 4 # normally 9
+N = 50000
+S = 9 # normally 9
 
 x = torch.zeros(N, S, S)
 
 def makePuzzle(j): # argument is ignored.
 	if S == 9: 
-		k = np.random.randint(20) + 25 # how many positions to blank.
+		k = np.random.randint(45) + 5 # how many positions to blank.
 	if S == 4: 
 		k = np.random.randint(5) + 6
 	sudoku = Sudoku(S, k)
