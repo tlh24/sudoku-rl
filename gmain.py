@@ -450,28 +450,22 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			
 	return 
 	
-def trainQfun(rollouts_board, rollouts_reward_sum, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs):
-	n_time = rollouts_board.shape[0]
-	n_roll = rollouts_board.shape[1]
-	n_tok = rollouts_board.shape[2]
-	width = rollouts_board.shape[3]
+def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs):
+	n_roll = rollouts_board.shape[0]
+	n_tok = rollouts_board.shape[1]
+	width = rollouts_board.shape[2]
 	pred_data = {}
 	for uu in range(nn): 
 		indx = torch.randint(0,n_roll,(batch_size,))
-		boards = rollouts_board[:,indx,:,:].squeeze()
-		reward_sum = rollouts_reward_sum[:,indx].squeeze()
-		actions = rollouts_action[:,indx,:].squeeze()
+		boards = rollouts_board[indx,:,:].squeeze().float()
+		reward = rollouts_reward[indx].squeeze()
+		actions = rollouts_action[indx,:].squeeze()
 		
-		lin = torch.arange(batch_size)
-		tindx = torch.randint(0, duration, (batch_size,))
-		boards = rollouts_board[tindx,lin,:].squeeze().float()
 		# expnd boards
 		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
 		boards = torch.round(boards * 4.0) / 4.0
-		reward_sum = rollouts_reward_sum[tindx,lin].squeeze()
-		actions = rollouts_action[tindx,lin,:].squeeze()
 		
 		# sparse_encoding.decodeNodes("", boards[0,:,:].squeeze().float(), locs)
 		# do we even need to encode the action? 
@@ -484,7 +478,7 @@ def trainQfun(rollouts_board, rollouts_reward_sum, rollouts_action, nn, memory_d
 		# 	print(torch.sum((boards[j,0:s,:] - aenc)**2).item())
 			
 		boards = boards.cuda()
-		reward_sum = reward_sum.cuda()
+		reward = reward.cuda()
 		with torch.no_grad(): 
 			model_boards,_,_ = model.forward(boards,hcoo,0,None)
 			
@@ -493,9 +487,9 @@ def trainQfun(rollouts_board, rollouts_reward_sum, rollouts_action, nn, memory_d
 			qfun_boards,_,_ = qfun.forward(model_boards,hcoo,i,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
 			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
-								'rewards': reward_sum, 'reward_preds': reward_preds,
+								'rewards': reward, 'reward_preds': reward_preds,
 								'w1':None, 'w2':None}
-			loss = torch.sum((reward_sum - reward_preds)**2) + \
+			loss = torch.sum((reward - reward_preds)**2) + \
 				sum([torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in qfun.parameters()])
 			return loss
 		
@@ -512,7 +506,7 @@ def trainQfun(rollouts_board, rollouts_reward_sum, rollouts_action, nn, memory_d
 		
 	
 class ANode: 
-	def __init__(self, typ, val, reward, board_enc):
+	def __init__(self, typ, val, reward, board_enc, index):
 		self.action_type = typ
 		self.action_value = val
 		self.kids = []
@@ -520,6 +514,7 @@ class ANode:
 		# board_enc is the *result* of applying the action.
 		self.board_enc = board_enc
 		self.parent = None
+		self.index = index
 		
 	def setParent(self, node): 
 		self.parent = node
@@ -548,7 +543,7 @@ class ANode:
 			print(colored(f"{indent}{self.action_type},{self.action_value},{self.reward} nkids:{len(self.kids)}", color))
 			indent = indent + " "
 		for k in self.kids: 
-			k.print(indent)
+			k.print(indent, all_actions)
 
 def plot_tensor(v, name, lo, hi):
 	cmap_name = 'seismic'
@@ -625,7 +620,7 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 	for j in range(bs):
 		at_t = action_types[indx[j]]
 		av_t = action_values[indx[j]]
-		an_taken = ANode(at_t, av_t, reward_np[j], boards_pred_taken[j,:,:32].squeeze())
+		an_taken = ANode(at_t, av_t, reward_np[j], boards_pred_taken[j,:,:32].squeeze(), time)
 		action_nodes[j].addKid(an_taken)
 		action_node_new.append(an_taken)
 		if indx[j] >= 4 and indx[j] < 13: # was a guess (!contradiction)
@@ -635,7 +630,7 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 					# store the node & its board encoding.
 					at = action_types[m+4]
 					av = action_values[m+4]
-					an = ANode(at, av, reward_pred[j,m+4], boards_pred[j,m+4,:,:32].cpu().numpy().squeeze())
+					an = ANode(at, av, reward_pred[j,m+4], boards_pred[j,m+4,:,:32].cpu().numpy().squeeze(), time)
 					action_nodes[j].addKid(an)
 		if j == 0: 
 			print(f"{time} action {getActionName(at_t)} {av_t} reward {reward_np[0].item()}")
@@ -652,30 +647,30 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 	sudoku = Sudoku(SuN, SuK)
 	for n in range(nn):
 		puzzl_mat = np.zeros((bs,SuN,SuN))
-		for j in range(bs):
-			puzzl_mat[j,:,:] = puzzles[pi[n,j],:,:].numpy()
+		for k in range(bs):
+			puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
 		guess_mat = np.zeros((bs,SuN,SuN))
 		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
 		board = torch.zeros(bs,token_cnt,world_dim)
-		for j in range(bs):
-			nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[j,:,:], guess_mat[j,:,:], curs_pos[j,:], 0, 0, 0.0) # action will be replaced.
-			board[j,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
-		j = 0
-		print(f"-- initial state {j}--")
+		for k in range(bs):
+			nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], 0, 0, 0.0) # action will be replaced.
+			board[k,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
+		k = 0
+		print(f"-- initial state {k}--")
 		print(colored("-----", "green"))
 		
 		rollouts_board = torch.zeros(duration, bs, token_cnt, 32, dtype=torch.float16)
 		rollouts_reward = torch.zeros(duration, bs)
 		rollouts_action = torch.zeros(duration, bs, 2, dtype=int)
+		rollouts_parent = torch.zeros(duration, bs, dtype=int)
 		rollouts_board[0,:,:,:] = board[:,:,:32]
 		board = board.numpy()
 		sum_contradiction = torch.zeros(bs)
 		# setup the root action nodes.
-		root_nodes = [ANode(8,0,0.0,board[j,:,:32]) for j in range(bs)]
-		action_nodes = [root_nodes[j] for j in range(bs)]
+		root_nodes = [ANode(8,0,0.0,board[k,:,:32],0) for k in range(bs)]
+		action_nodes = [root_nodes[k] for k in range(bs)]
 		# since the reward will be updated, keep a ref list of nodes
-		rollout_nodes = []
-		rollout_nodes.append(action_nodes)
+		rollout_nodes = [[None for k in range(bs)] for _ in range(duration)]
 		for time in range(duration-1): 
 			with torch.no_grad(): 
 				board_new, action_node_new, contradiction = evaluateActions(model, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
@@ -687,8 +682,8 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 				# default: replace with new node
 				action_nodes[k] = action_node_new[k]
 				if contradiction[k] > 0: 
-					an = action_node_new[k]
-					m = time
+					an = action_node_new[k] # there will never be alternatives here
+					m = time+1 # alternatives are added to the parents
 					altern = an.getAltern()
 					while m >= 0 and len(altern) < 1: 
 						an.reward = -100 # propagate the contradiction back. 
@@ -706,18 +701,20 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 					if k == 0: 
 						print(colored(f"[{k}] backtracking to {m+1}", "blue"))
 						action_nodes[k].print("")
-			rollout_nodes.append(action_nodes)
-		
+				rollout_nodes[time+1][k] = action_nodes[k]
+
 		for j in range(duration-1): 
 			for k in range(bs):
-				rollouts_board[j+1,k,:,:] = torch.tensor(rollout_nodes[j][k].board_enc, dtype=torch.float16)
-				rollouts_reward[j+1,k] = rollout_nodes[j][k].reward
-				rollouts_action[j+1,k, 0] = rollout_nodes[j][k].action_type
-				rollouts_action[j+1,k, 1] = rollout_nodes[j][k].action_value
+				rollouts_board[j+1,k,:,:] = torch.tensor(rollout_nodes[j+1][k].board_enc, dtype=torch.float16)
+				rollouts_reward[j+1,k] = rollout_nodes[j+1][k].reward
+				rollouts_action[j+1,k, 0] = rollout_nodes[j+1][k].action_type
+				rollouts_action[j+1,k, 1] = rollout_nodes[j+1][k].action_value
+				rollouts_parent[j+1,k] = rollout_nodes[j+1][k].getParent().index
 
 		torch.save(rollouts_board, f'rollouts/rollouts_board_{n}.pt')
 		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{n}.pt')
 		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pt')
+		torch.save(rollouts_parent, f'rollouts/rollouts_parent_{n}.pt')
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
@@ -821,47 +818,79 @@ if __name__ == '__main__':
 				
 	if cmd_args.q: 
 		bs = 96
-		nfiles = 3
+		nfiles = 47
 		rollouts_board = torch.zeros(duration, bs*nfiles, token_cnt, 32, dtype=torch.float16)
 		rollouts_reward = torch.zeros(duration, bs*nfiles)
 		rollouts_action = torch.zeros(duration, bs*nfiles, 2, dtype=int)
+		rollouts_parent = torch.zeros(duration, bs*nfiles, dtype=int)
 		
 		for i in range(nfiles): 
 			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt')
 			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt')
 			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt')
+			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt')
 			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
 			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward
 			rollouts_action[:,bs*i:bs*(i+1),:] = r_action
+			rollouts_parent[:,bs*i:bs*(i+1)] = r_parent
 			
-		# plot one of the reward backward cumsums. no discount!
-		ro_reward_sum = torch.cumsum(torch.flip(rollouts_reward, [0,]), 0)
-		ro_reward_sum = torch.flip(ro_reward_sum, [0,])
-		reward_mean = torch.sum(ro_reward_sum, 1) / (bs*nfiles)
-		ro_reward_sum_zs = ro_reward_sum - \
-			reward_mean.unsqueeze(1).expand(-1,bs*nfiles)
-		# calculate the standard deviation too
-		reward_std = torch.sqrt(torch.sum(ro_reward_sum_zs**2,1)/(bs*nfiles))
-		ro_reward_sum_zs = ro_reward_sum_zs / \
-			( reward_std.unsqueeze(1).expand(-1,bs*nfiles) + 1)
-		for i in range(2):
-			fig,axs = plt.subplots(3,1,figsize=(12,14))
-			indx = torch.randint(0, bs*nfiles, (10,))
-			axs[0].plot(reward_mean.numpy(), 'ko')
-			axs[0].plot(reward_std.numpy(), 'k-')
-			axs[0].set_title('mean and std of reward')
-			axs[1].plot(ro_reward_sum[:,indx].numpy())
-			axs[1].set_title('z-scored reward')
-			axs[2].plot(ro_reward_sum_zs[:,indx].numpy())
-			axs[2].set_title('z-scored reward')
-			plt.show()
+		plt.plot(rollouts_reward[:, 0:10].numpy())
+		plt.show()
+		
+		# positive control: train a policy that moves purposefully to unfilled squares. 
+		# reward is 5 - # of moves to reward. 
+		good_move = rollouts_reward > 4.5
+		local_move = torch.zeros_like(good_move)
+		local_move[1:,:] = rollouts_parent[1:,:] - rollouts_parent[:-1,:] == 1
+		good_move = good_move * local_move 
+		notgood_move = torch.logical_not( good_move )
+		running_reward = torch.zeros(bs*nfiles)
+		ro_running_reward = torch.zeros_like(rollouts_reward)
+		for time in range(duration-1, 1, -1): 
+			running_reward[good_move[time, :]] = 5.0
+			running_reward[notgood_move[time, :]] = running_reward[notgood_move[time, :]] - 0.5
+			ro_running_reward[time, :] = running_reward
+			
+		plt.plot(ro_running_reward[:, 0:10].numpy())
+		plt.show()
+		
+		# need to filter episodes to include only valid cursor movements
+		rollouts_board = rollouts_board.reshape(duration*bs*nfiles, token_cnt, 32)
+		rollouts_action = rollouts_action.reshape(duration*bs*nfiles, 2)
+		ro_running_reward = ro_running_reward.reshape(duration*bs*nfiles)
+		indx = torch.nonzero(ro_running_reward >= -5.0).squeeze()
+		rollouts_board = rollouts_board[indx, :,:]
+		rollouts_action = rollouts_action[indx, :]
+		ro_running_reward = ro_running_reward[indx]
+			
+		# # plot one of the reward backward cumsums. no discount!
+		# ro_reward_sum = torch.cumsum(torch.flip(rollouts_reward, [0,]), 0)
+		# ro_reward_sum = torch.flip(ro_reward_sum, [0,])
+		# reward_mean = torch.sum(ro_reward_sum, 1) / (bs*nfiles)
+		# ro_reward_sum_zs = ro_reward_sum - \
+		# 	reward_mean.unsqueeze(1).expand(-1,bs*nfiles)
+		# # calculate the standard deviation too
+		# reward_std = torch.sqrt(torch.sum(ro_reward_sum_zs**2,1)/(bs*nfiles))
+		# ro_reward_sum_zs = ro_reward_sum_zs / \
+		# 	( reward_std.unsqueeze(1).expand(-1,bs*nfiles) + 1)
+		# for i in range(2):
+		# 	fig,axs = plt.subplots(3,1,figsize=(12,14))
+		# 	indx = torch.randint(0, bs*nfiles, (10,))
+		# 	axs[0].plot(reward_mean.numpy(), 'ko')
+		# 	axs[0].plot(reward_std.numpy(), 'k-')
+		# 	axs[0].set_title('mean and std of reward')
+		# 	axs[1].plot(ro_reward_sum[:,indx].numpy())
+		# 	axs[1].set_title('z-scored reward')
+		# 	axs[2].plot(ro_reward_sum_zs[:,indx].numpy())
+		# 	axs[2].set_title('z-scored reward')
+		# 	plt.show()
 			
 		optimizer = getOptimizer(optimizer_name, qfun)
 		
 		# get the locations of the board nodes. 
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
 		
-		trainQfun(rollouts_board, ro_reward_sum, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
+		trainQfun(rollouts_board, ro_running_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
 		
 	
 	uu = 0
