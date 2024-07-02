@@ -1,35 +1,41 @@
-from utils import set_seed 
+from utils import set_seed, Trainer, TrainerConfig 
 import argparse
 import torch 
 from torch.utils.data import DataLoader
 import gym 
-from datasets.dataset import SimplifiedSequenceDataset 
-
+from datasets.data import SequenceDataset 
+from model import TemporalUnet, GaussianDiffusion
+import pdb 
 
 def main(args=None):
     seed = 42
     ###
     #Load Data
     ###
-    env = gym.make('maze2d-medium-v1')
+    env = gym.make('maze2d-large-v1')
     set_seed(seed, env)
 
     # TODO: add more wrappers from https://github.com/ikostrikov/implicit_q_learning/blob/master/wrappers/episode_monitor.py
     #env = wrappers.EpisodeMonitor(env)
     #env = wrappers.SinglePrecision(env)
-    dataset = SimplifiedSequenceDataset(env='antmaze-medium-diverse-v2', horizon=64)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    dataset = SequenceDataset(env_name='maze2d-large-v1', horizon=64)
 
     ###
     #Build diffusion model and trainer
     ###
+    #TODO: figure out how the replanner can make the unet of size action yet noise the observation?? 
+    # rely on janner code instead
+    #unet = TemporalUnet(horizon=args.H, )
+
 
     ###
     #Train model
     ###
-    for batch in dataloader:
-        trajectories, conditions = batch 
-        pass 
+    train_config = TrainerConfig()
+    trainer = Trainer(model, dataset, train_config)
+    for trajectories in dataloader:
+        print(trajectories)
+        break 
 
 
 
