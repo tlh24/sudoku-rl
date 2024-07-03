@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import toimport numpy as np
 import torch
 from enum import Enum
 from sudoku_gen import Sudoku
@@ -8,10 +9,10 @@ from constants import *
 from type_file import Types, Axes, Action, getActionName
 import pdb
 
-# encode the board as a graph that can be passed to sparse attention. 
+# encode the board as a graph that can be passed to sparse attention.
 # keep a list of nodes and edges
 
-class Node: 
+class Node:
 	def __init__(self, typ, val):
 		self.typ = typ
 		# Payload. -1 for null, also holds Axes values.
@@ -21,25 +22,63 @@ class Node:
 		self.kids = []
 		self.parents = []
 		self.axval = np.zeros(6)
-		
-	def addChild(self, node): 
+
+	def addChild(self, node):
 		# kid is type `Node
 		self.kids.append(node)
 		node.parents.append(self)
-		
-	def setAxVal(self, ax, val): 
+
+	def setAxVal(self, ax, val):
 		self.axval[ax.value - Axes.N_AX.value] = val
-		
-	def print(self, indent): 
-		if self.refcnt < 1: 
+
+	def print(self, indent):
+		if self.refcnt < 1:
 			self.refcnt = self.refcnt + 1
 			print(indent, self.typ.name, self.value)
 			indent2 = indent + "  "
-			for k in self.kids: 
+			for k in self.kids:
 				k.print(indent2)
-				
-	def printGexf(self, fil): 
-		if self.refcnt < 1: 
+
+	def printGexf(self, fil):
+		if self.refcnt < 1:
+			self.refcnt = self.refcnt + 1
+atplotlib.pyplot as plt
+from constants import *
+from type_file import Types, Axes, Action, getActionName
+import pdb
+
+# encode the board as a graph that can be passed to sparse attention.
+# keep a list of nodes and edges
+
+class Node:
+	def __init__(self, typ, val):
+		self.typ = typ
+		# Payload. -1 for null, also holds Axes values.
+		self.value = float(val)
+		self.loc = -1 # for edges
+		self.refcnt = 0
+		self.kids = []
+		self.parents = []
+		self.axval = np.zeros(6)
+
+	def addChild(self, node):
+		# kid is type `Node
+		self.kids.append(node)
+		node.parents.append(self)
+
+	def setAxVal(self, ax, val):
+		self.axval[ax.value - Axes.N_AX.value] = val
+
+	def print(self, indent):
+		if self.refcnt < 1:
+			self.refcnt = self.refcnt + 1
+			print(indent, self.typ.name, self.value)
+			indent2 = indent + "  "
+			for k in self.kids:
+				k.print(indent2)
+
+	def printGexf(self, fil):
+		if self.refcnt < 1:
 			self.refcnt = self.refcnt + 1
 			print(f'<node id="{self.loc}" label="{self.typ} val:{self.value}">',file=fil)
 			print('</node>',file=fil)

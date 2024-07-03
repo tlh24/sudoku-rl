@@ -443,8 +443,8 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
-			fd_losslog.write(f'{uu}\t{lloss}\n')
-			fd_losslog.flush()
+			args["fd_losslog"].write(f'{uu}\t{lloss}\n')
+			args["fd_losslog"].flush()
 			sum_batch_loss += loss.cpu().item()
 	
 	avg_batch_loss = sum_batch_loss / len(test_loader)
@@ -728,54 +728,79 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 	# calculate the value of each square
 	# as distance to closest empty square
 	# then calculate move value as the derivative of this.
-	pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
-	boards = torch.zeros(nn,bs,token_cnt,32)
-	actions = torch.zeros(nn,bs,2)
-	rewards = torch.zeros(nn,bs)
-	for n in range(nn):
-		puzzl_mat = np.zeros((bs,SuN,SuN))
-		for k in range(bs):
-			puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
-		guess_mat = np.zeros((bs,SuN,SuN)) # should not matter..
-		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
-		empty = torch.tensor(puzzl_mat[:,:,:] == 0, dtype=torch.float32)
-		value_mat = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
-		value_mat = value_mat + 1.0 * empty
-		value = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
-		value = value + value_mat
-		for r in range(3,8,2):
-			filt = torch.ones(1,1,r,r)
-			vf = torch.nn.functional.conv2d(value_mat.unsqueeze(1), filt, padding='same')
-			vf = vf > 0.5
-			value = value + vf.squeeze()
-		print(puzzl_mat[0,:,:].squeeze())
-		plt.imshow(value[0,:,:].squeeze().numpy())
-		plt.colorbar()
-		plt.show()
-		# select a move, calculate value. cursor pos is [x,y]
-		# x is hence row or up/down
-		move = np.random.randint(0,4,(bs,))
-		xnoty = move % 2 == 0
-		direct = (move // 2) * 2 - 1
-		direct = direct * (xnoty*2-1)
-		new_curs = torch.zeros_like(curs_pos)
-		new_curs[:,0] = curs_pos[:,0] + xnoty * direct
-		new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
-		hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
-			(new_curs[:,1] < 0) + (new_curs[:,1] > 8)
-		new_curs = torch.clip(new_curs, 0, 8)
-		lin = torch.arange(0,bs)
-		orig_val = value[lin,curs_pos[:,0],curs_pos[:,1]]
-		new_val = value[lin,new_curs[:,0],new_curs[:,1]]
-		reward = new_val - orig_val
-		reward = reward * (~hit_edge)
 
-		for k in range(bs):
-			nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
-			board,_,_ = sparse_encoding.encodeNodes(nodes)
-			boards[n,k,:,:] = board[:,:32]
-		actions[n,:,0] = torch.tensor(move)
-		rewards[n,:] = reward
+	try:
+		boards = torch.load(f'rollouts/move_boards.pt')
+		actions = torch.load(f'rollouts/move_actions.pt')
+		rewards = torch.load(f'rollouts/move_rewards.pt')
+		# need to get the coo, a2a, etc variables - so run one encoding.
+		nn = 0
+	except Exception as error:
+		print(colored(f"could not load precomputed data {error}", "red"))
+
+	if nn > 0:
+		pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
+		boards = torch.zeros(nn,bs,token_cnt,32)
+		actions = torch.zeros(nn,bs,2)
+		rewards = torch.zeros(nn,bs)
+
+		filts = []
+		for r in range(3,12,2): # 3, 5, 7, 9, 11
+			filt = torch.zeros(1,1,r,r)
+			c = r // 2
+			for i in range(r):
+				for j in range(r):
+					if abs(i-c) + abs(j-c) <= r//2:
+						filt[0,0,i,j] = 1.0
+			filts.append(filt)
+
+		for n in range(nn):
+			puzzl_mat = np.zeros((bs,SuN,SuN))
+			for k in range(bs):
+				puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
+			guess_mat = np.zeros((bs,SuN,SuN)) # should not matter..
+			curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+			empty = torch.tensor(puzzl_mat[:,:,:] == 0, dtype=torch.float32)
+			value_mat = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
+			value_mat = value_mat + 1.0 * empty
+			value = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
+			value = value + value_mat
+			for filt in filts:
+				vf = torch.nn.functional.conv2d(value_mat.unsqueeze(1), filt, padding='same')
+				vf = vf > 0.5
+				value = value + vf.squeeze()
+			# print(puzzl_mat[0,:,:].squeeze())
+			# plt.imshow(value[0,:,:].squeeze().numpy())
+			# plt.colorbar()
+			# plt.show()
+			# select a move, calculate value. cursor pos is [x,y]
+			# x is hence row or up/down
+			move = np.random.randint(0,4,(bs,))
+			xnoty = move % 2 == 0
+			direct = (move // 2) * 2 - 1
+			direct = direct * (xnoty*2-1)
+			new_curs = torch.zeros_like(curs_pos)
+			new_curs[:,0] = curs_pos[:,0] + xnoty * direct
+			new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
+			hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
+				(new_curs[:,1] < 0) + (new_curs[:,1] > 8)
+			new_curs = torch.clip(new_curs, 0, 8)
+			lin = torch.arange(0,bs)
+			orig_val = value[lin,curs_pos[:,0],curs_pos[:,1]]
+			new_val = value[lin,new_curs[:,0],new_curs[:,1]]
+			reward = new_val - orig_val
+			reward = reward * (~hit_edge)
+
+			for k in range(bs):
+				nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
+				board,_,_ = sparse_encoding.encodeNodes(nodes)
+				boards[n,k,:,:] = board[:,:32]
+			actions[n,:,0] = torch.tensor(move)
+			rewards[n,:] = reward
+
+			torch.save(boards, 'rollouts/move_boards.pt')
+			torch.save(actions, 'rollouts/move_actions.pt')
+			torch.save(rewards, 'rollouts/move_rewards.pt')
 
 	return boards,actions,rewards
 
@@ -789,7 +814,7 @@ if __name__ == '__main__':
 	parser.add_argument('-r', type=int, default=1, help='rollout file number')
 	cmd_args = parser.parse_args()
 	
-	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
+	puzzles = torch.load(f'puzzles_{SuN}_50000.pt')
 	NUM_TRAIN = batch_size * 1800 
 	NUM_VALIDATE = batch_size * 300
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
@@ -797,8 +822,7 @@ if __name__ == '__main__':
 	device = torch.device('cuda:0') 
 	# can override with export CUDA_VISIBLE_DEVICES=1 
 	torch.set_float32_matmul_precision('high')
-	fd_losslog = open('losslog.txt', 'w')
-	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device, "fd_losslog": fd_losslog}
+	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device}
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo, a2a, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
@@ -839,7 +863,7 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8).to(device) 
 	model.printParamCount()
 	
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4).to(device) 
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=6, n_layers=8).to(device)
 	qfun.printParamCount()
 
 	if cmd_args.c: 
@@ -882,7 +906,7 @@ if __name__ == '__main__':
 				
 	if cmd_args.m:
 		bs = 96
-		nn = 640
+		nn = 1000
 		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
 		optimizer = getOptimizer(optimizer_name, qfun)
 
@@ -893,6 +917,8 @@ if __name__ == '__main__':
 		rollouts_action = rollouts_action.reshape(nn*bs,2)
 		rollouts_reward = rollouts_reward.reshape(nn*bs)
 
+		fd_losslog = open('losslog.txt', 'w')
+		args['fd_losslog'] = fd_losslog
 		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
 
 	if cmd_args.q: 
@@ -969,11 +995,15 @@ if __name__ == '__main__':
 		# get the locations of the board nodes. 
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
 		
+		fd_losslog = open('losslog.txt', 'w')
+		args['fd_losslog'] = fd_losslog
 		trainQfun(rollouts_board, ro_running_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
 		
 	
 	uu = 0
 	if cmd_args.t:
+		fd_losslog = open('losslog.txt', 'w')
+		args['fd_losslog'] = fd_losslog
 		while uu < NUM_ITERS:
 			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
 		
