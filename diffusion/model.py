@@ -109,10 +109,11 @@ class TemporalUnet(nn.Module):
                                       nn.Linear(dim*2, dim))
 
         # define our conditional network TODO: change if doesn't work
-        self.cond_mlp = nn.Sequential(
-                nn.Linear(cond_dim, dim * 2),
-                nn.Mish(),
-                nn.Linear(dim * 2, dim))
+        if self.cond_dim is not None:
+            self.cond_mlp = nn.Sequential(
+                    nn.Linear(cond_dim, dim * 2),
+                    nn.Mish(),
+                    nn.Linear(dim * 2, dim))
 
         self.downs = nn.ModuleList([])
         self.ups = nn.ModuleList([])
@@ -158,7 +159,7 @@ class TemporalUnet(nn.Module):
                 horizon = horizon*2
         
         self.final_conv = nn.Sequential(
-            Conv1dBlock(dim, dim, kernel_size=kernel_size)
+            Conv1dBlock(dim, dim, kernel_size=kernel_size),
             nn.Conv1d(dim, transition_dim, 1)
         )
 
@@ -277,5 +278,5 @@ class GaussianDiffusion(nn.Module):
     def forward(self, obs, act):
         batch_size = obs.shape[0]
         device = obs.device 
-        t = torch.randint(0, self.num_timesteps, (batch_size,), device=device).long()
+        t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
         return self.p_losses(obs, t, act)
