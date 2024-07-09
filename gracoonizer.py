@@ -23,6 +23,7 @@ class Gracoonizer(nn.Module):
 		world_dim:int,
 		n_heads:int,
 		n_layers:int
+		mode:int
 		): 
 		super().__init__()
 		self.xfrmr_dim = xfrmr_dim
@@ -30,7 +31,7 @@ class Gracoonizer(nn.Module):
 		self.n_head = n_heads 
 		assert(n_layers % 4 == 0) # one layer for each of the different types.
 		
-		if USE_GRAPH_XFRMR:
+		if mode == 0: # USE_GRAPH_XFRMR:
 			self.xfrmr = graph_transformer.Transformer(
 				d_model = xfrmr_dim,
 				layers = n_layers,
@@ -38,7 +39,7 @@ class Gracoonizer(nn.Module):
 				repeat = 3,
 				init_zeros = g_zeroinit
 				)
-		elif USE_NANOGPT:
+		elif mode == 1: #USE_NANOGPT:
 			model_args = dict(
 				n_layer=6,
 				n_head=6,
