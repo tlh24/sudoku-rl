@@ -39,7 +39,7 @@ def genData(nn):
 		y[n,0:npos,5] = 1 # search over these
 		curs = np.random.randint(0,npos)
 		# print("cursor",curs)
-		y[n,npos,5] = curs
+		y[n,npos,4] = curs
 		y[n,npos,6] = 1 # cursor token
 		y[n,npos+1,7] = 1 # spare token?
 		y[n,npos+2,8] = 1 # spare token?
@@ -67,9 +67,43 @@ class ResidualAttentionBlock(nn.Module):
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
 		self.fanout = LinearM(d_model, d_model * 1, False)
 		self.fanin = LinearM(d_model*2, d_model, False) # this doesn't work?!
-		self.gelu = QuickGELU()
+		self.gelu = nn.ReLU() # QuickGELU()
+
+	def fixedInit(self):
+		with torch.no_grad():
+			n_head = self.n_head
+			d_model = self.d_model
+			self.wq.w = torch.nn.Parameter(torch.zeros(n_head, d_model, d_model+1))
+			self.wk = torch.nn.Parameter(25*torch.ones(n_head, d_model))
+			self.wv.w = torch.nn.Parameter(torch.zeros(n_head, d_model, d_model+1))
+			# first head: copy the pos enc of the zero token
+			self.wq.w[0,5,9] = 25
+
+			self.wk[0,4] = 0 # ignore the position
+
+			self.wv.w[0,0,4] = -2
+			self.wv.w[0,1,4] = 2
+
+			# second head: copy the pos enc of the cursor token
+			self.wq.w[1,6,9] = 25
+
+			self.wk[1,4] = 0 # ignore the position
+
+			self.wv.w[1,0,4] = 2
+			self.wv.w[1,1,4] = -2
+
+			self.wq.w = torch.nn.Parameter(self.wq.w.reshape(n_head * d_model, d_model+1))
+			self.wv.w = torch.nn.Parameter(self.wv.w.reshape(n_head * d_model, d_model+1))
+
+			# add the two heads post-nonlinearity
+			self.fanout.w = torch.nn.Parameter(torch.zeros(d_model, d_model+1))
+			self.fanout.w[9,0] = 1 # softmax scales by 0.5
+			self.fanout.w[9,1] = 1
+			self.fanout.w[9,10] = -1 # bias
+
 		
 	def attention(self, x:torch.Tensor, axs):
+		# pdb.set_trace()
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
 		width = x.shape[2]
@@ -82,7 +116,6 @@ class ResidualAttentionBlock(nn.Module):
 		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
 		v = self.wv(x)
 		v = torch.reshape(v, (batch_size, ntok, self.n_head, d_head))
-		
 		
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
@@ -106,7 +139,7 @@ class ResidualAttentionBlock(nn.Module):
 		# add in e^0=1 as a 'noop' option
 		# (hence max attention is 0.5, not 1)
 		# output is b,src,dst,heads
-		if True: 
+		if False:
 			a1 = F.softmax(a, 1) # see l1attn.py -- sm over src
 			a2 = F.softmax(a, 2)
 			a1 = a1[:, :a2len, :a2len, :]
@@ -114,10 +147,9 @@ class ResidualAttentionBlock(nn.Module):
 			wa = self.wa.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand(batch_size,ntok,ntok,n_head)
 			a = a1 * wa + a2 * (1-wa)
 		else:
-			a = F.softmax(a, 2) # see l1attn.py -- sm over src FIXME 1
+			a = F.softmax(a, 1) # see l1attn.py -- sm over src FIXME 1
 			a = a[:, :a2len, :a2len, :] # remove noop
 		b = torch.einsum('bsdh, bshw -> bdhw', a, v)
-		
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
 		
@@ -141,7 +173,7 @@ class ResidualAttentionBlock(nn.Module):
 				
 				im = axs[4,h+1].imshow(b[0,:,:].detach().squeeze().cpu().numpy())
 				plt.colorbar(im, ax = axs[4,h+1])
-				axs[4,h+1].set_title(f"output")
+				axs[4,h+1].set_title(f"output b")
 			
 		return b
 
@@ -167,8 +199,16 @@ class ResidualAttentionBlock(nn.Module):
 		im = axs[2,h].imshow(self.wv.w.detach().cpu().numpy())
 		plt.colorbar(im, ax = axs[2,h])
 		axs[2,h].set_title(f"value_{h}")
+
+		im = axs[3,h].imshow(x[0,:,:].detach().cpu().numpy())
+		plt.colorbar(im, ax = axs[3,h])
+		axs[3,h].set_title(f"x")
 		
-		self.forward(x, axs)
+		y = self.forward(x, axs)
+
+		im = axs[4,h].imshow(y[0,:,:].detach().cpu().numpy())
+		plt.colorbar(im, ax = axs[4,h])
+		axs[4,h].set_title(f"y")
 		
 		plt.show()
 	
@@ -193,6 +233,10 @@ class Transformer(nn.Module):
 	def plot(self, x): 
 		for j, layer in enumerate(self.resblocks):
 			layer.plot(x)
+
+	def fixedInit(self):
+		for layer in self.resblocks:
+			layer.fixedInit()
 	
 if __name__ == '__main__':
 	if False:
@@ -202,10 +246,13 @@ if __name__ == '__main__':
 			plt.imshow(y.squeeze().numpy())
 			plt.show()
 	
-	model = Transformer(d_model=width, layers=1, repeat=1, n_head=1, init_zeros=False)
+	model = Transformer(d_model=width, layers=1, repeat=1, n_head=2, init_zeros=False)
+	model.fixedInit()
 	model = model.cuda()
+
+	use_adam = True
 	
-	if False: 
+	if use_adam:
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
@@ -213,14 +260,14 @@ if __name__ == '__main__':
 	
 	fd_losslog = open('losslog.txt', 'w')
 	
-	for i in range(25000):
+	for i in range(50):
 		x,target = genData(batch_size)
 		x = x.cuda()
 		target = target.cuda()
 		
-		if False: 
+		if use_adam:
 			y = model(x)
-			loss = torch.sum( (y[:,-2,-1] - target)**2 )
+			loss = torch.sum( (y[:,-1,-1] - target)**2 )
 			loss.backward()
 			optimizer.step
 		else: 
