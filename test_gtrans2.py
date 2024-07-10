@@ -67,7 +67,9 @@ class ResidualAttentionBlock(nn.Module):
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
 		self.fanout = LinearM(d_model, d_model * 1, False)
 		self.fanin = LinearM(d_model*2, d_model, False) # this doesn't work?!
-		self.gelu = nn.ReLU() # QuickGELU()
+		self.gelu = QuickGELU()
+		# self.gelu = nn.ReLU()
+		# self.gelu = nn.LeakyReLU()
 
 	def fixedInit(self):
 		with torch.no_grad():
@@ -77,20 +79,20 @@ class ResidualAttentionBlock(nn.Module):
 			self.wk = torch.nn.Parameter(25*torch.ones(n_head, d_model))
 			self.wv.w = torch.nn.Parameter(torch.zeros(n_head, d_model, d_model+1))
 			# first head: copy the pos enc of the zero token
-			self.wq.w[0,5,9] = 25
+			self.wq.w[0,5,9] = 25.0
 
 			self.wk[0,4] = 0 # ignore the position
 
-			self.wv.w[0,0,4] = -2
+			self.wv.w[0,0,4] = -2.0
 			self.wv.w[0,1,4] = 2
 
 			# second head: copy the pos enc of the cursor token
-			self.wq.w[1,6,9] = 25
+			self.wq.w[1,6,9] = 25.5
 
 			self.wk[1,4] = 0 # ignore the position
 
 			self.wv.w[1,0,4] = 2
-			self.wv.w[1,1,4] = -2
+			self.wv.w[1,1,4] = -2.1
 
 			self.wq.w = torch.nn.Parameter(self.wq.w.reshape(n_head * d_model, d_model+1))
 			self.wv.w = torch.nn.Parameter(self.wv.w.reshape(n_head * d_model, d_model+1))
@@ -98,7 +100,7 @@ class ResidualAttentionBlock(nn.Module):
 			# add the two heads post-nonlinearity
 			self.fanout.w = torch.nn.Parameter(torch.zeros(d_model, d_model+1))
 			self.fanout.w[9,0] = 1 # softmax scales by 0.5
-			self.fanout.w[9,1] = 1
+			self.fanout.w[9,1] = 1.0
 			self.fanout.w[9,10] = -1 # bias
 
 		
@@ -247,7 +249,7 @@ if __name__ == '__main__':
 			plt.show()
 	
 	model = Transformer(d_model=width, layers=1, repeat=1, n_head=2, init_zeros=False)
-	model.fixedInit()
+	# model.fixedInit()
 	model = model.cuda()
 
 	use_adam = True
@@ -260,22 +262,22 @@ if __name__ == '__main__':
 	
 	fd_losslog = open('losslog.txt', 'w')
 	
-	for i in range(50):
+	for i in range(500000):
 		x,target = genData(batch_size)
 		x = x.cuda()
 		target = target.cuda()
-		
 		if use_adam:
 			y = model(x)
 			loss = torch.sum( (y[:,-1,-1] - target)**2 )
+			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
-			optimizer.step
+			optimizer.step()
 		else: 
 			def closure(): 
 				y = model(x)
 				loss = torch.sum( (y[:,-1,-1] - target)**2 ) + \
 						sum( \
-						[torch.sum(1e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
+						[torch.sum(1e-4 * torch.rand_like(param) * param * param ) for param in model.parameters()])
 				return loss
 			loss = optimizer.step(closure) 
 		lloss = loss.detach().cpu().item()
