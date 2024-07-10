@@ -195,12 +195,15 @@ class Transformer(nn.Module):
 			layer.plot(x)
 	
 if __name__ == '__main__':
-	if False:
-		for i in range(1): 
-			y,target = genData(1)
-			print("target",target)
-			plt.imshow(y.squeeze().numpy())
-			plt.show()
+	if True:
+		fig,axs = plt.subplots(3, 3, figsize=(20,20))
+		for i in range(3): 
+			for j in range(3):
+				y,target = genData(1)
+				im = axs[i,j].imshow(y.squeeze().numpy())
+				plt.colorbar(im, ax = axs[i,j])
+				axs[i,j].set_title(f"target:{target.item()}")
+		plt.show()
 	
 	model = Transformer(d_model=width, layers=1, repeat=1, n_head=1, init_zeros=False)
 	model = model.cuda()
