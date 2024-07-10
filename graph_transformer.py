@@ -35,7 +35,7 @@ class LinearM(nn.Module):
 			self.w[:,-1] = 0.0 # bias starts at 0
 		
 	def forward(self, x):
-		return torch.einsum('oi,bhi -> bho', self.w[:, :-1], x) + self.w[:, -1]
+		return torch.einsum('oi,bhi -> bho', self.w[:,:-1], x) + self.w[:,-1]
 		
 class LinearNobias(nn.Module): 
 	# with the bias merged.
