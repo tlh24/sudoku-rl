@@ -26,7 +26,7 @@ class LinearM(nn.Module):
 	# with the bias merged -- used for PSGD optimizer.
 	def __init__(self, indim:int, outdim:int, initzeros:bool): 
 		super(LinearM, self).__init__()
-		scl = 0.02 / math.sqrt(2*9)
+		scl = 0.005
 		if initzeros: 
 			self.w = torch.nn.Parameter( scl * torch.ones(outdim,indim+1,dtype=g_dtype))
 		else:

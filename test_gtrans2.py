@@ -1,7 +1,7 @@
 # want to test the graph transformer on a few basic tasks
 # e.g. is an element in the set, 
 # what is the distance to match a given pattern.  
-
+import argparse
 import math
 import numpy as np
 import torch
@@ -62,7 +62,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.wq = LinearM(d_model, n_head*d_model, init_zeros) 
 		self.wv = LinearM(d_model, n_head*d_model, init_zeros)
 		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
-		# self.wa = torch.nn.Parameter( 0.5 * torch.ones(n_head) )
+		self.wa = torch.nn.Parameter( 1.0 * torch.ones(n_head) )
 		
 		self.l1a_f = l1attn_cuda.L1Attn() # dense or full attention
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
@@ -117,6 +117,8 @@ class ResidualAttentionBlock(nn.Module):
 		
 		q = self.wq(x)
 		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
+		wa = self.wa.unsqueeze(0).unsqueeze(0).unsqueeze(-1)
+		q = q # * wa
 		v = self.wv(x)
 		v = torch.reshape(v, (batch_size, ntok, self.n_head, d_head))
 		
@@ -124,9 +126,9 @@ class ResidualAttentionBlock(nn.Module):
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		
-		gk = self.wk.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		# bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		k = k * gk # + bk # with bias to allow for centering.
+		gk = self.wk.unsqueeze(0).unsqueeze(0)
+		# bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1]) # bias term, not needed.
+		k = k * gk # * wa
 		
 		# extract all global / all-to-all tokens
 		# really could do this with pure sparse attn.. will have to compare. 
@@ -248,6 +250,15 @@ class Transformer(nn.Module):
 		print(f"Number of model parameters:{trainable_params}")
 	
 if __name__ == '__main__':
+	
+	parser = argparse.ArgumentParser(description="Train L1 transformer")
+	parser.add_argument('-b', type=int, default=128, help='batch size')
+	parser.add_argument('-d', type=int, default=0, help='CUDA device')
+	parser.add_argument('-a', action='store_true', help='use AdamW')
+	parser.add_argument('-m', action='store_true', help='many-mode')
+	cmd_args = parser.parse_args()
+	batch_size = cmd_args.b
+	
 	if False:
 		fig,axs = plt.subplots(3, 3, figsize=(20,20))
 		for i in range(3): 
@@ -262,9 +273,9 @@ if __name__ == '__main__':
 	model.printParamCount()
 	# pdb.set_trace()
 	# model.fixedInit()
-	model = model.cuda()
+	model = model.cuda(cmd_args.d)
 
-	use_adam = False
+	use_adam = cmd_args.a
 	
 	if use_adam:
 		optimizer = optim.AdamW(model.parameters(), lr=2e-3, amsgrad=True)
@@ -277,12 +288,12 @@ if __name__ == '__main__':
 	dat,_ = genData(2000)
 	mean = torch.sum(dat, (0,1)) / (2000 * ntok)
 	std = torch.sqrt(torch.sum((dat - mean)**2, (0,1)) / (2000 * ntok))
-	std = std / 2.45624 # help l1 attn select one
+	std = std / 3.5 # help l1 attn select one
 	
 	x,target = genData(batch_size)
 	# x = (x - mean) / std # learn the affine transform later
-	x = x.cuda()
-	target = target.cuda()
+	x = x.cuda(cmd_args.d)
+	target = target.cuda(cmd_args.d)
 	for i in range(15000):
 		if use_adam:
 			y = model(x)
@@ -298,16 +309,17 @@ if __name__ == '__main__':
 						[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
 				return loss
 			loss = optimizer.step(closure) 
-		lloss = loss.detach().cpu().item()
-		print(lloss)
-		fd_losslog.write(f'{i}\t{lloss}\n')
-		fd_losslog.flush()
+		if not cmd_args.m: 
+			lloss = loss.detach().cpu().item()
+			print(lloss)
+			fd_losslog.write(f'{i}\t{lloss}\n')
+			fd_losslog.flush()
 
 	
-	x,target = genData(batch_size)
+	x,target = genData(1000)
 	# x = (x - mean) / std # learn the affine transform later
-	x = x.cuda()
-	target = target.cuda()
+	x = x.cuda(cmd_args.d)
+	target = target.cuda(cmd_args.d)
 	y = model(x)
 	loss = torch.sum( (y[:,-1,-1] - target)**2 )
 	lloss = loss.detach().cpu().item()
@@ -315,6 +327,13 @@ if __name__ == '__main__':
 	fd_losslog.write(f'{i}\t{lloss}\n')
 	fd_losslog.flush()
 	
-	x,target = genData(batch_size)
-	x = x.cuda()
-	y = model.plot(x)
+	if cmd_args.m: 
+		fd_vallog = open('vallog.txt', 'a')
+		fd_vallog.write(f'{batch_size}\t{lloss/1000}\n') # divide later! 
+		fd_vallog.flush()
+		fd_vallog.close()
+	
+	if not cmd_args.m: 
+		x,target = genData(batch_size)
+		x = x.cuda(cmd_args.d)
+		y = model.plot(x)
