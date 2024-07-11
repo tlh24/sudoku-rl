@@ -16,7 +16,7 @@ import psgd
 npos = 10
 ntok = npos + 4
 width = 10
-batch_size = 32
+batch_size = 192 # batch_size target values for 782 unknowns! 
 
 def genData(nn): 
 	y = torch.zeros(nn, ntok, width)
@@ -24,10 +24,10 @@ def genData(nn):
 	lin = torch.arange(0,npos)
 	x = torch.zeros(npos, width)
 	# binary encoding of the digits.  
-	x[:,0] = lin % 2
-	x[:,1] = (lin//2) % 2
-	x[:,2] = (lin//4) % 2
-	x[:,3] = (lin//8) % 2
+	x[:,0] = (lin % 2) * 10
+	x[:,1] = ((lin//2) % 2) * 10
+	x[:,2] = ((lin//4) % 2) * 10
+	x[:,3] = ((lin//8) % 2) * 10
 	for n in range(nn): 
 		# shuffle tokens
 		indx = torch.randperm(npos)
@@ -36,17 +36,18 @@ def genData(nn):
 		y[n,0:npos,:] = x[indx, :]
 		# add positional encoding
 		y[n,0:npos,4] = lin
-		y[n,0:npos,5] = 1 # search over these
+		y[n,0:npos,5] = 10 # search over these
 		curs = np.random.randint(0,npos)
 		# print("cursor",curs)
 		y[n,npos,4] = curs
-		y[n,npos,6] = 1 # cursor token
-		y[n,npos+1,7] = 1 # spare token?
-		y[n,npos+2,8] = 1 # spare token?
-		y[n,npos+3,9] = 1 # reward token / target
+		y[n,npos,6] = 10 # cursor token
+		y[n,npos+1,7] = 10 # spare token?
+		y[n,npos+2,8] = 10 # spare token?
+		y[n,npos+3,9] = 10 # reward token / target
 		
 		# distance output on y[:,-1,4]
 		target[n] = abs(curs - torch.argmin(indx)) # we're matching to the zero digit. 
+		# target[n] = curs - torch.argmin(indx)
 	return y,target
 	
 	
@@ -61,14 +62,14 @@ class ResidualAttentionBlock(nn.Module):
 		self.wq = LinearM(d_model, n_head*d_model, init_zeros) 
 		self.wv = LinearM(d_model, n_head*d_model, init_zeros)
 		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
-		self.wa = torch.nn.Parameter( 0.5 * torch.ones(n_head) )
+		# self.wa = torch.nn.Parameter( 0.5 * torch.ones(n_head) )
 		
 		self.l1a_f = l1attn_cuda.L1Attn() # dense or full attention
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
 		self.fanout = LinearM(d_model, d_model * 1, False)
-		self.fanin = LinearM(d_model*2, d_model, False) # this doesn't work?!
-		self.gelu = QuickGELU()
-		# self.gelu = nn.ReLU()
+		# self.fanin = LinearM(d_model*2, d_model, False) # this doesn't work?!
+		# self.gelu = QuickGELU()
+		self.gelu = nn.ReLU()
 		# self.gelu = nn.LeakyReLU()
 
 	def fixedInit(self):
@@ -92,7 +93,7 @@ class ResidualAttentionBlock(nn.Module):
 			self.wk[1,4] = 0 # ignore the position
 
 			self.wv.w[1,0,4] = 2
-			self.wv.w[1,1,4] = -2.1
+			self.wv.w[1,1,4] = -2.0
 
 			self.wq.w = torch.nn.Parameter(self.wq.w.reshape(n_head * d_model, d_model+1))
 			self.wv.w = torch.nn.Parameter(self.wv.w.reshape(n_head * d_model, d_model+1))
@@ -239,9 +240,15 @@ class Transformer(nn.Module):
 	def fixedInit(self):
 		for layer in self.resblocks:
 			layer.fixedInit()
+			
+	def printParamCount(self):
+		trainable_params = sum(
+			p.numel() for p in self.parameters() if p.requires_grad
+		)
+		print(f"Number of model parameters:{trainable_params}")
 	
 if __name__ == '__main__':
-	if True:
+	if False:
 		fig,axs = plt.subplots(3, 3, figsize=(20,20))
 		for i in range(3): 
 			for j in range(3):
@@ -252,23 +259,31 @@ if __name__ == '__main__':
 		plt.show()
 	
 	model = Transformer(d_model=width, layers=1, repeat=1, n_head=2, init_zeros=False)
+	model.printParamCount()
+	# pdb.set_trace()
 	# model.fixedInit()
 	model = model.cuda()
 
-	use_adam = True
+	use_adam = False
 	
 	if use_adam:
-		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
+		optimizer = optim.AdamW(model.parameters(), lr=2e-3, amsgrad=True)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
 			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
 	
 	fd_losslog = open('losslog.txt', 'w')
 	
-	for i in range(500000):
-		x,target = genData(batch_size)
-		x = x.cuda()
-		target = target.cuda()
+	dat,_ = genData(2000)
+	mean = torch.sum(dat, (0,1)) / (2000 * ntok)
+	std = torch.sqrt(torch.sum((dat - mean)**2, (0,1)) / (2000 * ntok))
+	std = std / 2.45624 # help l1 attn select one
+	
+	x,target = genData(batch_size)
+	# x = (x - mean) / std # learn the affine transform later
+	x = x.cuda()
+	target = target.cuda()
+	for i in range(15000):
 		if use_adam:
 			y = model(x)
 			loss = torch.sum( (y[:,-1,-1] - target)**2 )
@@ -280,15 +295,26 @@ if __name__ == '__main__':
 				y = model(x)
 				loss = torch.sum( (y[:,-1,-1] - target)**2 ) + \
 						sum( \
-						[torch.sum(1e-4 * torch.rand_like(param) * param * param ) for param in model.parameters()])
+						[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
 				return loss
 			loss = optimizer.step(closure) 
 		lloss = loss.detach().cpu().item()
 		print(lloss)
-	
 		fd_losslog.write(f'{i}\t{lloss}\n')
 		fd_losslog.flush()
 
+	
+	x,target = genData(batch_size)
+	# x = (x - mean) / std # learn the affine transform later
+	x = x.cuda()
+	target = target.cuda()
+	y = model(x)
+	loss = torch.sum( (y[:,-1,-1] - target)**2 )
+	lloss = loss.detach().cpu().item()
+	print("v",lloss)
+	fd_losslog.write(f'{i}\t{lloss}\n')
+	fd_losslog.flush()
+	
 	x,target = genData(batch_size)
 	x = x.cuda()
 	y = model.plot(x)
