@@ -46,7 +46,7 @@ def genData(nn):
 		y[n,npos+3,9] = 1 # reward token / target
 		
 		# distance output on y[:,-1,4]
-		target[n] = abs(curs - torch.argmin(indx)) # we're matching to the zero digit. 
+		target[n] = (curs - torch.argmin(indx)) # we're matching to the zero digit. 
 	return y,target
 	
 	
@@ -255,7 +255,7 @@ if __name__ == '__main__':
 	# model.fixedInit()
 	model = model.cuda()
 
-	use_adam = True
+	use_adam = False
 	
 	if use_adam:
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
@@ -265,7 +265,7 @@ if __name__ == '__main__':
 	
 	fd_losslog = open('losslog.txt', 'w')
 	
-	for i in range(500000):
+	for i in range(100000):
 		x,target = genData(batch_size)
 		x = x.cuda()
 		target = target.cuda()
