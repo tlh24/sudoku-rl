@@ -7,16 +7,35 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn, optim
-from graph_transformer import LinearM, QuickGELU
 import l1attn_cuda
 import matplotlib.pyplot as plt
 import pdb
 import psgd 
+import time
 
 npos = 10
 ntok = npos + 4
 width = 10
 batch_size = 192 # batch_size target values for 782 unknowns! 
+
+class QuickGELU(nn.Module):
+	def forward(self, x: torch.Tensor):
+		return x * torch.sigmoid(1.702 * x)
+	  
+class LinearM(nn.Module): 
+	# with the bias merged -- used for PSGD optimizer.
+	def __init__(self, indim:int, outdim:int, initzeros:bool): 
+		super(LinearM, self).__init__()
+		scl = 0.005
+		if initzeros: 
+			self.w = torch.nn.Parameter( scl * torch.ones(outdim,indim+1))
+		else:
+			self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1))
+		with torch.no_grad(): 
+			self.w[:,-1] = 0.0 # bias starts at 0
+		
+	def forward(self, x):
+		return torch.einsum('oi,bhi -> bho', self.w[:,:-1], x) + self.w[:,-1]
 
 def genData(nn): 
 	y = torch.zeros(nn, ntok, width)
@@ -251,9 +270,11 @@ class Transformer(nn.Module):
 	
 if __name__ == '__main__':
 	
-	parser = argparse.ArgumentParser(description="Train L1 transformer")
+	parser = argparse.ArgumentParser()
 	parser.add_argument('-b', type=int, default=128, help='batch size')
 	parser.add_argument('-d', type=int, default=0, help='CUDA device')
+	parser.add_argument('--layers', type=int, default=1, help='number of layers')
+	parser.add_argument('--heads', type=int, default=1, help='number of heads')
 	parser.add_argument('-a', action='store_true', help='use AdamW')
 	parser.add_argument('-m', action='store_true', help='many-mode')
 	cmd_args = parser.parse_args()
@@ -269,69 +290,89 @@ if __name__ == '__main__':
 				axs[i,j].set_title(f"target:{target.item()}")
 		plt.show()
 	
-	model = Transformer(d_model=width, layers=1, repeat=1, n_head=2, init_zeros=False)
-	model.printParamCount()
-	# pdb.set_trace()
-	# model.fixedInit()
-	model = model.cuda(cmd_args.d)
+	
+	start_time = time.time()
+	duration = 600
+	j = 0
+	while j < 200: 
+		
+		model = Transformer(d_model=width, layers=cmd_args.layers, repeat=1, n_head=cmd_args.heads, init_zeros=False)
+		model.printParamCount()
+		# pdb.set_trace()
+		# model.fixedInit()
+		model = model.cuda(cmd_args.d)
 
-	use_adam = cmd_args.a
-	
-	if use_adam:
-		optimizer = optim.AdamW(model.parameters(), lr=2e-3, amsgrad=True)
-	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
-			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
-	
-	fd_losslog = open('losslog.txt', 'w')
-	
-	dat,_ = genData(2000)
-	mean = torch.sum(dat, (0,1)) / (2000 * ntok)
-	std = torch.sqrt(torch.sum((dat - mean)**2, (0,1)) / (2000 * ntok))
-	std = std / 3.5 # help l1 attn select one
-	
-	x,target = genData(batch_size)
-	# x = (x - mean) / std # learn the affine transform later
-	x = x.cuda(cmd_args.d)
-	target = target.cuda(cmd_args.d)
-	for i in range(15000):
+		use_adam = cmd_args.a
+		
 		if use_adam:
-			y = model(x)
-			loss = torch.sum( (y[:,-1,-1] - target)**2 )
-			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
-			loss.backward()
-			optimizer.step()
+			optimizer = optim.AdamW(model.parameters(), lr=2e-3, amsgrad=True)
 		else: 
-			def closure(): 
+			optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
+				preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=10, grad_clip_max_norm=5.0)
+		
+		fd_losslog = open('losslog.txt', 'w')
+		
+		dat,_ = genData(2000)
+		mean = torch.sum(dat, (0,1)) / (2000 * ntok)
+		std = torch.sqrt(torch.sum((dat - mean)**2, (0,1)) / (2000 * ntok))
+		std = std / 3.5 # help l1 attn select one
+		
+		x,target = genData(batch_size)
+		# x = (x - mean) / std # learn the affine transform later
+		x = x.cuda(cmd_args.d)
+		target = target.cuda(cmd_args.d)
+		slowloss = 1e6
+		slowdeltaloss = 1
+		
+		for i in range(15000):
+			if use_adam:
 				y = model(x)
-				loss = torch.sum( (y[:,-1,-1] - target)**2 ) + \
-						sum( \
-						[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
-				return loss
-			loss = optimizer.step(closure) 
-		if not cmd_args.m: 
+				loss = torch.sum( (y[:,-1,-1] - target)**2 )
+				torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
+				loss.backward()
+				optimizer.step()
+			else: 
+				def closure(): 
+					y = model(x)
+					loss = torch.sum( (y[:,-1,-1] - target)**2 ) + \
+							sum( \
+							[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
+					return loss
+				loss = optimizer.step(closure) 
 			lloss = loss.detach().cpu().item()
-			print(lloss)
-			fd_losslog.write(f'{i}\t{lloss}\n')
-			fd_losslog.flush()
-
+			slowloss2 = 0.94 * slowloss + 0.06 * (lloss / batch_size)
+			slowdeltaloss = 0.99 * slowdeltaloss + 0.01 * abs(slowloss - slowloss2)
+			slowloss = slowloss2
+			if not cmd_args.m: 
+				if i % 10 == 0: 
+					print(lloss, slowloss, slowdeltaloss)
+					fd_losslog.write(f'{i}\t{lloss}\t{slowloss}\n')
+					fd_losslog.flush()
+			# if slowdeltaloss < 2e-6:
+			# 	break # conservatively converged, start a new model.
+			elapsed_time = time.time() - start_time
+			if elapsed_time > duration :
+				j = 200
+				break
+		j = j + 1
+			
 	
-	x,target = genData(1000)
-	# x = (x - mean) / std # learn the affine transform later
-	x = x.cuda(cmd_args.d)
-	target = target.cuda(cmd_args.d)
-	y = model(x)
-	loss = torch.sum( (y[:,-1,-1] - target)**2 )
-	lloss = loss.detach().cpu().item()
-	print("v",lloss)
-	fd_losslog.write(f'{i}\t{lloss}\n')
-	fd_losslog.flush()
+		x,target = genData(1000)
+		# x = (x - mean) / std # learn the affine transform later
+		x = x.cuda(cmd_args.d)
+		target = target.cuda(cmd_args.d)
+		y = model(x)
+		loss = torch.sum( (y[:,-1,-1] - target)**2 )
+		lloss = loss.detach().cpu().item()
+		print("v",lloss)
+		fd_losslog.write(f'{i}\t{lloss}\t{0.0}\n')
+		fd_losslog.flush()
 	
-	if cmd_args.m: 
-		fd_vallog = open('vallog.txt', 'a')
-		fd_vallog.write(f'{batch_size}\t{lloss/1000}\n') # divide later! 
-		fd_vallog.flush()
-		fd_vallog.close()
+		if cmd_args.m: 
+			fd_vallog = open(f'vallog2_l{cmd_args.layers}_h{cmd_args.heads}.txt', 'a')
+			fd_vallog.write(f'{batch_size}\t{lloss/1000}\n') 
+			fd_vallog.flush()
+			fd_vallog.close()
 	
 	if not cmd_args.m: 
 		x,target = genData(batch_size)

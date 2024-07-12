@@ -34,7 +34,7 @@ def slidingWindowR2(x, y, window_size, stride):
 
 
 while True: 
-	with open("losslog.txt", 'r') as x:
+	with open("test_gtrans/losslog.txt", 'r') as x:
 		data = list(csv.reader(x, delimiter="\t"))
 	data = np.array(data)
 	data = data.astype(float)
@@ -44,6 +44,11 @@ while True:
 		ax[0].plot(data[:,0], np.log(data[:, 1]), 'b')
 		ax[0].set(xlabel='iteration / batch #')
 		ax[0].set_title('log loss') 
+		
+		ax[1].cla()
+		ax[1].plot(data[:,0], np.log(data[:, 2]), 'b')
+		ax[1].set(xlabel='iteration / batch #')
+		ax[1].set_title('slow log loss') 
 		
 		# with open("rewardlog.txt", 'r') as x:
 		# 	data = list(csv.reader(x, delimiter="\t"))
