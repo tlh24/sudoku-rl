@@ -736,7 +736,6 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		boards = torch.load(f'rollouts/move_boards.pt')
 		actions = torch.load(f'rollouts/move_actions.pt')
 		rewards = torch.load(f'rollouts/move_rewards.pt')
-		# need to get the coo, a2a, etc variables - so run one encoding.
 		nn = 0
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
@@ -748,7 +747,7 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		rewards = torch.zeros(nn,bs)
 
 		filts = []
-		for r in range(3,12,2): # 3, 5, 7, 9, 11
+		for r in range(3,26,2): # 3, 5, 7, 9, 11, 13, 15, 17
 			filt = torch.zeros(1,1,r,r)
 			c = r // 2
 			for i in range(r):
@@ -758,9 +757,18 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 			filts.append(filt)
 
 		for n in range(nn):
-			puzzl_mat = np.zeros((bs,SuN,SuN))
+			# make the movements hard: only a few empties.
+			num_empty = np.random.randint(1,8, (bs,))
+			# these puzzles are degenerate, but that's ok
+			puzzl_mat = np.random.randint(1,10,(bs,SuN,SuN))
 			for k in range(bs):
-				puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
+				ne = num_empty[k]
+				indx = np.random.randint(0,9, (ne,2))
+				lin = np.arange(0,ne)
+				puzzl_mat[k,indx[lin,0],indx[lin,1]] = 0
+			# puzzl_mat = np.zeros((bs,SuN,SuN))
+			# for k in range(bs):
+			# 	puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
 			guess_mat = np.zeros((bs,SuN,SuN)) # should not matter..
 			curs_pos = torch.randint(SuN, (bs,2),dtype=int)
 			empty = torch.tensor(puzzl_mat[:,:,:] == 0, dtype=torch.float32)
@@ -783,6 +791,7 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 			direct = (move // 2) * 2 - 1
 			direct = direct * (xnoty*2-1)
 			new_curs = torch.zeros_like(curs_pos)
+			pdb.set_trace()
 			new_curs[:,0] = curs_pos[:,0] + xnoty * direct
 			new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
 			hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
@@ -800,10 +809,12 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 				boards[n,k,:,:] = board[:,:32]
 			actions[n,:,0] = torch.tensor(move)
 			rewards[n,:] = reward
+			if n % 5 == 4:
+				print(".", end = "", flush=True)
 
-			torch.save(boards, 'rollouts/move_boards.pt')
-			torch.save(actions, 'rollouts/move_actions.pt')
-			torch.save(rewards, 'rollouts/move_rewards.pt')
+		torch.save(boards, 'rollouts/move_boards.pt')
+		torch.save(actions, 'rollouts/move_actions.pt')
+		torch.save(rewards, 'rollouts/move_rewards.pt')
 
 	return boards,actions,rewards
 
@@ -909,7 +920,7 @@ if __name__ == '__main__':
 				
 	if cmd_args.m:
 		bs = 96
-		nn = 1000
+		nn = 1010
 		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
 		optimizer = getOptimizer(optimizer_name, qfun)
 
