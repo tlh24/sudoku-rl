@@ -189,6 +189,7 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		n = 1
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
+		print("generating random board, action, board', reward")
 	
 	# action_types,action_values = enumerateActionList(n)
 	action_types,action_values = sampleActionList(n)
@@ -415,7 +416,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		
 		lloss = loss.detach().cpu().item()
 		print(lloss)
-		args["fd_losslog"].write(f'{uu}\t{lloss}\n')
+		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
 		uu = uu + 1
 		
@@ -443,7 +444,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
-			args["fd_losslog"].write(f'{uu}\t{lloss}\n')
+			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 			args["fd_losslog"].flush()
 			sum_batch_loss += loss.cpu().item()
 	
@@ -485,7 +486,7 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			
 		def closure(): 
 			nonlocal pred_data
-			qfun_boards,_,_ = qfun.forward(model_boards,hcoo,0,None)
+			qfun_boards,_,_ = qfun.forward(model_boards,None,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
 			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
 								'rewards': reward, 'reward_preds': reward_preds,
@@ -584,7 +585,7 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 
 	new_boards = new_boards.reshape(bs * nact, ntok, width)
 	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
-	qfun_pred,_,_ = qfun.forward(boards_pred,hcoo,0,None)
+	qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
 
 	boards_pred = boards_pred.detach().reshape(bs, nact, ntok, width)
 	qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
@@ -597,7 +598,7 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 	boards_pred[:,:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
 
 	if False: 
-		qfun_pred,_,_ = qfun.forward(boards_pred,hcoo,0,None)
+		qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
 		qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
 		qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
 		
@@ -806,7 +807,7 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
-	parser.add_argument('-c', action='store_true', help='clear, start fresh')
+	parser.add_argument('-c', action='store_true', help='clear, start fresh for training world model from random rollouts')
 	parser.add_argument('-e', action='store_true', help='evaluate')
 	parser.add_argument('-t', action='store_true', help='train')
 	parser.add_argument('-q', action='store_true', help='train Q function')
@@ -814,7 +815,7 @@ if __name__ == '__main__':
 	parser.add_argument('-r', type=int, default=1, help='rollout file number')
 	cmd_args = parser.parse_args()
 	
-	puzzles = torch.load(f'puzzles_{SuN}_50000.pt')
+	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
 	NUM_TRAIN = batch_size * 1800 
 	NUM_VALIDATE = batch_size * 300
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
@@ -863,8 +864,11 @@ if __name__ == '__main__':
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, mode=0).to(device) 
 	model.printParamCount()
 	
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=6, n_layers=8, mode=1).to(device)
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=2, n_layers=2, mode=0).to(device)
 	qfun.printParamCount()
+
+	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
+	optimizer = getOptimizer(optimizer_name, model)
 
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
@@ -896,9 +900,6 @@ if __name__ == '__main__':
 			time.sleep(1)
 		except Exception as error:
 			print(colored(f"could not load model checkpoint {error}", "red"))
-	
-	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
-	optimizer = getOptimizer(optimizer_name, model)
 
 	if cmd_args.e: 
 		instance = cmd_args.r

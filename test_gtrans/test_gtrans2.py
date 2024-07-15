@@ -81,7 +81,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.wq = LinearM(d_model, n_head*d_model, init_zeros) 
 		self.wv = LinearM(d_model, n_head*d_model, init_zeros)
 		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
-		self.wa = torch.nn.Parameter( 1.0 * torch.ones(n_head) )
+		# self.wa = torch.nn.Parameter( 1.0 * torch.ones(n_head) )
 		
 		self.l1a_f = l1attn_cuda.L1Attn() # dense or full attention
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
@@ -128,11 +128,11 @@ class ResidualAttentionBlock(nn.Module):
 		# pdb.set_trace()
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
-		width = x.shape[2]
 		
 		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
+		width = x.shape[2]
 		
 		q = self.wq(x)
 		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
@@ -168,7 +168,7 @@ class ResidualAttentionBlock(nn.Module):
 			a2 = F.softmax(a, 2)
 			a1 = a1[:, :a2len, :a2len, :]
 			a2 = a2[:, :a2len, :a2len, :] # remove noop
-			wa = self.wa.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand(batch_size,ntok,ntok,n_head)
+			wa = self.wa.unsqueeze(0).unsqueeze(0).unsqueeze(0)
 			a = a1 * wa + a2 * (1-wa)
 		else:
 			a = F.softmax(a, 1) # see l1attn.py -- sm over src FIXME 1

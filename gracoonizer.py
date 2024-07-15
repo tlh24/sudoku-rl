@@ -29,7 +29,7 @@ class Gracoonizer(nn.Module):
 		self.xfrmr_dim = xfrmr_dim
 		self.world_dim = world_dim
 		self.n_head = n_heads 
-		assert(n_layers % 4 == 0) # one layer for each of the different types.
+		# assert(n_layers % 4 == 0) # one layer for each of the different types.
 		
 		if mode == 0: # USE_GRAPH_XFRMR:
 			self.xfrmr = graph_transformer.Transformer(
@@ -51,6 +51,7 @@ class Gracoonizer(nn.Module):
 			gptconf = GPTConfig(**model_args)
 			self.xfrmr = nanogpt_model.GPT(gptconf)
 		else:
+			# simple MLP, as a control.
 			self.xfrmr = NetDenoise(token_cnt * world_dim)
 		
 		# self.xfrmr_to_world = graph_transformer.LinearM(xfrmr_dim, world_dim, True) 
@@ -176,4 +177,4 @@ class Gracoonizer(nn.Module):
 		trainable_params = sum(
 			p.numel() for p in self.parameters() if p.requires_grad
 		)
-		print(f"Number of model parameters:{trainable_params/1e6}M")
+		print(f"Gracoonizer: number of model parameters:{trainable_params/1e6}M")

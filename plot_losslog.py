@@ -34,7 +34,7 @@ def slidingWindowR2(x, y, window_size, stride):
 
 
 while True: 
-	with open("test_gtrans/losslog.txt", 'r') as x:
+	with open("losslog.txt", 'r') as x:
 		data = list(csv.reader(x, delimiter="\t"))
 	data = np.array(data)
 	data = data.astype(float)

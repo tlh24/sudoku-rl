@@ -159,6 +159,8 @@ class ResidualAttentionBlock(nn.Module):
 	def attention(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
+		batch_size = x.shape[0]
+		ntok = x.shape[1]
 		width = x.shape[2]
 		
 		if pas == 0 and self.init_zeros: 
@@ -194,9 +196,8 @@ class ResidualAttentionBlock(nn.Module):
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		
-		gk = self.wk.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		# bk = self.bk.w.unsqueeze(0).unsqueeze(0).expand([batch_size,ntok,-1,-1])
-		k = k * gk # + bk # with bias to allow for centering.
+		wk = self.wk.unsqueeze(0).unsqueeze(0)
+		k = k * wk # + bk # with bias to allow for centering.
 		
 		# full-rank key calculation (worse!)
 		# kw = self.wk.w.reshape([self.n_head, self.d_model, -1])
@@ -209,42 +210,53 @@ class ResidualAttentionBlock(nn.Module):
 		
 		if g_l1atten: 
 			# cycle through the coo vectors.  
-			if layer % 4 == 3: 
-				if True:
-					# extract all global / all-to-all tokens
-					# really could do this with pure sparse attn.. will have to compare. 
-					a2a = hcoo[3]
-					a2len = a2a.shape[0]
-					q = q[:,a2a,:,:]
-					k = k[:,a2a,:,:]
-					v = v[:,a2a,:,:]
-					# pad out to BLKSIZ tokens (for CUDA kernel).
-					padn = ((a2len + 15) // 16) * 16 - a2len
-					assert(padn > 0) # for noop
-					qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-					kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-					a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
-					a = a[:, :a2len+1, :a2len, :]
-					a[:, a2len, :,:] = 0.0
-					# add in e^0=1 as a 'noop' option
-					# (hence max attention is 0.5, not 1)
-					# output is b,src,dst,heads
-					a = F.softmax(a, 1) # see l1attn.py -- sm over src
-					a = a[:, :a2len, :a2len, :] # remove noop
-					bb = torch.einsum('bsdh, bshw -> bdhw', a, v)
-					# scatter to original sites
-					b = torch.zeros(batch_size, ntok, n_head, width, device=v.device)
-					indx = torch.arange(0, a2len, device=v.device)
-					b[:,a2a,:,:] = bb[:,indx,:,:]
+			if hcoo is None:
+				# !only all-to-all layers.
+				# pad out to BLKSIZ tokens (for CUDA kernel).
+				padn = ((ntok + 15) // 16) * 16 - ntok
+				assert(padn > 0) # for noop
+				qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+				kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+				a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
+				a = a[:, :ntok+1, :ntok, :]
+				a[:, ntok, :,:] = 0.0 # slight improvement..
+				# add in e^0=1 as a 'noop' option
+				# (hence max attention is 0.5, not 1)
+				# output is b,src,dst,heads
+				a = F.softmax(a, 1) # see l1attn.py -- sm over src FIXME 1
+				a = a[:, :ntok, :ntok, :] # remove noop
+				b = torch.einsum('bsdh, bshw -> bdhw', a, v)
+			elif layer % 4 == 3:
+				# extract all global / all-to-all tokens
+				# really could do this with pure sparse attn.. will have to compare.
+				a2a = hcoo[3]
+				a2len = a2a.shape[0]
+				q = q[:,a2a,:,:]
+				k = k[:,a2a,:,:]
+				v = v[:,a2a,:,:]
+				# pad out to BLKSIZ tokens (for CUDA kernel).
+				padn = ((a2len + 15) // 16) * 16 - a2len
+				assert(padn > 0) # for noop
+				qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+				kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
+				a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
+				a = a[:, :a2len+1, :a2len, :]
+				a[:, a2len, :,:] = 0.0
+				# add in e^0=1 as a 'noop' option
+				# (hence max attention is 0.5, not 1)
+				# output is b,src,dst,heads
+				a = F.softmax(a, 1) # see l1attn.py -- sm over src
+				a = a[:, :a2len, :a2len, :] # remove noop
+				bb = torch.einsum('bsdh, bshw -> bdhw', a, v)
+				# scatter to original sites
+				b = torch.zeros(batch_size, ntok, n_head, width, device=v.device)
+				indx = torch.arange(0, a2len, device=v.device)
+				b[:,a2a,:,:] = bb[:,indx,:,:]
 				# else: 
-				# 	# this is dot-product attention
+				# 	# dot-product attention
 				# 	a = torch.einsum('bthd,bshd -> btsh', q, k) / math.sqrt(d_head)
 				# 	a = self.soft(a)
 				# 	b = torch.einsum('btsh,bshd -> bthd', a, v)
-				# else: 
-				# 	# flashAttention only supports float16
-				# 	b = flash_attn_func(q.half(), k.half(), v.half())
-				# 	b = b.float()
 			else: 
 				coo,dst_mxlen = hcoo[layer%4] 
 				use_softmax = True 

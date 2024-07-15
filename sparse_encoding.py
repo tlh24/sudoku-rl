@@ -1,6 +1,6 @@
 import math
 import numpy as np
-import toimport numpy as np
+import numpy as np
 import torch
 from enum import Enum
 from sudoku_gen import Sudoku
@@ -42,10 +42,7 @@ class Node:
 	def printGexf(self, fil):
 		if self.refcnt < 1:
 			self.refcnt = self.refcnt + 1
-atplotlib.pyplot as plt
-from constants import *
-from type_file import Types, Axes, Action, getActionName
-import pdb
+
 
 # encode the board as a graph that can be passed to sparse attention.
 # keep a list of nodes and edges
