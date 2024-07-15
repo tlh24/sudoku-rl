@@ -651,10 +651,10 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 					action_nodes[j].addKid(an)
 		if j == 0: 
 			print(f"{time} action {getActionName(at_t)} {av_t} reward {reward_np[0].item()}")
-			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()}")
+			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()} is_done {is_done[0]}")
 			sparse_encoding.decodeNodes(indent, boards_pred_taken[0,:,:], locs)
 		
-	return boards_pred_taken, action_node_new, contradiction
+	return boards_pred_taken, action_node_new, contradiction, is_done
 
 	
 def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
@@ -690,7 +690,7 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 		rollout_nodes = [[None for k in range(bs)] for _ in range(duration)]
 		for time in range(duration-1): 
 			with torch.no_grad(): 
-				board_new, action_node_new, contradiction = evaluateActions(model, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
+				board_new, action_node_new, contradiction, is_done = evaluateActions(model, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
 				sum_contradiction = sum_contradiction + contradiction.cpu()
 			board = board_new
 			# root_nodes[0].print("")
