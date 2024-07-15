@@ -23,6 +23,7 @@ class Gracoonizer(nn.Module):
 		world_dim:int,
 		n_heads:int,
 		n_layers:int,
+		repeat:int,
 		mode:int
 		): 
 		super().__init__()
@@ -36,7 +37,7 @@ class Gracoonizer(nn.Module):
 				d_model = xfrmr_dim,
 				layers = n_layers,
 				n_head = self.n_head,
-				repeat = 3,
+				repeat = repeat,
 				init_zeros = g_zeroinit
 				)
 		elif mode == 1: #USE_NANOGPT:
