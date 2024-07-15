@@ -221,6 +221,8 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 		orig_boards.append(benc)
 		new_boards.append(newbenc)
 		rewards[i] = reward
+		if i % 1000 == 999:
+			print(".", end = "")
 		
 	if n > 1: 
 		orig_board_enc = torch.stack(orig_boards)
