@@ -898,7 +898,7 @@ if __name__ == '__main__':
 
 	# qfun predictor
 	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4, repeat=2, mode=0).to(device)
-	mfun.printParamCount()
+	qfun.printParamCount()
 
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)

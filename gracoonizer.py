@@ -23,7 +23,7 @@ class Gracoonizer(nn.Module):
 		world_dim:int,
 		n_heads:int,
 		n_layers:int,
-		repeat:int
+		repeat:int,
 		mode:int
 		): 
 		super().__init__()
