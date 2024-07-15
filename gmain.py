@@ -687,7 +687,7 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 				board_new, action_node_new, contradiction = evaluateActions(model, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
 				sum_contradiction = sum_contradiction + contradiction.cpu()
 			board = board_new
-			root_nodes[0].print("")
+			# root_nodes[0].print("")
 			# backtracking!
 			for k in range(bs):
 				# default: replace with new node
@@ -791,7 +791,6 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 			direct = (move // 2) * 2 - 1
 			direct = direct * (xnoty*2-1)
 			new_curs = torch.zeros_like(curs_pos)
-			pdb.set_trace()
 			new_curs[:,0] = curs_pos[:,0] + xnoty * direct
 			new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
 			hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
