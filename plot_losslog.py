@@ -9,9 +9,9 @@ import os
 # remove menubar buttons
 plt.rcParams['toolbar'] = 'None'
 
-plot_rows = 2
+plot_rows = 1
 plot_cols = 1
-figsize = (8, 6)
+figsize = (7, 4)
 plt.ion()
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 initialized = False
@@ -40,15 +40,15 @@ while True:
 	data = data.astype(float)
 	
 	if len(data.shape) > 1 and data.shape[0] > 1: 
-		ax[0].cla()
-		ax[0].plot(data[:,0], np.log(data[:, 1]), 'b')
-		ax[0].set(xlabel='iteration / batch #')
-		ax[0].set_title('log loss') 
+		ax.cla()
+		ax.plot(data[:,0], np.log(data[:, 1]), 'b')
+		ax.set(xlabel='iteration / batch #')
+		ax.set_title('log loss')
 		
-		ax[1].cla()
-		ax[1].plot(data[:,0], np.log(data[:, 2]), 'b')
-		ax[1].set(xlabel='iteration / batch #')
-		ax[1].set_title('slow log loss') 
+		# ax[1].cla()
+		# ax[1].plot(data[:,0], np.log(data[:, 2]), 'b')
+		# ax[1].set(xlabel='iteration / batch #')
+		# ax[1].set_title('slow log loss')
 		
 		# with open("rewardlog.txt", 'r') as x:
 		# 	data = list(csv.reader(x, delimiter="\t"))

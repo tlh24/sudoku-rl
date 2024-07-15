@@ -810,7 +810,7 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
 	parser.add_argument('-c', action='store_true', help='clear, start fresh for training world model from random rollouts')
-	parser.add_argument('-e', action='store_true', help='evaluate')
+	parser.add_argument('-e', action='store_true', help='evaluate with backtracking')
 	parser.add_argument('-t', action='store_true', help='train')
 	parser.add_argument('-q', action='store_true', help='train Q function')
 	parser.add_argument('-m', action='store_true', help='train Q function for movements')
