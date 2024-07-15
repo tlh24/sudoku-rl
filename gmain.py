@@ -578,7 +578,6 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 	board_loc,cursor_loc = locs
 	can_guess = torch.clip(board[:,cursor_loc,26+4].clone().squeeze(),0,1)
 	# puzzle is solved if all board_locs have either a clue or guess
-	pdb.set_trace()
 	board_locf = torch.reshape(board_loc, (81,))
 	clue_or_guess = torch.sum(board[:,board_locf, 11:20] > 0.5, dim=2)
 	is_done = torch.prod(clue_or_guess, dim=1) > 0.5
