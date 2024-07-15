@@ -650,7 +650,12 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 					action_nodes[j].addKid(an)
 		if j == 0: 
 			print(f"{time} action {getActionName(at_t)} {av_t} reward {reward_np[0].item()}")
-			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()} is_done {is_done[0]}")
+			if is_done[0]:
+				color = "green"
+			else:
+				color = "black"
+			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()}", end=" "
+			print(colored(f"is_done {is_done[0]}", color))
 			sparse_encoding.decodeNodes(indent, boards_pred_taken[0,:,:], locs)
 		
 	return boards_pred_taken, action_node_new, contradiction, is_done
@@ -714,9 +719,9 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 					action_nodes[k] = altern[0]
 					board[k,:,:32] = altern[0].board_enc
 					board[k,:,32:] = 0.0 # jic
-					if k == 0: 
-						print(colored(f"[{k}] backtracking to {m+1}", "blue"))
-						action_nodes[k].print("")
+					# if k == 0:
+					# 	print(colored(f"[{k}] backtracking to {m+1}", "blue"))
+					# 	action_nodes[k].print("")
 				rollout_nodes[time+1][k] = action_nodes[k]
 
 		for j in range(duration-1): 
