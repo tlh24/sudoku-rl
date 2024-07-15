@@ -16,7 +16,7 @@ import time
 npos = 10
 ntok = npos + 4
 width = 10
-batch_size = 192 # batch_size target values for 782 unknowns! 
+sample_size = 128 # sample_size target values for 782 unknowns! 
 
 class QuickGELU(nn.Module):
 	def forward(self, x: torch.Tensor):
@@ -271,14 +271,14 @@ class Transformer(nn.Module):
 if __name__ == '__main__':
 	
 	parser = argparse.ArgumentParser()
-	parser.add_argument('-b', type=int, default=128, help='batch size')
+	parser.add_argument('-b', type=int, default=128, help='sample size')
 	parser.add_argument('-d', type=int, default=0, help='CUDA device')
 	parser.add_argument('--layers', type=int, default=1, help='number of layers')
 	parser.add_argument('--heads', type=int, default=1, help='number of heads')
 	parser.add_argument('-a', action='store_true', help='use AdamW')
 	parser.add_argument('-m', action='store_true', help='many-mode')
 	cmd_args = parser.parse_args()
-	batch_size = cmd_args.b
+	sample_size = cmd_args.b
 	
 	if False:
 		fig,axs = plt.subplots(3, 3, figsize=(20,20))
@@ -317,7 +317,7 @@ if __name__ == '__main__':
 		std = torch.sqrt(torch.sum((dat - mean)**2, (0,1)) / (2000 * ntok))
 		std = std / 3.5 # help l1 attn select one
 		
-		x,target = genData(batch_size)
+		x,target = genData(sample_size)
 		# x = (x - mean) / std # learn the affine transform later
 		x = x.cuda(cmd_args.d)
 		target = target.cuda(cmd_args.d)
@@ -325,22 +325,25 @@ if __name__ == '__main__':
 		slowdeltaloss = 1
 		
 		for i in range(15000):
+			indx = torch.randperm(sample_size)[:32]
+			xx = x[indx,:,:]
+			targetx = target[indx]
 			if use_adam:
-				y = model(x)
-				loss = torch.sum( (y[:,-1,-1] - target)**2 )
+				y = model(xx)
+				loss = torch.sum( (y[:,-1,-1] - targetx)**2 )
 				torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 				loss.backward()
 				optimizer.step()
 			else: 
 				def closure(): 
-					y = model(x)
-					loss = torch.sum( (y[:,-1,-1] - target)**2 ) + \
+					y = model(xx)
+					loss = torch.sum( (y[:,-1,-1] - targetx)**2 ) + \
 							sum( \
 							[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
 					return loss
 				loss = optimizer.step(closure) 
 			lloss = loss.detach().cpu().item()
-			slowloss2 = 0.94 * slowloss + 0.06 * (lloss / batch_size)
+			slowloss2 = 0.94 * slowloss + 0.06 * (lloss / 32)
 			slowdeltaloss = 0.99 * slowdeltaloss + 0.01 * abs(slowloss - slowloss2)
 			slowloss = slowloss2
 			if not cmd_args.m: 
@@ -369,12 +372,12 @@ if __name__ == '__main__':
 		fd_losslog.flush()
 	
 		if cmd_args.m: 
-			fd_vallog = open(f'vallog2_l{cmd_args.layers}_h{cmd_args.heads}.txt', 'a')
-			fd_vallog.write(f'{batch_size}\t{lloss/1000}\n') 
+			fd_vallog = open(f'vallog3_l{cmd_args.layers}_h{cmd_args.heads}.txt', 'a')
+			fd_vallog.write(f'{sample_size}\t{lloss/1000}\n') 
 			fd_vallog.flush()
 			fd_vallog.close()
 	
 	if not cmd_args.m: 
-		x,target = genData(batch_size)
+		x,target = genData(sample_size)
 		x = x.cuda(cmd_args.d)
 		y = model.plot(x)

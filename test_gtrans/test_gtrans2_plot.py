@@ -17,7 +17,7 @@ axes = axes.flatten()
 # Function to create a scatter plot for a given heads and layers configuration
 def create_plot(ax, layers, heads):
 	# Read the data from the file and store it in a DataFrame
-	data = pd.read_csv(f"vallog2_l{layers}_h{heads}.txt", sep="\t", header=None, names=["batch_size", "validation"])
+	data = pd.read_csv(f"vallog3_l{layers}_h{heads}.txt", sep="\t", header=None, names=["batch_size", "validation"])
 
 	# Group by batch size and calculate median
 	grouped_data = data.groupby("batch_size")["validation"].median().reset_index()
@@ -29,7 +29,7 @@ def create_plot(ax, layers, heads):
 	ax.scatter(grouped_data["batch_size"], grouped_data["validation"], c='black', s=100, label='Median', edgecolors='w')
 
 	ax.set_title(f'{layers} layers, {heads} heads, 15k iters')
-	ax.set_xlabel('Batch Size')
+	ax.set_xlabel('Number of samples')
 	ax.set_ylabel('Validation')
 	ax.set_ylim(10**-5, 10**2)
 	ax.set_yscale('log')
