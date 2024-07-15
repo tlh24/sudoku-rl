@@ -654,7 +654,7 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 				color = "green"
 			else:
 				color = "black"
-			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()}", end=" "
+			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()}", end=" ")
 			print(colored(f"is_done {is_done[0]}", color))
 			sparse_encoding.decodeNodes(indent, boards_pred_taken[0,:,:], locs)
 		
