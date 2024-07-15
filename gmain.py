@@ -939,7 +939,7 @@ if __name__ == '__main__':
 				
 	if cmd_args.m:
 		bs = 96
-		nn = 1200
+		nn = 1010
 		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
 
 		optimizer = getOptimizer(optimizer_name, mfun)
