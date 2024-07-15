@@ -454,7 +454,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			
 	return 
 	
-def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs):
+def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs, name):
 	n_roll = rollouts_board.shape[0]
 	n_tok = rollouts_board.shape[1]
 	width = rollouts_board.shape[2]
@@ -506,7 +506,7 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			updateMemory(memory_dict, pred_data)
 			
 		if uu % 1000 == 999: 
-			qfun.save_checkpoint(f"checkpoints/quailizer_{uu//1000}.pth")
+			qfun.save_checkpoint(f"checkpoints/{name}_{uu//1000}.pth")
 		
 	
 class ANode: 
@@ -561,7 +561,10 @@ def plot_tensor(v, name, lo, hi):
 	axs.tick_params(bottom=True, top=True, left=True, right=True)
 	plt.show()
 	
-def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum_contradiction, action_nodes): 
+def evaluateActions(model, mfun, board, hcoo, depth, reward_loc, locs, time, sum_contradiction, action_nodes):
+	# evaluate all the possible actions for a current board
+	# by running the forward transition model
+	# this will also predict reward per action
 	# clean up the boards
 	board = np.round(board * 4.0) / 4.0
 	board = torch.tensor(board).cuda()
@@ -593,11 +596,11 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 
 	new_boards = new_boards.reshape(bs * nact, ntok, width)
 	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
-	qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
+	mfun_pred,_,_ = mfun.forward(boards_pred,None,0,None)
 
 	boards_pred = boards_pred.detach().reshape(bs, nact, ntok, width)
-	qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
-	qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
+	mfun_pred = mfun_pred.detach().reshape(bs, nact, ntok, width)
+	mfun_pred = mfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
 	reward_pred = boards_pred[:, :,reward_loc, 32+26].clone().squeeze()
 	# copy over the beginning structure - needed!
 	# this will have to be changed for longer-term memory TODO
@@ -605,29 +608,21 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 	boards_pred[:,:,:,32:] = 0 # don't mess up forward computation
 	boards_pred[:,:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
 
-	if False: 
-		qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
-		qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
-		qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
-		
-		mask = (reward_pred + 1.0) > 0.0 # mask bad moves.
-		qfun_pred = torch.sigmoid(qfun_pred) * mask # qfun is N(0,1) - so ok
-		qfun_pred = qfun_pred / torch.sum(qfun_pred, 1).unsqueeze(1).expand(-1,14)
-		indx = torch.multinomial(qfun_pred, 1).squeeze()
-	else:
+	mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
+		# reward-weighted; if you can guess, generally do that.
+	valid_guesses = reward_pred[:,4:13] > 0
+	mask[:,0:4] = mfun_pred[:,0:4] * 2
+	mask = F.softmax(mask, 1)
+	# mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
+	indx = torch.multinomial(mask, 1).squeeze()
 
-		mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
-			# reward-weighted; if you can guess, generally do that. 
-		valid_guesses = reward_pred[:,4:13] > 0
-		mask[:,0:4] = qfun_pred[:,0:4] * 2
-		mask = F.softmax(mask, 1)
-		# mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
-		indx = torch.multinomial(mask, 1).squeeze()
 	lin = torch.arange(0,bs)
 	boards_pred_taken = boards_pred[lin,indx,:,:].detach().squeeze().cpu().numpy()
 	contradiction = can_guess * \
 		(1-torch.clip(torch.sum(reward_pred[:,4:13] > 0, 1), 0, 1))
-	# you only get a contradiction after making a bad guess..
+	# detect a contradiction when the square is empty = can_guess is True,
+	# but there are no actions expected to result in reward.
+	# would be nice if maybe this was not hard-coded..
 	reward_pred_taken = reward_pred[lin,indx]
 	reward_pred_taken = reward_pred_taken - 100*contradiction # end of game!
 	reward_np = reward_pred_taken
@@ -639,30 +634,37 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 		av_t = action_values[indx[j]]
 		an_taken = ANode(at_t, av_t, reward_np[j], boards_pred_taken[j,:,:32].squeeze(), time)
 		action_nodes[j].addKid(an_taken)
-		action_node_new.append(an_taken)
+		action_node_new.append(an_taken) # return value of new nodes.
 		if indx[j] >= 4 and indx[j] < 13: # was a guess (!contradiction)
-			valid_guesses[j,indx[j]-4] = False
+			valid_guesses[j,indx[j]-4] = False # remove this option
 			for m in range(9): 
 				if valid_guesses[j,m]: 
-					# store the node & its board encoding.
+					# store the node & its board encoding,
+					#   for later backtracking
+					# offset 4 is to skip the move actions.
 					at = action_types[m+4]
 					av = action_values[m+4]
 					an = ANode(at, av, reward_pred[j,m+4], boards_pred[j,m+4,:,:32].cpu().numpy().squeeze(), time)
 					action_nodes[j].addKid(an)
 		if j == 0: 
 			print(f"{time} action {getActionName(at_t)} {av_t} reward {reward_np[0].item()}")
+			if contradicton[0] > 0.5:
+				color = "red"
+			else:
+				color = "black"
+			print(colored(f"contradiction {contradiction[0].item()}", color), end=" ")
+			print(f"sum_contra {sum_contradiction[0].item()}", end=" ")
 			if is_done[0]:
 				color = "green"
 			else:
 				color = "black"
-			print(f"contradiction {contradiction[0].item()} sum_contra {sum_contradiction[0].item()}", end=" ")
 			print(colored(f"is_done {is_done[0]}", color))
 			sparse_encoding.decodeNodes(indent, boards_pred_taken[0,:,:], locs)
 		
 	return boards_pred_taken, action_node_new, contradiction, is_done
 
 	
-def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
+def evaluateActionsBacktrack(model, mfun, puzzles, hcoo, nn):
 	bs = 96
 	pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
 	anode_list = []
@@ -695,7 +697,7 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 		rollout_nodes = [[None for k in range(bs)] for _ in range(duration)]
 		for time in range(duration-1): 
 			with torch.no_grad(): 
-				board_new, action_node_new, contradiction, is_done = evaluateActions(model, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
+				board_new, action_node_new, contradiction, is_done = evaluateActions(model, mfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
 				sum_contradiction = sum_contradiction + contradiction.cpu()
 			board = board_new
 			# root_nodes[0].print("")
@@ -716,7 +718,7 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 						altern = an.getAltern()
 					if len(altern) == 0:
 						pdb.set_trace() # puzzle must be solvable!
-					# probably should sort by reward here. meh.
+					# probably should sort by reward here. meh, take the first one.
 					action_nodes[k] = altern[0]
 					board[k,:,:32] = altern[0].board_enc
 					board[k,:,32:] = 0.0 # jic
@@ -733,6 +735,9 @@ def evaluateActionsBacktrack(model, qfun, puzzles, hcoo, nn):
 				rollouts_action[j+1,k, 1] = rollout_nodes[j+1][k].action_value
 				rollouts_parent[j+1,k] = rollout_nodes[j+1][k].getParent().index
 
+		# in these files, the board is the state resulting from the action.
+		# likewise for reward, which is updated through rollouts.
+		# parent indexes the board prior the action.
 		torch.save(rollouts_board, f'rollouts/rollouts_board_{n}.pt')
 		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{n}.pt')
 		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pt')
@@ -884,11 +889,16 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, mode=0).to(device) 
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=3, mode=0).to(device)
 	model.printParamCount()
 	
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=2, n_layers=2, mode=0).to(device)
-	qfun.printParamCount()
+	# movement predictor
+	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=2, n_layers=2, repeat=1, mode=0).to(device)
+	mfun.printParamCount()
+
+	# qfun predictor
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4, repeat=2, mode=0).to(device)
+	mfun.printParamCount()
 
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
@@ -908,31 +918,32 @@ if __name__ == '__main__':
 			print(colored(latest_file, "green"))
 			model.load_checkpoint(latest_file)
 			print(colored("loaded model checkpoint", "blue"))
-			# do the same for the qfunction
-			files = glob.glob(os.path.join(checkpoint_dir, 'q*'))
+			# do the same for the mfun
+			files = glob.glob(os.path.join(checkpoint_dir, 'mouse*'))
 			# files = [os.path.join(checkpoint_dir, f) for f in files]
 			# Filter out directories and only keep files
 			files = [f for f in files if os.path.isfile(f)]
 			if not files:
-				raise ValueError("No qfun found in the checkpoint directory")
+				raise ValueError("No mfun parameters found in the checkpoint directory")
 			# Find the most recently modified file
 			latest_file = max(files, key=os.path.getmtime)
 			print(colored(latest_file, "green"))
-			qfun.load_checkpoint(latest_file)
-			print(colored("loaded qfun checkpoint", "blue"))
+			mfun.load_checkpoint(latest_file)
+			print(colored("loaded mfun checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
 			print(colored(f"could not load model checkpoint {error}", "red"))
 
 	if cmd_args.e: 
 		instance = cmd_args.r
-		anode_list = evaluateActionsBacktrack(model, qfun, puzzles, hcoo, 319)
+		anode_list = evaluateActionsBacktrack(model, mfun, puzzles, hcoo, 319)
 				
 	if cmd_args.m:
 		bs = 96
-		nn = 1010
+		nn = 1200
 		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
-		optimizer = getOptimizer(optimizer_name, qfun)
+
+		optimizer = getOptimizer(optimizer_name, mfun)
 
 		# get the locations of the board nodes.
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
@@ -943,15 +954,16 @@ if __name__ == '__main__':
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
+		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 100000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
 
 	if cmd_args.q: 
 		bs = 96
-		nfiles = 47
+		nfiles = 10
 		rollouts_board = torch.zeros(duration, bs*nfiles, token_cnt, 32, dtype=torch.float16)
+		# rollouts_parent_board = torch.zeros_like(rollouts_board)
 		rollouts_reward = torch.zeros(duration, bs*nfiles)
 		rollouts_action = torch.zeros(duration, bs*nfiles, 2, dtype=int)
-		rollouts_parent = torch.zeros(duration, bs*nfiles, dtype=int)
+		# rollouts_parent = torch.zeros(duration, bs*nfiles, dtype=int)
 		
 		for i in range(nfiles): 
 			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt')
@@ -961,67 +973,36 @@ if __name__ == '__main__':
 			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
 			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward
 			rollouts_action[:,bs*i:bs*(i+1),:] = r_action
-			rollouts_parent[:,bs*i:bs*(i+1)] = r_parent
+			# for j in range(duration):
+			# 	pdb.set_trace()
+			# 	rollouts_parent_board[j,bs*i:bs*(i+1),:,:] = r_board[r_parent[j,:],:,:,:] # this ought to work across bs
 			
 		plt.plot(rollouts_reward[:, 0:10].numpy())
 		plt.show()
-		
-		# positive control: train a policy that moves purposefully to unfilled squares. 
-		# reward is 5 - # of moves to reward. 
-		good_move = rollouts_reward > 4.5
-		local_move = torch.zeros_like(good_move)
-		local_move[1:,:] = rollouts_parent[1:,:] - rollouts_parent[:-1,:] == 1
-		good_move = good_move * local_move 
-		notgood_move = torch.logical_not( good_move )
-		running_reward = torch.zeros(bs*nfiles)
-		ro_running_reward = torch.zeros_like(rollouts_reward)
-		for time in range(duration-1, 1, -1): 
-			running_reward[good_move[time, :]] = 5.0
-			running_reward[notgood_move[time, :]] = running_reward[notgood_move[time, :]] - 0.5
-			ro_running_reward[time, :] = running_reward
-			
-		plt.plot(ro_running_reward[:, 0:10].numpy())
-		plt.show()
-		
-		# need to filter episodes to include only valid cursor movements
+
+		# flatten to get uniform actions
+		pdb.set_trace()
 		rollouts_board = rollouts_board.reshape(duration*bs*nfiles, token_cnt, 32)
+		# rollouts_parent_board = rollouts_parent_board.reshape(duration*bs*nfiles, token_cnt, 32)
+		rollouts_reward = rollouts_reward.reshape(duration*bs*nfiles)
 		rollouts_action = rollouts_action.reshape(duration*bs*nfiles, 2)
-		ro_running_reward = ro_running_reward.reshape(duration*bs*nfiles)
-		indx = torch.nonzero(ro_running_reward >= -5.0).squeeze()
-		rollouts_board = rollouts_board[indx, :,:]
-		rollouts_action = rollouts_action[indx, :]
-		ro_running_reward = ro_running_reward[indx]
-			
-		# # plot one of the reward backward cumsums. no discount!
-		# ro_reward_sum = torch.cumsum(torch.flip(rollouts_reward, [0,]), 0)
-		# ro_reward_sum = torch.flip(ro_reward_sum, [0,])
-		# reward_mean = torch.sum(ro_reward_sum, 1) / (bs*nfiles)
-		# ro_reward_sum_zs = ro_reward_sum - \
-		# 	reward_mean.unsqueeze(1).expand(-1,bs*nfiles)
-		# # calculate the standard deviation too
-		# reward_std = torch.sqrt(torch.sum(ro_reward_sum_zs**2,1)/(bs*nfiles))
-		# ro_reward_sum_zs = ro_reward_sum_zs / \
-		# 	( reward_std.unsqueeze(1).expand(-1,bs*nfiles) + 1)
-		# for i in range(2):
-		# 	fig,axs = plt.subplots(3,1,figsize=(12,14))
-		# 	indx = torch.randint(0, bs*nfiles, (10,))
-		# 	axs[0].plot(reward_mean.numpy(), 'ko')
-		# 	axs[0].plot(reward_std.numpy(), 'k-')
-		# 	axs[0].set_title('mean and std of reward')
-		# 	axs[1].plot(ro_reward_sum[:,indx].numpy())
-		# 	axs[1].set_title('z-scored reward')
-		# 	axs[2].plot(ro_reward_sum_zs[:,indx].numpy())
-		# 	axs[2].set_title('z-scored reward')
-		# 	plt.show()
-			
+
+		# need to select only guess actions --
+		# the moves are handled by mouseizer.
+		guess_index = (rollouts_action[:,0] == 8).nonzero()
+		rollouts_board = rollouts_board[guess_index, :, :]
+		# rollouts_parent_board = rollouts_parent_board[guess_index, :, :]
+		rollouts_reward = rollouts_reward[guess_index]
+		rollouts_action = rollouts_action[guess_index,:]
+
 		optimizer = getOptimizer(optimizer_name, qfun)
-		
-		# get the locations of the board nodes. 
+
+		# get the locations of the board nodes.
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
-		
+
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, ro_running_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs)
+		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
 		
 	
 	uu = 0
