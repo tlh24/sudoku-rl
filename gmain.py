@@ -574,8 +574,14 @@ def evaluateActions(model, qfun, board, hcoo, depth, reward_loc, locs, time, sum
 	nact = len(action_types)
 	
 	# check if we could guess here = cursor loc has no clue or guess
-	_,cursor_loc = locs
+	# (the model predicts the can_guess flag)
+	board_loc,cursor_loc = locs
 	can_guess = torch.clip(board[:,cursor_loc,26+4].clone().squeeze(),0,1)
+	# puzzle is solved if all board_locs have either a clue or guess
+	pdb.set_trace()
+	board_locf = torch.reshape(board_loc, (81,))
+	clue_or_guess = torch.sum(boards[:,board_locf, 11:20] > 0.5, dim=2)
+	is_done = torch.prod(clue_or_guess, dim=1) > 0.5
 
 	# make a batch with the new actions & replicated boards
 	board = board.unsqueeze(1)
