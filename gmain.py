@@ -488,12 +488,13 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			nonlocal pred_data
 			if name == 'mouseizer':
 				qfun_boards,_,_ = qfun.forward(boards,None,0,None)
+				model_boards = qfun_boards # placeholder
 			else:
 				with torch.no_grad():
 					model_boards,_,_ = model.forward(boards,hcoo,0,None)
 				qfun_boards,_,_ = qfun.forward(model_boards,hcoo,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
-			pred_data = {'old_board':boards, 'new_board':qfun_boards, 'new_state_preds':qfun_boards,
+			pred_data = {'old_board':boards, 'new_board':model_boards.detach(), 'new_state_preds':qfun_boards.detach(),
 								'rewards': reward, 'reward_preds': reward_preds,
 								'w1':None, 'w2':None}
 			loss = torch.sum((reward - reward_preds)**2) + \
