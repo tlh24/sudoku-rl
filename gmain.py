@@ -989,7 +989,7 @@ if __name__ == '__main__':
 
 		# need to select only guess actions --
 		# the moves are handled by mouseizer.
-		guess_index = (rollouts_action[:,0] == 8).nonzero()
+		guess_index = (rollouts_action[:,0] == 4).nonzero()
 		rollouts_board = rollouts_board[guess_index, :, :]
 		# rollouts_parent_board = rollouts_parent_board[guess_index, :, :]
 		rollouts_reward = rollouts_reward[guess_index]
