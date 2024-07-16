@@ -11,7 +11,7 @@ g_globalatten = False
 g_dtype = torch.float32 # March 6: I can't get float16 to work stably.
 duration = 256 # length of rollouts
 
-batch_size = 64
+batch_size = 256
 
 # sudoku board size
 if False:

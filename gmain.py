@@ -489,7 +489,8 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 		def closure(): 
 			nonlocal pred_data
 			if name == 'mouseizer':
-				hcoo2 = hcoo
+				hcoo2 = hcoo # None works ok.
+				# initializing from the bare board does not work well..
 			else:
 				hcoo2 = hcoo
 			qfun_boards,_,_ = qfun.forward(model_boards,hcoo2,0,None)
@@ -852,8 +853,8 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 1800 
-	NUM_VALIDATE = batch_size * 300
+	NUM_TRAIN = batch_size * 1800 / 4
+	NUM_VALIDATE = batch_size * 300 / 4
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 100000
 	device = torch.device('cuda:0') 
@@ -902,10 +903,14 @@ if __name__ == '__main__':
 	
 	# movement predictor
 	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=2, n_layers=4, repeat=2, mode=0).to(device)
+	# seems like a sharp transition?
 	mfun.printParamCount()
+	# mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4 repeat=1, mode=0).to(device)
+	# works ok - does not converge but gets reasonable loss.
+	# this is an all-to-all transformer; see line 492
 
 	# qfun predictor
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=12, repeat=3, mode=0).to(device)
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=8, n_layers=12, repeat=3, mode=0).to(device)
 	qfun.printParamCount()
 
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
