@@ -655,7 +655,7 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 					action_nodes[j].addKid(an)
 		if j == 0: 
 			print(f"{time} action {getActionName(at_t)} {av_t} reward {reward_np[0].item()}")
-			if contradicton[0] > 0.5:
+			if contradiction[0] > 0.5:
 				color = "red"
 			else:
 				color = "black"
