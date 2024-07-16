@@ -465,7 +465,8 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 		reward = rollouts_reward[indx].squeeze()
 		actions = rollouts_action[indx,:].squeeze()
 		
-		# expnd boards
+		# expand boards
+		pdb.set_trace()
 		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
