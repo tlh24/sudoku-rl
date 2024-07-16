@@ -465,7 +465,7 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 		reward = rollouts_reward[indx].squeeze()
 		actions = rollouts_action[indx,:].squeeze()
 		
-		# expnd boards
+		# expand boards
 		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
@@ -561,7 +561,7 @@ def plot_tensor(v, name, lo, hi):
 	axs.tick_params(bottom=True, top=True, left=True, right=True)
 	plt.show()
 	
-def evaluateActions(model, mfun, board, hcoo, depth, reward_loc, locs, time, sum_contradiction, action_nodes):
+def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, time, sum_contradiction, action_nodes):
 	# evaluate all the possible actions for a current board
 	# by running the forward transition model
 	# this will also predict reward per action
@@ -596,10 +596,13 @@ def evaluateActions(model, mfun, board, hcoo, depth, reward_loc, locs, time, sum
 	new_boards = new_boards.reshape(bs * nact, ntok, width)
 	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
 	mfun_pred,_,_ = mfun.forward(boards_pred,None,0,None)
+	qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
 
 	boards_pred = boards_pred.detach().reshape(bs, nact, ntok, width)
 	mfun_pred = mfun_pred.detach().reshape(bs, nact, ntok, width)
 	mfun_pred = mfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
+	qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
+	qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
 	reward_pred = boards_pred[:, :,reward_loc, 32+26].clone().squeeze()
 	# copy over the beginning structure - needed!
 	# this will have to be changed for longer-term memory TODO
@@ -611,6 +614,7 @@ def evaluateActions(model, mfun, board, hcoo, depth, reward_loc, locs, time, sum
 		# reward-weighted; if you can guess, generally do that.
 	valid_guesses = reward_pred[:,4:13] > 0
 	mask[:,0:4] = mfun_pred[:,0:4] * 2
+	pdb.set_trace()
 	mask = F.softmax(mask, 1)
 	# mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
 	indx = torch.multinomial(mask, 1).squeeze()
@@ -663,7 +667,7 @@ def evaluateActions(model, mfun, board, hcoo, depth, reward_loc, locs, time, sum
 	return boards_pred_taken, action_node_new, contradiction, is_done
 
 	
-def evaluateActionsBacktrack(model, mfun, puzzles, hcoo, nn):
+def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 	bs = 96
 	pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
 	anode_list = []
@@ -906,40 +910,38 @@ if __name__ == '__main__':
 		print(colored("not loading any model weights.", "blue"))
 	else:
 		try:
-			checkpoint_dir = 'checkpoints/'
-			files = glob.glob(os.path.join(checkpoint_dir, 'r*'))
-			# Filter out directories and only keep files
-			files = [f for f in files if os.path.isfile(f)]
-			if not files:
-				raise ValueError("No models found in the checkpoint directory")
-			# Find the most recently modified file
-			latest_file = max(files, key=os.path.getmtime)
-			print(colored(latest_file, "green"))
-			model.load_checkpoint(latest_file)
+			def getLatestFile(prefix):
+				checkpoint_dir = 'checkpoints/'
+				files = glob.glob(os.path.join(checkpoint_dir, 'r*'))
+				# Filter out directories and only keep files
+				files = [f for f in files if os.path.isfile(f)]
+				if not files:
+					raise ValueError("No models found in the checkpoint directory")
+				# Find the most recently modified file
+				latest_file = max(files, key=os.path.getmtime)
+				print(colored(latest_file, "green"))
+				return latest_file
+
+
+			model.load_checkpoint(getLatestFile("rac*"))
 			print(colored("loaded model checkpoint", "blue"))
-			# do the same for the mfun
-			files = glob.glob(os.path.join(checkpoint_dir, 'mouse*'))
-			# files = [os.path.join(checkpoint_dir, f) for f in files]
-			# Filter out directories and only keep files
-			files = [f for f in files if os.path.isfile(f)]
-			if not files:
-				raise ValueError("No mfun parameters found in the checkpoint directory")
-			# Find the most recently modified file
-			latest_file = max(files, key=os.path.getmtime)
-			print(colored(latest_file, "green"))
-			mfun.load_checkpoint(latest_file)
+
+			mfun.load_checkpoint(getLatestFile("mouse*"))
 			print(colored("loaded mfun checkpoint", "blue"))
+
+			qfun.load_checkpoint(getLatestFile("quail*"))
+			print(colored("loaded qfun checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
 			print(colored(f"could not load model checkpoint {error}", "red"))
 
 	if cmd_args.e: 
 		instance = cmd_args.r
-		anode_list = evaluateActionsBacktrack(model, mfun, puzzles, hcoo, 319)
+		anode_list = evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, 319)
 				
 	if cmd_args.m:
 		bs = 96
-		nn = 1010
+		nn = 1500
 		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
 
 		optimizer = getOptimizer(optimizer_name, mfun)
@@ -953,11 +955,11 @@ if __name__ == '__main__':
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 100000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
+		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 200000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
 
 	if cmd_args.q: 
 		bs = 96
-		nfiles = 10
+		nfiles = 80
 		rollouts_board = torch.zeros(duration, bs*nfiles, token_cnt, 32, dtype=torch.float16)
 		# rollouts_parent_board = torch.zeros_like(rollouts_board)
 		rollouts_reward = torch.zeros(duration, bs*nfiles)
@@ -968,19 +970,18 @@ if __name__ == '__main__':
 			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt')
 			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt')
 			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt')
-			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt')
+			# r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt')
 			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
 			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward
 			rollouts_action[:,bs*i:bs*(i+1),:] = r_action
 			# for j in range(duration):
 			# 	pdb.set_trace()
 			# 	rollouts_parent_board[j,bs*i:bs*(i+1),:,:] = r_board[r_parent[j,:],:,:,:] # this ought to work across bs
-			
-		plt.plot(rollouts_reward[:, 0:10].numpy())
-		plt.show()
+			print(f"loaded rollouts/board - reward - action {i} .pt")
+		# plt.plot(rollouts_reward[:, 0:10].numpy())
+		# plt.show()
 
 		# flatten to get uniform actions
-		pdb.set_trace()
 		rollouts_board = rollouts_board.reshape(duration*bs*nfiles, token_cnt, 32)
 		# rollouts_parent_board = rollouts_parent_board.reshape(duration*bs*nfiles, token_cnt, 32)
 		rollouts_reward = rollouts_reward.reshape(duration*bs*nfiles)
@@ -988,7 +989,7 @@ if __name__ == '__main__':
 
 		# need to select only guess actions --
 		# the moves are handled by mouseizer.
-		guess_index = (rollouts_action[:,0] == 8).nonzero()
+		guess_index = (rollouts_action[:,0] == 4).nonzero().squeeze()
 		rollouts_board = rollouts_board[guess_index, :, :]
 		# rollouts_parent_board = rollouts_parent_board[guess_index, :, :]
 		rollouts_reward = rollouts_reward[guess_index]
@@ -1001,7 +1002,7 @@ if __name__ == '__main__':
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 100000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
+		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 200000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
 		
 	
 	uu = 0

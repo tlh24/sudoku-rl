@@ -82,6 +82,6 @@ while True:
 	fig.tight_layout()
 	fig.canvas.draw()
 	fig.canvas.flush_events()
-	time.sleep(1.5)
+	time.sleep(5)
 	print("tock")
 	#plt.show()
