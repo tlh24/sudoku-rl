@@ -910,7 +910,7 @@ if __name__ == '__main__':
 	# this is an all-to-all transformer; see line 492
 
 	# qfun predictor
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=8, n_layers=12, repeat=3, mode=0).to(device)
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=12, n_layers=16, repeat=3, mode=0).to(device)
 	qfun.printParamCount()
 
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
