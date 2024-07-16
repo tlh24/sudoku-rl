@@ -969,16 +969,16 @@ if __name__ == '__main__':
 			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt')
 			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt')
 			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt')
-			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt')
+			# r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt')
 			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
 			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward
 			rollouts_action[:,bs*i:bs*(i+1),:] = r_action
 			# for j in range(duration):
 			# 	pdb.set_trace()
 			# 	rollouts_parent_board[j,bs*i:bs*(i+1),:,:] = r_board[r_parent[j,:],:,:,:] # this ought to work across bs
-			
-		plt.plot(rollouts_reward[:, 0:10].numpy())
-		plt.show()
+			print(f"loaded rollouts/board - reward - action {i} .pt")
+		# plt.plot(rollouts_reward[:, 0:10].numpy())
+		# plt.show()
 
 		# flatten to get uniform actions
 		pdb.set_trace()
