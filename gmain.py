@@ -483,18 +483,18 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			
 		boards = boards.cuda()
 		reward = reward.cuda()
+		with torch.no_grad():
+			model_boards,_,_ = model.forward(boards,hcoo,0,None)
 			
 		def closure(): 
 			nonlocal pred_data
 			if name == 'mouseizer':
-				qfun_boards,_,_ = qfun.forward(boards,None,0,None)
-				model_boards = qfun_boards # placeholder
+				hcoo2 = hcoo
 			else:
-				with torch.no_grad():
-					model_boards,_,_ = model.forward(boards,hcoo,0,None)
-				qfun_boards,_,_ = qfun.forward(model_boards,hcoo,0,None)
+				hcoo2 = hcoo
+			qfun_boards,_,_ = qfun.forward(model_boards,hcoo2,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
-			pred_data = {'old_board':boards, 'new_board':model_boards.detach(), 'new_state_preds':qfun_boards.detach(),
+			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
 								'rewards': reward, 'reward_preds': reward_preds,
 								'w1':None, 'w2':None}
 			loss = torch.sum((reward - reward_preds)**2) + \
@@ -900,7 +900,7 @@ if __name__ == '__main__':
 	model.printParamCount()
 	
 	# movement predictor
-	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4, repeat=1, mode=0).to(device)
+	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=2, n_layers=4, repeat=2, mode=0).to(device)
 	mfun.printParamCount()
 
 	# qfun predictor
