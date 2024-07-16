@@ -4,6 +4,7 @@ import pdb
 import matplotlib.pyplot as plt
 import time
 import os
+import argparse
 # import sklearn
 
 # remove menubar buttons
@@ -20,6 +21,10 @@ current_directory = os.getcwd()
 base_dir = os.path.basename(current_directory)
 fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
+parser = argparse.ArgumentParser(description="Train sudoku world model")
+parser.add_argument('-t', action='store_true', help='plot test_gtrans')
+cmd_args = parser.parse_args()
+
 def slidingWindowR2(x, y, window_size, stride):
 	n = len(x)
 	r2_values = []
@@ -34,7 +39,10 @@ def slidingWindowR2(x, y, window_size, stride):
 
 
 while True: 
-	with open("losslog.txt", 'r') as x:
+	fname = "losslog.txt"
+	if cmd_args.t:
+		fname = "test_gtrans/losslog.txt"
+	with open(fname, 'r') as x:
 		data = list(csv.reader(x, delimiter="\t"))
 	data = np.array(data)
 	data = data.astype(float)

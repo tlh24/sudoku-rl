@@ -13,9 +13,12 @@ import pdb
 import psgd 
 import time
 
-npos = 10
-ntok = npos + 4
-width = 10
+# this is a 2d version of test_gtrans2
+
+npos = 3
+npos2 = npos*npos
+ntok = npos2 + 4
+width = 16
 sample_size = 128 # sample_size target values for 782 unknowns! 
 
 class QuickGELU(nn.Module):
@@ -39,34 +42,43 @@ class LinearM(nn.Module):
 
 def genData(nn): 
 	y = torch.zeros(nn, ntok, width)
-	target = torch.zeros(nn)
-	lin = torch.arange(0,npos)
-	x = torch.zeros(npos, width)
+	target = torch.zeros(nn,2)
+	lin = torch.arange(0,npos2)
+	x = torch.zeros(npos2, width)
+	posx = torch.arange(0,npos).unsqueeze(1).tile(1,npos)
+	posy = torch.arange(0,npos).unsqueeze(0).tile(npos,1)
+	pos = torch.zeros(npos, npos, 2)
+	pos[:,:,0] = posx
+	pos[:,:,1] = posy
+	pos = torch.reshape(pos, (npos2,2))
 	# binary encoding of the digits.  
 	x[:,0] = (lin % 2) * 10
 	x[:,1] = ((lin//2) % 2) * 10
 	x[:,2] = ((lin//4) % 2) * 10
 	x[:,3] = ((lin//8) % 2) * 10
+	x[:,4] = ((lin//16) % 2) * 10
 	for n in range(nn): 
 		# shuffle tokens
-		indx = torch.randperm(npos)
+		indx = torch.randperm(npos2)
 		# print(indx)
 		# indx = torch.arange(0,npos) # should not matter. 
-		y[n,0:npos,:] = x[indx, :]
+		y[n,0:npos2,:] = x[indx, :]
 		# add positional encoding
-		y[n,0:npos,4] = lin
-		y[n,0:npos,5] = 10 # search over these
-		curs = np.random.randint(0,npos)
+		y[n,0:npos2,5:7] = pos
+		y[n,0:npos2,7] = 10 # search over these
+		curs = np.random.randint(0,npos, (2,))
 		# print("cursor",curs)
-		y[n,npos,4] = curs
-		y[n,npos,6] = 10 # cursor token
-		y[n,npos+1,7] = 10 # spare token?
-		y[n,npos+2,8] = 10 # spare token?
-		y[n,npos+3,9] = 10 # reward token / target
+		y[n,npos2,5] = curs[0]
+		y[n,npos2,6] = curs[1]
+		y[n,npos2,8] = 10 # cursor token
+		y[n,npos2+1,9] = 10 # spare token?
+		y[n,npos2+2,10] = 10 # spare token?
+		y[n,npos2+3,11] = 10 # reward token / target
 		
 		# distance output on y[:,-1,4]
-		target[n] = abs(curs - torch.argmin(indx)) # we're matching to the zero digit. 
-		# target[n] = curs - torch.argmin(indx)
+		zero_indx = torch.argmin(indx)
+		target[n,0] = torch.abs(pos[zero_indx,0] - curs[0])
+		target[n,1] = torch.abs(pos[zero_indx,1] - curs[1])
 	return y,target
 	
 	
@@ -280,14 +292,14 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	sample_size = cmd_args.b
 	
-	if False:
+	if True:
 		fig,axs = plt.subplots(3, 3, figsize=(20,20))
 		for i in range(3): 
 			for j in range(3):
 				y,target = genData(1)
 				im = axs[i,j].imshow(y.squeeze().numpy())
 				plt.colorbar(im, ax = axs[i,j])
-				axs[i,j].set_title(f"target:{target.item()}")
+				axs[i,j].set_title(f"target:{target[0,0].item()},{target[0,1].item()}")
 		plt.show()
 	
 	
@@ -302,7 +314,7 @@ if __name__ == '__main__':
 		# model.fixedInit()
 		model = model.cuda(cmd_args.d)
 
-		use_adam = cmd_args.a
+		use_adam = False # cmd_args.a
 		
 		if use_adam:
 			optimizer = optim.AdamW(model.parameters(), lr=2e-3, amsgrad=True)
@@ -324,22 +336,19 @@ if __name__ == '__main__':
 		slowloss = 1e6
 		slowdeltaloss = 1
 		
-		for i in range(15000):
-			indx = torch.randperm(sample_size)[:32]
-			xx = x[indx,:,:]
-			targetx = target[indx]
+		for i in range(150000): # fixme: 15000
 			if use_adam:
-				y = model(xx)
-				loss = torch.sum( (y[:,-1,-1] - targetx)**2 )
+				y = model(x)
+				loss = torch.sum( (y[:,-1,14:16] - target)**2 )
 				torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 				loss.backward()
 				optimizer.step()
 			else: 
 				def closure(): 
-					y = model(xx)
-					loss = torch.sum( (y[:,-1,-1] - targetx)**2 ) + \
+					y = model(x)
+					loss = torch.sum( (y[:,-1,14] - target[:,0])**2 ) + \
 							sum( \
-							[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
+							[torch.sum(2.5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
 					return loss
 				loss = optimizer.step(closure) 
 			lloss = loss.detach().cpu().item()
@@ -365,7 +374,7 @@ if __name__ == '__main__':
 		x = x.cuda(cmd_args.d)
 		target = target.cuda(cmd_args.d)
 		y = model(x)
-		loss = torch.sum( (y[:,-1,-1] - target)**2 )
+		loss = torch.sum( (y[:,-1,14:16] - target)**2 )
 		lloss = loss.detach().cpu().item()
 		print("v",lloss)
 		fd_losslog.write(f'{i}\t{lloss}\t{0.0}\n')
