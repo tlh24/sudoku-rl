@@ -503,9 +503,10 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 		
 		loss = optimizer.step(closure)
 		lloss = loss.detach().cpu().item()
-		print(lloss)
 		args["fd_losslog"].write(f'{uu}\t{lloss}\n')
 		args["fd_losslog"].flush()
+		if uu % 10 == 9:
+			print(lloss)
 		if uu % 25 == 0:
 			updateMemory(memory_dict, pred_data)
 			
