@@ -904,7 +904,7 @@ if __name__ == '__main__':
 	mfun.printParamCount()
 
 	# qfun predictor
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=3, mode=0).to(device)
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=12, repeat=3, mode=0).to(device)
 	qfun.printParamCount()
 
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
