@@ -488,7 +488,7 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			
 		def closure(): 
 			nonlocal pred_data
-			qfun_boards,_,_ = qfun.forward(model_boards,None,0,None)
+			qfun_boards,_,_ = qfun.forward(model_boards,hcoo,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
 			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
 								'rewards': reward, 'reward_preds': reward_preds,
@@ -900,7 +900,7 @@ if __name__ == '__main__':
 	mfun.printParamCount()
 
 	# qfun predictor
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4, repeat=2, mode=0).to(device)
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=3, mode=0).to(device)
 	qfun.printParamCount()
 
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
@@ -955,11 +955,12 @@ if __name__ == '__main__':
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 200000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
+		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 200000, memory_dict, model, mfun, None, reward_loc, locs, "mouseizer")
+		# note: no hcoo; only all-to-all attention
 
 	if cmd_args.q: 
 		bs = 96
-		nfiles = 80
+		nfiles = 89
 		rollouts_board = torch.zeros(duration, bs*nfiles, token_cnt, 32, dtype=torch.float16)
 		# rollouts_parent_board = torch.zeros_like(rollouts_board)
 		rollouts_reward = torch.zeros(duration, bs*nfiles)
@@ -993,6 +994,7 @@ if __name__ == '__main__':
 		rollouts_board = rollouts_board[guess_index, :, :]
 		# rollouts_parent_board = rollouts_parent_board[guess_index, :, :]
 		rollouts_reward = rollouts_reward[guess_index]
+		rollouts_reward = torch.clip(rollouts_reward, -15, 5)
 		rollouts_action = rollouts_action[guess_index,:]
 
 		optimizer = getOptimizer(optimizer_name, qfun)
