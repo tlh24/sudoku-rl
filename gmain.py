@@ -700,7 +700,7 @@ def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 		rollout_nodes = [[None for k in range(bs)] for _ in range(duration)]
 		for time in range(duration-1): 
 			with torch.no_grad(): 
-				board_new, action_node_new, contradiction, is_done = evaluateActions(model, mfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
+				board_new, action_node_new, contradiction, is_done = evaluateActions(model, mfun, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
 				sum_contradiction = sum_contradiction + contradiction.cpu()
 			board = board_new
 			# root_nodes[0].print("")
@@ -912,7 +912,7 @@ if __name__ == '__main__':
 		try:
 			def getLatestFile(prefix):
 				checkpoint_dir = 'checkpoints/'
-				files = glob.glob(os.path.join(checkpoint_dir, 'r*'))
+				files = glob.glob(os.path.join(checkpoint_dir, prefix))
 				# Filter out directories and only keep files
 				files = [f for f in files if os.path.isfile(f)]
 				if not files:
