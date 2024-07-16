@@ -853,8 +853,8 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
-	NUM_TRAIN = batch_size * 1800 / 4
-	NUM_VALIDATE = batch_size * 300 / 4
+	NUM_TRAIN = batch_size * 1800 // 4
+	NUM_VALIDATE = batch_size * 300 // 4
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
 	NUM_ITERS = 100000
 	device = torch.device('cuda:0') 
