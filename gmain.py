@@ -958,7 +958,7 @@ if __name__ == '__main__':
 
 	if cmd_args.q: 
 		bs = 96
-		nfiles = 10
+		nfiles = 80
 		rollouts_board = torch.zeros(duration, bs*nfiles, token_cnt, 32, dtype=torch.float16)
 		# rollouts_parent_board = torch.zeros_like(rollouts_board)
 		rollouts_reward = torch.zeros(duration, bs*nfiles)
