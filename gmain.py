@@ -892,7 +892,7 @@ if __name__ == '__main__':
 	model.printParamCount()
 	
 	# movement predictor
-	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=2, n_layers=2, repeat=1, mode=0).to(device)
+	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=2, repeat=2, mode=0).to(device)
 	mfun.printParamCount()
 
 	# qfun predictor
