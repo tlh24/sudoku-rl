@@ -483,16 +483,15 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			
 		boards = boards.cuda()
 		reward = reward.cuda()
-		with torch.no_grad(): 
-			model_boards,_,_ = model.forward(boards,hcoo,0,None)
 			
 		def closure(): 
 			nonlocal pred_data
 			if name == 'mouseizer':
-				hcoo2 = None
+				qfun_boards,_,_ = qfun.forward(boards,None,0,None)
 			else:
-				hcoo2 = hcoo
-			qfun_boards,_,_ = qfun.forward(model_boards,hcoo2,0,None)
+				with torch.no_grad():
+					model_boards,_,_ = model.forward(boards,hcoo,0,None)
+				qfun_boards,_,_ = qfun.forward(model_boards,hcoo,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
 			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
 								'rewards': reward, 'reward_preds': reward_preds,
