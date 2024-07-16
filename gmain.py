@@ -488,7 +488,11 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			
 		def closure(): 
 			nonlocal pred_data
-			qfun_boards,_,_ = qfun.forward(model_boards,hcoo,0,None)
+			if name == 'mouseizer':
+				hcoo2 = None
+			else:
+				hcoo2 = hcoo
+			qfun_boards,_,_ = qfun.forward(model_boards,hcoo2,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
 			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
 								'rewards': reward, 'reward_preds': reward_preds,
@@ -955,7 +959,7 @@ if __name__ == '__main__':
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 200000, memory_dict, model, mfun, None, reward_loc, locs, "mouseizer")
+		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 200000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
 		# note: no hcoo; only all-to-all attention
 
 	if cmd_args.q: 
