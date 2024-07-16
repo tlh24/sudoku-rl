@@ -618,7 +618,7 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 		# reward-weighted; if you can guess, generally do that.
 	valid_guesses = reward_pred[:,4:13] > 0
 	mask[:,0:4] = mfun_pred[:,0:4] * 2
-	pdb.set_trace()
+	mask[:,4:] = mask[:,4:] + qfun_pred[:,4:] # add before sm -> multiply
 	mask = F.softmax(mask, 1)
 	# mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
 	indx = torch.multinomial(mask, 1).squeeze()
