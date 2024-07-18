@@ -8,6 +8,8 @@ import numpy as np
 import math
 import einops
 from einops.layers.torch import Rearrange
+from utils import apply_cond
+from tqdm import tqdm
 
 class Upsample1d(nn.Module):
     def __init__(self, dim):
@@ -163,9 +165,11 @@ class TemporalUnet(nn.Module):
             nn.Conv1d(dim, transition_dim, 1)
         )
 
-    def forward(self, x, cond, time):
+    def forward(self, x, time, cond):
         '''
         x: [batch x horizon x transition]
+        time: [batch,]
+
         returns: [batch x horizon]
         '''
 
@@ -173,6 +177,7 @@ class TemporalUnet(nn.Module):
         t = self.time_mlp(time)
 
         if self.cond_dim is not None and self.cond_dim > 0:
+            raise ValueError(f"should not have conditional info in diffusion training yet")
             # TODO: if doesn't work, add the decision diffuser masked bernoulli conditional code
             h = self.cond_mlp(cond)
             t = torch.cat([h,t], dim=-1)
@@ -200,10 +205,15 @@ class TemporalUnet(nn.Module):
         return x   
 
 class GaussianDiffusion(nn.Module):
-    def __init__(self, denoise_fn, timesteps):
+    def __init__(self, denoise_fn, timesteps, trans_dim=4):
+        '''
+        trans_dim: (int) The size of the vector corresponding to a particular timestep that is being diffused.
+            For state only, it is the dim of the state vector
+        ''' 
         super().__init__()
         self.denoise_fn = denoise_fn
         self.timesteps = timesteps
+        self.trans_dim = trans_dim
         ###
         # Diffusion Constants
         ###
@@ -224,6 +234,20 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
         self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod - 1)))
 
+        # calculations for posterior q(x_{t-1} | x_t, x_0)
+        posterior_variance = to_torch(betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod))
+        self.register_buffer('posterior_variance', posterior_variance)
+
+        ## log calculation clipped because the posterior variance
+        ## is 0 at the beginning of the diffusion chain
+        self.register_buffer('posterior_log_variance_clipped',
+            torch.log(torch.clamp(posterior_variance, min=1e-20)))
+        self.register_buffer('posterior_mean_coef1',
+            to_torch(betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod)))
+        self.register_buffer('posterior_mean_coef2',
+            to_torch((1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod)))
+
+
     @staticmethod 
     def cosine_beta_schedule(timesteps, s=0.008):
         '''
@@ -242,17 +266,103 @@ class GaussianDiffusion(nn.Module):
         '''
         Given a batch of sequences of elements {a_t}, extracts all of the 
         a_t elements corresponding to number t  
+
+        t: (batch_size, )
         '''
         
         b, *_ = t.shape 
         out = a.gather(-1 ,t)
         return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
+    def predict_start_from_noise(self, x_t, t, noise):
+        return (
+            GaussianDiffusion.extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape)*x_t - 
+            GaussianDiffusion.extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)*noise
+        )
+
+    def q_posterior(self, x_start, x_t, t):
+        posterior_mean = (
+            GaussianDiffusion.extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
+            GaussianDiffusion.extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        )
+        posterior_variance = GaussianDiffusion.extract(self.posterior_variance, t, x_t.shape)
+        posterior_log_variance_clipped = GaussianDiffusion.extract(self.posterior_log_variance_clipped, t, x_t.shape)
+        return posterior_mean, posterior_variance, posterior_log_variance_clipped
+
+    def p_mean_variance(self, x, cond, t):
+        '''
+        x: the noisy input at time t 
+        t: (batch_size, ) torch.full of the int timestep t
+        cond: dictionary with key as timestep to replace, value is obs 
+        '''
+        #TODO: add conditioning information to noise prediction 
+        pred_noise = self.denoise_fn(x, t, cond=None)
+        x_recon = self.predict_start_from_noise(x, t=t, noise=pred_noise)
+
+        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start=x_recon, x_t=x, t=t)
+
+        return model_mean, posterior_variance, posterior_log_variance
+
+    
+    @torch.no_grad()
+    def p_sample(self, x, cond, timesteps):
+        '''
+        Return a one-step reverse diffused x
+        
+        x: the noisy input at time t
+        timesteps: (batch_size, ) torch.full of the int timestep t 
+        '''
+
+        num_envs = x.shape[0]
+        device = x.device
+
+        model_mean, _, model_log_variance = self.p_mean_variance(x=x, cond=cond, t=timesteps)
+        # TODO: can change to 0.1 as in replanner
+        # no noise when t == 0 
+        noise = 0.5*torch.randn_like(x) if timesteps[0] > 0 else 0 
+        pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
+
+        return pred_img
+        
+    
+    @torch.no_grad()
+    def p_sample_loop(self, shape, cond):
+        '''
+        Generates a plan based on the given condition dictionary
+
+        cond: (dict) key is timestep to replace, value is timestep state
+        shape: (num_envs, horizon, trans_dim)
+        '''
+        device = self.betas.device
+        num_envs = shape[0]
+        #TODO: if doesn't work delete the 0.5
+        start_x = 0.5*torch.randn(shape, device=device)
+        x = apply_cond(start_x, cond, self.trans_dim)
+
+        for t in tqdm(reversed(range(0, self.timesteps))):
+            timestep = torch.full((num_envs,), t, device=device, dtype=torch.long)
+            x = self.p_sample(x, cond, timestep)
+            x = apply_cond(x, cond, self.trans_dim)
+
+        return x
+
+    def conditional_sample(self, cond, horizon: int):
+        '''
+        cond: (dict) key is timestep to replace and value is the obs at that timestep to condition on 
+        horizon: (int) Length in timesteps of the plan to be generated
+        '''
+        device = self.betas.device
+        num_envs = len(cond[0])
+        sample_shape = (num_envs, horizon, self.trans_dim)
+        return self.p_sample_loop(sample_shape, cond)
+
+
     def q_sample(self, x_start, t, noise=None):
         '''
-        t: (batch_size,) A random integer timestep cloned batch_size times
-
         Returns a time-t noised version of x_start 
+        
+        x_start: (torch.Tensor) initial uncorrupted data
+        t: (batch_size,) A random integer timestep cloned batch_size times
         '''
         sample = (
             GaussianDiffusion.extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start + 
@@ -260,23 +370,64 @@ class GaussianDiffusion(nn.Module):
         )
         return sample   
 
-    def p_losses(self, obs, t, act=None):
+    def p_losses(self, x_start, batch_t):
         '''
-        t: (batch_size,) A random integer timestep cloned batch_size times
+        x_start: (torch.Tensor) initial uncorrupted data
+        batch_t: (batch_size,) A random integer timestep cloned batch_size times
         '''
-        x_start = obs 
         device = x_start.device 
-        noise = torch.randn(*x_start.size(), device=device)
-        x_noisy = self.q_sample(x_start=x_start,t=t,noise=noise)
-        x_recon = self.denoise_fn(x_noisy, x_start, t)
-        assert x_start.shape == x_recon.shape
+        noise = torch.randn_like(x_start, device=device)
+        x_noisy = self.q_sample(x_start=x_start,t=batch_t,noise=noise)
+        #TODO: figure out why diffuser applies conditioning to the x_noisy 
+        noise_hat = self.denoise_fn(x_noisy, batch_t, cond=None)
+        assert noise.shape == noise_hat.shape
         
-        loss = F.mse_loss(noise, x_recon)
+        loss = F.mse_loss(noise, noise_hat)
         return loss 
     
+    def forward(self, obs):
+        '''
+        Runs a training iteration of diffusion noise prediction and returns a loss 
 
-    def forward(self, obs, act):
+        obs: (torch.Tensor)
+        '''
+
         batch_size = obs.shape[0]
         device = obs.device 
-        t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
-        return self.p_losses(obs, t, act)
+        batch_t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
+        return self.p_losses(obs, batch_t)
+
+class InvKinematicsModel(nn.Module):
+    def __init__(self, obs_dim, action_dim, hidden_dim=256):
+        super().__init__()
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim 
+
+        self.model = nn.Sequential(
+            nn.Linear(2 * self.obs_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, self.action_dim)
+        )
+    
+    def compute_loss(self, obs, action):
+        '''
+        obs: (batch, horizon, obs_dim)
+        action: (batch, horizon, act_dim)
+        '''
+        x_t = obs[:, :-1]
+        x_t_1 = obs[:, 1:]
+        x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
+        x_comb_t = x_comb_t.reshape(-1, 2*self.obs_dim)
+        a_t = action[:,:-1].reshape(-1, self.action_dim)
+
+        predicted_action = self(x_comb_t)
+        return F.mse_loss(predicted_action, a_t)
+
+    def forward(self, x_comb):
+        '''
+        x_comb: (_, 2*obs_dim)
+        '''
+        return self.model(x_comb)
+

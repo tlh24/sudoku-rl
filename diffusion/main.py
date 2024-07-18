@@ -4,12 +4,13 @@ import torch
 from torch.utils.data import DataLoader
 import gym 
 from datasets.data import SequenceDataset 
-from model import TemporalUnet, GaussianDiffusion
+from model import TemporalUnet, GaussianDiffusion, InvKinematicsModel
 import pdb 
 import numpy as np 
 ENV_NAME = 'maze2d-large-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
+NUM_ENVS = 1
 
 def to_torch(x, dtype=None, device=None):
 	dtype = dtype or DTYPE
@@ -20,9 +21,10 @@ def to_torch(x, dtype=None, device=None):
 		return x.to(device).type(dtype)
 	return torch.tensor(x, dtype=dtype, device=device)
 
-def get_action(plan, t):
+def get_action(plan, t: int):
     '''
     plan: sequence of states from t = 0 to t_final
+    
     Returns the action at time t by calculating the difference in the x,y location 
     of plan[t+1] - plan[t]
     '''
@@ -30,28 +32,32 @@ def get_action(plan, t):
     plan = torch.flatten(plan)
     return plan[t+1][:2] - plan[t][:2]
 
-def eval(trainer, load_path, device, history_len = 20,):
+def eval(trainer, load_path, device, horizon, history_len = 20):
     #TODO: adapt the code for multiple envs and verify
     trainer.load(load_path)
     trainer.model.eval()
     env = gym.make(ENV_NAME)
-
-    obs_history = np.array([env.reset()[None]]) #start with obs shape (1,4)
+    pdb.set_trace()
+    obs_history = np.array([env.reset()[None] for _ in range(NUM_ENVS)]) # shape is (num_envs, num_timesteps, state_dim)
+ 
     episode_reward = 0
     finished = False 
     t = 0
     while not finished:
-        #TODO: check if normalizing already normalized does nothing
-        trainer.train_dataset.normalizers['observations'].normalize(obs_history)
+        norm_history = trainer.train_dataset.normalizers['observations'].normalize(obs_history[-history_len:]) 
+        conditions = {} # key is time step t to replace, value is state at timestep t  
+        for i in range(0, len(norm_history)):
+             conditions[i] = to_torch(norm_history[:, i], device)
         
-        # condition on the last history_len obs
-        conditions = {0: to_torch(obs_history[-history_len:], device)}
-        sample = trainer.model.conditional_sample(conditions)
+        sample = trainer.model.conditional_sample(conditions, horizon)
+        # generate action from normalized plan 
         unnormalized_sample = trainer.train_dataset.normalizers['observations'].unnormalize(sample)
         action = get_action(unnormalized_sample, t)
 
         obs, reward, done, _ = env.step(action)
         obs_history = np.append(obs_history, obs[None])
+        assert obs_history[0].shape == obs[None].shape
+        
         episode_reward += reward
         if done:    
             finished = True 
@@ -83,24 +89,24 @@ def main(args=None):
     obs_dim, act_dim = 4, 2 #hard-coded for maze2d
     unet = TemporalUnet(horizon=args.H, cond_dim = None, transition_dim=obs_dim, dim = 128, dim_mults=(1,2,4,8))
 
-    diffusion = GaussianDiffusion(unet, args.dsteps)
-
-
+    diffusion_model = GaussianDiffusion(unet, args.dsteps)
+    action_model = InvKinematicsModel() #TODO: add inverse kinematics model
+    models = {'diffusion': diffusion_model, 'inv_kinematics': action_model}
     ###
     #Train model
     ###
-    train_config = TrainerConfig()
-    trainer = Trainer(diffusion, dataset, train_config)
+    train_config = TrainerConfig(train_num_steps=500000)
+    trainer = Trainer(models, dataset, train_config)
     if args.train:
         trainer.train()
     else:
-        eval(trainer, SOMELOADPATH, device=SOMEDEVICE)
+        eval(trainer, "checkpoints/model-step-500000.pt", device=DEVICE, horizon=args.H)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--H', type=int, default=128, help='Horizon length')
     parser.add_argument('--dsteps', type=int, default=128, help='Num diffusion steps')
-    parser.add_argument('--train',type=bool, default=True, help="Should train diffusion or eval")
+    parser.add_argument('--train', action="store_true", help="Add flag to train diffusion or eval")
     args = parser.parse_args()
     main(args)
 

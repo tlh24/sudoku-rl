@@ -90,7 +90,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         Given the d4rl dataset, return list of episodes represented as a dictionary that contain obs, action, reward, terminals\
             timeouts arrays
         '''
-        dataset = self.datset
+        dataset = self.dataset
         episode_start_index = 0
         episodes_data = [] #store the episodes as dictionaries with key (str): value (array)
 
