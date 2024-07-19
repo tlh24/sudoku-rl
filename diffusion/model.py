@@ -388,7 +388,6 @@ class GaussianDiffusion(nn.Module):
     def forward(self, obs):
         '''
         Runs a training iteration of diffusion noise prediction and returns a loss 
-
         obs: (torch.Tensor)
         '''
 
@@ -402,7 +401,6 @@ class InvKinematicsModel(nn.Module):
         super().__init__()
         self.obs_dim = obs_dim
         self.action_dim = action_dim 
-
         self.model = nn.Sequential(
             nn.Linear(2 * self.obs_dim, hidden_dim),
             nn.ReLU(),
@@ -411,23 +409,48 @@ class InvKinematicsModel(nn.Module):
             nn.Linear(hidden_dim, self.action_dim)
         )
     
+    def get_combined_obs(self, obs):
+        '''
+        obs: (batch, horizon, obs_dim)
+        Returns (_, 2*obs_dim). This has batch_size*num_timesteps many [x_t, x_{t+1}]
+        vectors
+        '''
+        x_t = obs[:, :-1]
+        x_t_1 = obs[:, 1:]
+        #for every batch, at each timestep t, you have the obs as a concatenation of the x_t and x_{t+1}
+        x_comb_t = torch.cat([x_t, x_t_1], dim=-1) 
+        x_comb_t = x_comb_t.reshape(-1, 2*self.obs_dim)
+        return x_comb_t
+
+    def unflatten_output(self, pred_act):
+        '''
+        Re-shapes predicted action and returns in shape (batch, H, act_dim)
+
+        pred_act: (batch*H, act_dim) 
+        '''
+        return pred_act.reshape()
+
     def compute_loss(self, obs, action):
         '''
         obs: (batch, horizon, obs_dim)
         action: (batch, horizon, act_dim)
         '''
-        x_t = obs[:, :-1]
-        x_t_1 = obs[:, 1:]
-        x_comb_t = torch.cat([x_t, x_t_1], dim=-1)
-        x_comb_t = x_comb_t.reshape(-1, 2*self.obs_dim)
+        
         a_t = action[:,:-1].reshape(-1, self.action_dim)
-
+        x_comb_t = self.get_combined_obs(obs)
         predicted_action = self(x_comb_t)
+        assert predicted_action.shape == a_t.shape 
+        
         return F.mse_loss(predicted_action, a_t)
 
     def forward(self, x_comb):
         '''
-        x_comb: (_, 2*obs_dim)
+        x_comb: (_, 2*obs_dim). See compute_loss above. This has batch_size*num_timesteps many [x_t, x_{t+1}]
+        vectors
+
+        Returns (_, act_dim)
         '''
         return self.model(x_comb)
+
+    
 

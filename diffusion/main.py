@@ -32,10 +32,11 @@ def get_action(plan, t: int):
     plan = torch.flatten(plan)
     return plan[t+1][:2] - plan[t][:2]
 
-def eval(trainer, load_path, device, horizon, history_len = 20):
+def eval(trainer, diffusion_loadpath, ema_loadpath, inv_kin_loadpath, device, horizon, history_len=20):
     #TODO: adapt the code for multiple envs and verify
-    trainer.load(load_path)
-    trainer.model.eval()
+    trainer.load(diffusion_loadpath, ema_loadpath, inv_kin_loadpath)
+    for name, model in trainer.models.items():
+        model.eval()
     env = gym.make(ENV_NAME)
     pdb.set_trace()
     obs_history = np.array([env.reset()[None] for _ in range(NUM_ENVS)]) # shape is (num_envs, num_timesteps, state_dim)
@@ -49,11 +50,16 @@ def eval(trainer, load_path, device, horizon, history_len = 20):
         for i in range(0, len(norm_history)):
              conditions[i] = to_torch(norm_history[:, i], device)
         
-        sample = trainer.model.conditional_sample(conditions, horizon)
+        sample = trainer.models['diffusion'].conditional_sample(conditions, horizon)
         # generate action from normalized plan 
         unnormalized_sample = trainer.train_dataset.normalizers['observations'].unnormalize(sample)
-        action = get_action(unnormalized_sample, t)
-
+        
+        predicted_actions = trainer.models['inv_kinematics'](sample) #(batch*H, act_dim)
+        horizon, batch_size = trainer.config.horizon, trainer.config.batch_size
+        assert horizon*batch_size == predicted_actions.shape[0]
+        
+        predicted_actions = predicted_actions.reshape(batch_size, horizon, -1)
+        action = predicted_actions[t]
         obs, reward, done, _ = env.step(action)
         obs_history = np.append(obs_history, obs[None])
         assert obs_history[0].shape == obs[None].shape
@@ -90,23 +96,24 @@ def main(args=None):
     unet = TemporalUnet(horizon=args.H, cond_dim = None, transition_dim=obs_dim, dim = 128, dim_mults=(1,2,4,8))
 
     diffusion_model = GaussianDiffusion(unet, args.dsteps)
-    action_model = InvKinematicsModel() #TODO: add inverse kinematics model
+    action_model = InvKinematicsModel(obs_dim=obs_dim, action_dim=act_dim)
     models = {'diffusion': diffusion_model, 'inv_kinematics': action_model}
     ###
     #Train model
     ###
-    train_config = TrainerConfig(train_num_steps=500000)
+    train_config = TrainerConfig(train_num_steps=500000, train_inverse_kinematics=args.inv_kin, train_noise_prediction=not args.inv_kin, horizon=args.H)
     trainer = Trainer(models, dataset, train_config)
     if args.train:
         trainer.train()
     else:
-        eval(trainer, "checkpoints/model-step-500000.pt", device=DEVICE, horizon=args.H)
+        eval(trainer, "checkpoints/model-step-500000.pt", "checkpoints/ema-step-500001.pt", "checkpoints/inv_kin-step-205001.pt", device=DEVICE, horizon=args.H)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--H', type=int, default=128, help='Horizon length')
+    parser.add_argument('--H', type=int, default=128, help='Horizon length') #refers to both training horizon and generation horizon
     parser.add_argument('--dsteps', type=int, default=128, help='Num diffusion steps')
-    parser.add_argument('--train', action="store_true", help="Add flag to train diffusion or eval")
+    parser.add_argument('--train', action="store_true", help="Add flag to train or eval")
+    parser.add_argument('--inv_kin', action="store_true", help="Add flag to train inv_kinematics instead of diffusion")
     args = parser.parse_args()
     main(args)
 

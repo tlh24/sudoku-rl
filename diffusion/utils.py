@@ -34,12 +34,13 @@ class EMA():
 
 class TrainerConfig:
     batch_size = 32
+    horizon=128
     learning_rate = 2e-5
     train_num_steps = 1000000
     print_loss_num_steps = 1000 #print training loss every _ steps
-    save_model_num_steps = 10000
-    patience = 1000 # num of steps to wait and see if loss decreases
-    min_delta = 0.005 # how much loss needs to decrease by to update best_loss 
+    save_model_num_steps = 100000
+    patience = 50000 # num of steps to wait and see if loss decreases
+    min_delta = 0.001 # how much loss needs to decrease by to update best_loss 
     ema_decay = 0.995
     step_start_ema=2000
     update_ema_every=10
@@ -116,8 +117,7 @@ class Trainer:
                 total_loss += loss
             
             if self.config.train_inverse_kinematics:
-                #TODO: check that obs and act have same length. This means that act[0] corresponds to obs[0] and obs[1]
-                loss = self.models['action'].compute_loss(obs, act)
+                loss = self.models['inv_kinematics'].compute_loss(obs, act)
                 total_loss += loss 
             
             total_loss.backward()
@@ -131,13 +131,13 @@ class Trainer:
                     self.step_ema()
 
             if self.config.train_inverse_kinematics:
-                self.optimizers['action'].step() 
-                self.optimizers['action'].zero_grad()
+                self.optimizers['inv_kinematics'].step() 
+                self.optimizers['inv_kinematics'].zero_grad()
 
             if (self.step % self.print_loss_num_steps == 0):
                 current_loss = total_loss.cpu().item()
                 print(f"Training loss at batch step {self.step+1}: {current_loss:.4f}")
-                training_log.write(f"Batch {self.step+1}: {current_loss:.4f}")
+                training_log.write(f"Batch {self.step+1}: {current_loss:.4f}\n")
 
                 # early stopping check
                 if self.check_early_stopping(current_loss):
@@ -158,7 +158,7 @@ class Trainer:
             self.best_loss = current_loss
             self.patience_counter = 0
         else:
-            self.patience_counter += 1
+            self.patience_counter += self.print_loss_num_steps
             if self.patience_counter >= self.patience:
                 return True 
         return False 
@@ -171,8 +171,7 @@ class Trainer:
             torch.save(self.models['diffusion'].state_dict(), os.path.join(self.save_folder, f'diffusion-step-{step}.pt'))
             torch.save(self.ema_model.state_dict(), os.path.join(self.save_folder, f'ema-step-{step}.pt'))
         if self.config.train_inverse_kinematics:
-            torch.save(self.models['action'].state_dict(), os.path.join(self.save_folder, f'inv_kin-step-{step}.pt'))
-
+            torch.save(self.models['inv_kinematics'].state_dict(), os.path.join(self.save_folder, f'inv_kin-step-{step}.pt'))
 
     def load(self, diffusion_load_path, ema_load_path, inv_kin_load_path):
         #TODO: if loading model to continue training, need to also load the last saved time step
@@ -184,7 +183,7 @@ class Trainer:
             self.ema_model.load_state_dict(ema_state_dict)
         if inv_kin_load_path:
             inv_kin_state_dict = torch.load(inv_kin_load_path)
-            self.models['action'].load_state_dict(inv_kin_state_dict)
+            self.models['inv_kinematics'].load_state_dict(inv_kin_state_dict)
             
 
 def set_seed(seed, env = None):
