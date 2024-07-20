@@ -270,7 +270,7 @@ def main():
 	train_lab = train_lab.type(torch.LongTensor)
 	test_lab = test_lab.type(torch.LongTensor)
 
-	model = NetSimp(init_zeros = args.z).to(device)
+	model = NetSimp3(init_zeros = args.z).to(device)
 
 	optimizer = psgd.LRA(model.parameters(),lr_params=0.01,\
 			lr_preconditioner=0.01, momentum=0.9,\
