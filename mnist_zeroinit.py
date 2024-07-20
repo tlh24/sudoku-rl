@@ -210,6 +210,61 @@ class NetSimp4(nn.Module):
 		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
 		return output
 
+class NetSimpAE(nn.Module):
+	# a simple MLP with 3 layers
+	def __init__(self, init_zeros:bool):
+		super(NetSimpAE, self).__init__()
+		self.init_zeros = init_zeros
+		self.fc1 = nn.Linear(784, 256)
+		self.stn1 = StraightThroughNormal(256)
+		self.fc2 = nn.Linear(256, 48)
+		self.stn2 = StraightThroughNormal(48)
+		self.fc3 = nn.Linear(48, 256)
+		self.stn3 = StraightThroughNormal(256)
+		self.fc4 = nn.Linear(256, 784)
+
+		self.fco1 = nn.Linear(48, 20)
+		self.fco2 = nn.Linear(20, 10)
+		self.gelu = QuickGELU()
+		if init_zeros:
+			torch.nn.init.zeros_(self.fc1.weight)
+			torch.nn.init.zeros_(self.fc1.bias)
+			torch.nn.init.zeros_(self.fc2.weight)
+			torch.nn.init.zeros_(self.fc2.bias)
+			torch.nn.init.zeros_(self.fc3.weight)
+			torch.nn.init.zeros_(self.fc3.bias)
+			torch.nn.init.zeros_(self.fc4.weight)
+			torch.nn.init.zeros_(self.fc4.bias)
+
+			torch.nn.init.zeros_(self.fco1.weight)
+			torch.nn.init.zeros_(self.fco1.bias)
+			torch.nn.init.zeros_(self.fco2.weight)
+			torch.nn.init.zeros_(self.fco2.bias)
+
+	def forward(self, x):
+		x = torch.reshape(x, (-1, 1, 784))
+		x = self.fc1(x)
+		if self.init_zeros:
+			x = self.stn1(x, 0.01)
+		x = self.gelu(x)
+		x = self.fc2(x)
+		if self.init_zeros:
+			x = self.stn2(x, 0.01)
+		x = self.gelu(x)
+		y = x
+		x = self.fc3(x)
+		if self.init_zeros:
+			x = self.stn3(x, 0.01)
+		x = self.gelu(x)
+		x = self.fc4(x)
+
+		y = self.fco1(y)
+		y = self.gelu(y)
+		y = self.fco2(y)
+		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
+		x = x.reshape(-1,28,28)
+		return x, output.squeeze()
+
 
 
 def train(args, model, device, train_im, train_lab, optimizer, uu):
@@ -222,8 +277,8 @@ def train(args, model, device, train_im, train_lab, optimizer, uu):
 
 	if args.a:
 		optimizer.zero_grad()
-		output = model(images)
-		loss = F.nll_loss(output, labels)
+		x,output = model(images)
+		loss = F.nll_loss(output, labels) + torch.sum((x - images)**2) / 70
 		loss.backward()
 		optimizer.step()
 	else:
@@ -246,7 +301,7 @@ def test(model, device, test_im, test_lab):
 	with torch.no_grad():
 		test_im = test_im.to(device)
 		test_lab = test_lab.to(device)
-		output = model(test_im)
+		_,output = model(test_im)
 		test_loss = F.nll_loss(output, test_lab, reduction='sum').item()
 		pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
 		correct = pred.eq(test_lab.view_as(pred)).sum().item()
@@ -326,7 +381,7 @@ def main():
 	train_lab = train_lab.type(torch.LongTensor)
 	test_lab = test_lab.type(torch.LongTensor)
 
-	model = NetSimp2(init_zeros = args.z).to(device)
+	model = NetSimpAE(init_zeros = args.z).to(device)
 
 	if args.a:
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
