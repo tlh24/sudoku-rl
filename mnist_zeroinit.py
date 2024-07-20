@@ -232,12 +232,14 @@ def train(args, model, device, train_im, train_lab, optimizer, uu):
 			loss = F.nll_loss(output, labels)
 			return loss
 		loss = optimizer.step(closure)
-	if uu % 20 == 19:
-		if args.g:
+
+	if args.g:
+		if uu % 10 == 9:
 			lloss = loss.detach().cpu().item()
 			print(lloss)
-		else:
-			print(".", end="")
+	else:
+		if uu % 30 == 29:
+			print(".", end="", flush=True)
 
 
 def test(model, device, test_im, test_lab):
