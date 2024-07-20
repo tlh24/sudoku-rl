@@ -168,6 +168,49 @@ class NetSimp3(nn.Module):
 		torch.save(self.state_dict(), path)
 		print(f"saved checkpoint to {path}")
 
+class NetSimp4(nn.Module):
+	# a simple MLP with 3 layers
+	def __init__(self, init_zeros:bool):
+		super(NetSimp4, self).__init__()
+		self.init_zeros = init_zeros
+		self.fc1 = nn.Linear(784, 1500)
+		self.stn1 = StraightThroughNormal(1500)
+		self.fc2 = nn.Linear(1500, 384)
+		self.stn2 = StraightThroughNormal(384)
+		self.fc3 = nn.Linear(384, 96)
+		self.stn3 = StraightThroughNormal(96)
+		self.fc4 = nn.Linear(96, 10)
+		self.gelu = QuickGELU()
+		if init_zeros:
+			torch.nn.init.zeros_(self.fc1.weight)
+			torch.nn.init.zeros_(self.fc1.bias)
+			torch.nn.init.zeros_(self.fc2.weight)
+			torch.nn.init.zeros_(self.fc2.bias)
+			torch.nn.init.zeros_(self.fc3.weight)
+			torch.nn.init.zeros_(self.fc3.bias)
+			torch.nn.init.zeros_(self.fc4.weight)
+			torch.nn.init.zeros_(self.fc4.bias)
+
+	def forward(self, x):
+		x = torch.reshape(x, (-1, 1, 784))
+		x = self.fc1(x)
+		if self.init_zeros:
+			x = self.stn1(x, 0.01)
+		x = self.gelu(x)
+		x = self.fc2(x)
+		if self.init_zeros:
+			x = self.stn2(x, 0.01)
+		x = self.gelu(x)
+		x = self.fc3(x)
+		if self.init_zeros:
+			x = self.stn3(x, 0.01)
+		x = self.gelu(x)
+		x = self.fc4(x)
+		y = torch.squeeze(x)
+		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
+		return output
+
+
 
 def train(args, model, device, train_im, train_lab, optimizer, uu):
 	indx = torch.randperm(train_lab.shape[0])
@@ -189,9 +232,12 @@ def train(args, model, device, train_im, train_lab, optimizer, uu):
 			loss = F.nll_loss(output, labels)
 			return loss
 		loss = optimizer.step(closure)
-	if uu % 10 == 9:
-		lloss = loss.detach().cpu().item()
-		print(lloss)
+	if uu % 20 == 19:
+		if args.g:
+			lloss = loss.detach().cpu().item()
+			print(lloss)
+		else:
+			print(".", end="")
 
 
 def test(model, device, test_im, test_lab):
@@ -205,7 +251,7 @@ def test(model, device, test_im, test_lab):
 
 	test_loss /= test_im.shape[0]
 
-	print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+	print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
 		test_loss, correct, test_im.shape[0],
 		100. * correct / test_im.shape[0]))
 
@@ -227,6 +273,8 @@ def main():
 							help='Zero init')
 	parser.add_argument('-a', action='store_true', default=False,
 							help='use AdamW')
+	parser.add_argument('-g', action='store_true', default=False,
+							help='debug / print loss')
 	# parser.add_argument('--seed', type=int, default=1, metavar='S',
 	# 						help='random seed (default: 1)')
 
@@ -276,7 +324,7 @@ def main():
 	train_lab = train_lab.type(torch.LongTensor)
 	test_lab = test_lab.type(torch.LongTensor)
 
-	model = NetSimp3(init_zeros = args.z).to(device)
+	model = NetSimp4(init_zeros = args.z).to(device)
 
 	if args.a:
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
