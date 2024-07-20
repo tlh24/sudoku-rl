@@ -51,7 +51,7 @@ class STNFunction(torch.autograd.Function):
 		ac = torch.squeeze(activ)
 		ac = torch.exp(-5.0*ac)
 		s = torch.sum(ac)
-		ac[0] = s*25 # controls the probability of adding a new unit
+		ac[0] = s*999 # controls the probability of adding a new unit
 		# unit zero is hence never enabled.
 		# this causes scaling problems... meh.
 		r = torch.multinomial(ac, batch_size, replacement=True) # sample 1 row to activate, based on the probability distribution 'ac'.
