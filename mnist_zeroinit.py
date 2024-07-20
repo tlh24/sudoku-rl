@@ -177,12 +177,18 @@ def train(args, model, device, train_im, train_lab, optimizer, uu):
 	images = im.to(device)
 	labels = lab.to(device)
 
-	def closure():
+	if args.a:
+		optimizer.zero_grad()
 		output = model(images)
 		loss = F.nll_loss(output, labels)
-		return loss
-
-	loss = optimizer.step(closure)
+		loss.backward()
+		optimizer.step()
+	else:
+		def closure():
+			output = model(images)
+			loss = F.nll_loss(output, labels)
+			return loss
+		loss = optimizer.step(closure)
 	if uu % 10 == 9:
 		lloss = loss.detach().cpu().item()
 		print(lloss)
@@ -219,6 +225,8 @@ def main():
 							help='which CUDA device to use')
 	parser.add_argument('-z', action='store_true', default=False,
 							help='Zero init')
+	parser.add_argument('-a', action='store_true', default=False,
+							help='use AdamW')
 	# parser.add_argument('--seed', type=int, default=1, metavar='S',
 	# 						help='random seed (default: 1)')
 
@@ -270,7 +278,10 @@ def main():
 
 	model = NetSimp3(init_zeros = args.z).to(device)
 
-	optimizer = psgd.LRA(model.parameters(),lr_params=0.01,\
+	if args.a:
+		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
+	else:
+		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,\
 			lr_preconditioner=0.01, momentum=0.9,\
 			preconditioner_update_probability=0.1, \
 			exact_hessian_vector_product=False, \
