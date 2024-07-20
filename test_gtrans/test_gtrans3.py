@@ -13,11 +13,8 @@ import pdb
 import psgd 
 import time
 
-# this is a 2d version of test_gtrans2
-
-npos = 3
-npos2 = npos*npos
-ntok = npos2 + 4
+npos = 25
+ntok = npos + 4
 width = 16
 sample_size = 128 # sample_size target values for 782 unknowns! 
 
@@ -43,14 +40,8 @@ class LinearM(nn.Module):
 def genData(nn): 
 	y = torch.zeros(nn, ntok, width)
 	target = torch.zeros(nn,2)
-	lin = torch.arange(0,npos2)
-	x = torch.zeros(npos2, width)
-	posx = torch.arange(0,npos).unsqueeze(1).tile(1,npos)
-	posy = torch.arange(0,npos).unsqueeze(0).tile(npos,1)
-	pos = torch.zeros(npos, npos, 2)
-	pos[:,:,0] = posx
-	pos[:,:,1] = posy
-	pos = torch.reshape(pos, (npos2,2))
+	lin = torch.arange(0,npos)
+	x = torch.zeros(npos, width)
 	# binary encoding of the digits.  
 	x[:,0] = (lin % 2) * 10
 	x[:,1] = ((lin//2) % 2) * 10
@@ -59,26 +50,35 @@ def genData(nn):
 	x[:,4] = ((lin//16) % 2) * 10
 	for n in range(nn): 
 		# shuffle tokens
-		indx = torch.randperm(npos2)
+		indx = torch.randperm(npos)
 		# print(indx)
 		# indx = torch.arange(0,npos) # should not matter. 
-		y[n,0:npos2,:] = x[indx, :]
+		y[n,0:npos,:] = x[indx, :]
 		# add positional encoding
-		y[n,0:npos2,5:7] = pos
-		y[n,0:npos2,7] = 10 # search over these
-		curs = np.random.randint(0,npos, (2,))
+		noise = torch.randn(npos,2) * 0.1
+		y[n,0:npos,5] = torch.fmod(lin, 5) + noise[:,0]
+		y[n,0:npos,6] = torch.floor_divide(lin, 5) + noise[:,1]
+		# y[n,0:npos,12] = torch.fmod(lin, 4)
+		# y[n,0:npos,13] = torch.fmod(lin, 3)
+		# y[n,0:npos,14] = torch.fmod(lin, 6)
+		# y[n,0:npos,15] = torch.fmod(lin, 7)
+		y[n,0:npos,7] = 10 # search over these
+		c = np.random.randint(0,npos)
+		curs = torch.zeros(2)
+		curs[0] = c % 5
+		curs[1] = c // 5
 		# print("cursor",curs)
-		y[n,npos2,5] = curs[0]
-		y[n,npos2,6] = curs[1]
-		y[n,npos2,8] = 10 # cursor token
-		y[n,npos2+1,9] = 10 # spare token?
-		y[n,npos2+2,10] = 10 # spare token?
-		y[n,npos2+3,11] = 10 # reward token / target
+		y[n,npos,5] = curs[0]
+		y[n,npos,6] = curs[1]
+		y[n,npos,8] = 10 # cursor token
+		y[n,npos+1,9] = 10 # spare token?
+		y[n,npos+2,10] = 10 # spare token?
+		y[n,npos+3,11] = 10 # reward token / target
 		
-		# distance output on y[:,-1,4]
-		zero_indx = torch.argmin(indx)
-		target[n,0] = torch.abs(pos[zero_indx,0] - curs[0])
-		target[n,1] = torch.abs(pos[zero_indx,1] - curs[1])
+		zero = torch.argmin(indx)
+		target[n,0] = abs(curs[0] - ((zero % 5) + noise[zero,0]) ) # we're matching to the zero digit.
+		target[n,1] = abs(curs[1] - ((zero // 5) + noise[zero,1]) )
+		# target[n] = curs - torch.argmin(indx)
 	return y,target
 	
 	
@@ -100,8 +100,8 @@ class ResidualAttentionBlock(nn.Module):
 		self.fanout = LinearM(d_model, d_model * 1, False)
 		# self.fanin = LinearM(d_model*2, d_model, False) # this doesn't work?!
 		# self.gelu = QuickGELU()
-		self.gelu = nn.ReLU()
-		# self.gelu = nn.LeakyReLU()
+		# self.gelu = nn.ReLU()
+		self.gelu = nn.LeakyReLU()
 
 	def fixedInit(self):
 		with torch.no_grad():
@@ -292,10 +292,10 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	sample_size = cmd_args.b
 	
-	if True:
-		fig,axs = plt.subplots(3, 3, figsize=(20,20))
-		for i in range(3): 
-			for j in range(3):
+	if False:
+		fig,axs = plt.subplots(2, 2, figsize=(24,20))
+		for i in range(2):
+			for j in range(2):
 				y,target = genData(1)
 				im = axs[i,j].imshow(y.squeeze().numpy())
 				plt.colorbar(im, ax = axs[i,j])
@@ -306,7 +306,7 @@ if __name__ == '__main__':
 	start_time = time.time()
 	duration = 600
 	j = 0
-	while j < 200: 
+	while j < 1: # FIXME 200
 		
 		model = Transformer(d_model=width, layers=cmd_args.layers, repeat=1, n_head=cmd_args.heads, init_zeros=False)
 		model.printParamCount()
@@ -314,7 +314,7 @@ if __name__ == '__main__':
 		# model.fixedInit()
 		model = model.cuda(cmd_args.d)
 
-		use_adam = False # cmd_args.a
+		use_adam = cmd_args.a
 		
 		if use_adam:
 			optimizer = optim.AdamW(model.parameters(), lr=2e-3, amsgrad=True)
@@ -336,19 +336,24 @@ if __name__ == '__main__':
 		slowloss = 1e6
 		slowdeltaloss = 1
 		
-		for i in range(150000): # fixme: 15000
+		for i in range(25000):
+			# indx = torch.randperm(sample_size)[:32]
+			# xx = x[indx,:,:]
+			# targetx = target[indx]
+			xx = x
+			targetx = target
 			if use_adam:
-				y = model(x)
-				loss = torch.sum( (y[:,-1,14:16] - target)**2 )
+				y = model(xx)
+				loss = torch.sum( (y[:,-1,14:16] - targetx[:,:])**2 )
 				torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 				loss.backward()
 				optimizer.step()
 			else: 
 				def closure(): 
-					y = model(x)
-					loss = torch.sum( (y[:,-1,14] - target[:,0])**2 ) + \
+					y = model(xx)
+					loss = torch.sum( (y[:,-1,14:16] - targetx[:,:])**2 ) + \
 							sum( \
-							[torch.sum(2.5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
+							[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) for param in model.parameters()])
 					return loss
 				loss = optimizer.step(closure) 
 			lloss = loss.detach().cpu().item()
@@ -374,7 +379,7 @@ if __name__ == '__main__':
 		x = x.cuda(cmd_args.d)
 		target = target.cuda(cmd_args.d)
 		y = model(x)
-		loss = torch.sum( (y[:,-1,14:16] - target)**2 )
+		loss = torch.sum( (y[:,-1,14:16] - target[:,:])**2 )
 		lloss = loss.detach().cpu().item()
 		print("v",lloss)
 		fd_losslog.write(f'{i}\t{lloss}\t{0.0}\n')
@@ -386,7 +391,7 @@ if __name__ == '__main__':
 			fd_vallog.flush()
 			fd_vallog.close()
 	
-	if not cmd_args.m: 
+	if not cmd_args.m and False:
 		x,target = genData(sample_size)
 		x = x.cuda(cmd_args.d)
 		y = model.plot(x)

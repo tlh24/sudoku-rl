@@ -74,7 +74,7 @@ class StraightThroughNormal(nn.Module):
 		return x
 
 class NetSimp(nn.Module): 
-	# the absolute simplest network
+	# the absolute simplest network that can be zero-initialized
 	def __init__(self, init_zeros:bool):
 		super(NetSimp, self).__init__()
 		self.init_zeros = init_zeros

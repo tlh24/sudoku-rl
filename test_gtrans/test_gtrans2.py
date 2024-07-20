@@ -13,9 +13,9 @@ import pdb
 import psgd 
 import time
 
-npos = 10
+npos = 25
 ntok = npos + 4
-width = 10
+width = 16
 sample_size = 128 # sample_size target values for 782 unknowns! 
 
 class QuickGELU(nn.Module):
@@ -47,6 +47,7 @@ def genData(nn):
 	x[:,1] = ((lin//2) % 2) * 10
 	x[:,2] = ((lin//4) % 2) * 10
 	x[:,3] = ((lin//8) % 2) * 10
+	x[:,4] = ((lin//16) % 2) * 10
 	for n in range(nn): 
 		# shuffle tokens
 		indx = torch.randperm(npos)
@@ -54,18 +55,23 @@ def genData(nn):
 		# indx = torch.arange(0,npos) # should not matter. 
 		y[n,0:npos,:] = x[indx, :]
 		# add positional encoding
-		y[n,0:npos,4] = lin
-		y[n,0:npos,5] = 10 # search over these
+		y[n,0:npos,5] = lin
+		y[n,0:npos,6] = torch.fmod(lin, 5)
+		y[n,0:npos,12] = torch.fmod(lin, 4)
+		y[n,0:npos,13] = torch.fmod(lin, 3)
+		y[n,0:npos,14] = torch.fmod(lin, 6)
+		y[n,0:npos,15] = torch.fmod(lin, 7)
+		y[n,0:npos,7] = 10 # search over these
 		curs = np.random.randint(0,npos)
 		# print("cursor",curs)
-		y[n,npos,4] = curs
-		y[n,npos,6] = 10 # cursor token
-		y[n,npos+1,7] = 10 # spare token?
-		y[n,npos+2,8] = 10 # spare token?
-		y[n,npos+3,9] = 10 # reward token / target
+		y[n,npos,5] = curs
+		y[n,npos,8] = 10 # cursor token
+		y[n,npos+1,9] = 10 # spare token?
+		y[n,npos+2,10] = 10 # spare token?
+		y[n,npos+3,11] = 10 # reward token / target
 		
 		# distance output on y[:,-1,4]
-		target[n] = abs(curs - torch.argmin(indx)) # we're matching to the zero digit. 
+		target[n] = (curs - torch.argmin(indx)) # we're matching to the zero digit.
 		# target[n] = curs - torch.argmin(indx)
 	return y,target
 	
@@ -294,7 +300,7 @@ if __name__ == '__main__':
 	start_time = time.time()
 	duration = 600
 	j = 0
-	while j < 200: 
+	while j < 1: # FIXME 200
 		
 		model = Transformer(d_model=width, layers=cmd_args.layers, repeat=1, n_head=cmd_args.heads, init_zeros=False)
 		model.printParamCount()
@@ -324,10 +330,12 @@ if __name__ == '__main__':
 		slowloss = 1e6
 		slowdeltaloss = 1
 		
-		for i in range(15000):
-			indx = torch.randperm(sample_size)[:32]
-			xx = x[indx,:,:]
-			targetx = target[indx]
+		for i in range(25000):
+			# indx = torch.randperm(sample_size)[:32]
+			# xx = x[indx,:,:]
+			# targetx = target[indx]
+			xx = x
+			targetx = target
 			if use_adam:
 				y = model(xx)
 				loss = torch.sum( (y[:,-1,-1] - targetx)**2 )
