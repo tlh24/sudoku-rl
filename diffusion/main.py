@@ -10,7 +10,7 @@ import numpy as np
 ENV_NAME = 'maze2d-large-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
-NUM_ENVS = 1
+NUM_ENVS = 10
 
 def to_torch(x, dtype=None, device=None):
 	dtype = dtype or DTYPE
@@ -37,41 +37,53 @@ def eval(trainer, diffusion_loadpath, ema_loadpath, inv_kin_loadpath, device, ho
     trainer.load(diffusion_loadpath, ema_loadpath, inv_kin_loadpath)
     for name, model in trainer.models.items():
         model.eval()
-    env = gym.make(ENV_NAME)
     pdb.set_trace()
-    obs_history = np.array([env.reset()[None] for _ in range(NUM_ENVS)]) # shape is (num_envs, num_timesteps, state_dim)
- 
-    episode_reward = 0
-    finished = False 
+    env_list = [gym.make(ENV_NAME) for _ in range(NUM_ENVS)]
+    dones = [0 for _ in range(NUM_ENVS)]
+    episode_rewards = [0 for _ in range(NUM_ENVS)]
+
+    obs_history = np.array([env.reset()[None] for env in env_list]) # shape is (num_envs, num_timesteps, state_dim)
     t = 0
-    while not finished:
-        norm_history = trainer.train_dataset.normalizers['observations'].normalize(obs_history[-history_len:]) 
+    while sum(dones) < NUM_ENVS:
+        norm_history = trainer.train_dataset.normalizers['observations'].normalize(obs_history[:, -history_len:]) 
         conditions = {} # key is time step t to replace, value is state at timestep t  
-        for i in range(0, len(norm_history)):
-             conditions[i] = to_torch(norm_history[:, i], device)
+        for i in range(0, norm_history.shape[1]):
+             conditions[i] = to_torch(norm_history[:, i], dtype=DTYPE, device=DEVICE)
         
         sample = trainer.models['diffusion'].conditional_sample(conditions, horizon)
-        # generate action from normalized plan 
-        unnormalized_sample = trainer.train_dataset.normalizers['observations'].unnormalize(sample)
+        num_envs, horizon = sample.shape[0], sample.shape[1]
+        # TODO: add generated plan visualization, allow for more than the first diffusion plan 
+        if t == 0:
+            unnormalized_sample = trainer.train_dataset.normalizers['observations'].unnormalize(sample.detach().cpu().numpy())
+            # visualize_plan(unnormalized_sample)
         
-        predicted_actions = trainer.models['inv_kinematics'](sample) #(batch*H, act_dim)
-        horizon, batch_size = trainer.config.horizon, trainer.config.batch_size
-        assert horizon*batch_size == predicted_actions.shape[0]
+        comb_obs = trainer.models['inv_kinematics'].get_combined_obs(sample) #(num_envs*H, 2*obs_dim)
+        predicted_actions = trainer.models['inv_kinematics'](comb_obs) #(num_envs* H-1, act_dim)
+        assert (horizon-1)*num_envs == predicted_actions.shape[0]
         
-        predicted_actions = predicted_actions.reshape(batch_size, horizon, -1)
-        action = predicted_actions[t]
-        obs, reward, done, _ = env.step(action)
-        obs_history = np.append(obs_history, obs[None])
-        assert obs_history[0].shape == obs[None].shape
+        predicted_actions = predicted_actions.reshape(num_envs, horizon-1, -1)
+        envs_action = predicted_actions[:, t]
+        obs_arr = []
+        for i in range(0, num_envs):
+            obs, reward, done, _ = env_list[i].step(envs_action[i].detach().cpu().numpy())
+            obs_arr.append(obs[None])
+            
+            if dones[i] == 1:
+                pass 
+            elif done:
+                dones[i] = 1
+                episode_rewards[i] += reward 
+                print(f"Episode {i} : reward {episode_rewards[i]}")
+            else:
+                episode_rewards[i] += reward 
         
-        episode_reward += reward
-        if done:    
-            finished = True 
-            break
-        t += 1
+        obs_arr = np.stack(obs_arr, axis=0)
 
-    print(f"Final episode sum reward: {episode_reward}")
-
+        obs_history = np.concatenate((obs_history, obs_arr), axis=1)
+        # note that we condition on the last HL observations in our plan;
+        # thus the action index should be at most HL-1 (try it for HL=1)
+        t = min(history_len-1, t+1) 
+        
 
 def main(args=None):
     seed = 42
@@ -106,7 +118,7 @@ def main(args=None):
     if args.train:
         trainer.train()
     else:
-        eval(trainer, "checkpoints/model-step-500000.pt", "checkpoints/ema-step-500001.pt", "checkpoints/inv_kin-step-205001.pt", device=DEVICE, horizon=args.H)
+        eval(trainer, "checkpoints/diffusion-step-65001.pt", "checkpoints/ema-step-65001.pt", "checkpoints/inv_kin-step-205001.pt", device=DEVICE, horizon=args.H)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
