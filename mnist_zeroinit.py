@@ -74,10 +74,10 @@ class StraightThroughNormal(nn.Module):
 		x = STNFunction.apply(x, std, self.activ.detach())
 		return x
 
-class NetSimp(nn.Module): 
+class NetSimp2(nn.Module):
 	# the absolute simplest network that can be zero-initialized
 	def __init__(self, init_zeros:bool):
-		super(NetSimp, self).__init__()
+		super(NetSimp2, self).__init__()
 		self.init_zeros = init_zeros
 		self.fc1 = nn.Linear(784, 250)
 		self.stn = StraightThroughNormal(250)
@@ -139,11 +139,11 @@ class NetSimp3(nn.Module):
 		x = torch.reshape(x, (-1, 1, 784))
 		x = self.fc1(x)
 		if self.init_zeros:
-			x = self.stn1(x, 0.01)
+			x = self.stn1(x, 0.001)
 		x = self.gelu(x)
 		x = self.fc2(x)
 		if self.init_zeros:
-			x = self.stn2(x, 0.01)
+			x = self.stn2(x, 0.001)
 		x = self.gelu(x)
 		x = self.fc3(x)
 		y = torch.squeeze(x)
@@ -326,7 +326,7 @@ def main():
 	train_lab = train_lab.type(torch.LongTensor)
 	test_lab = test_lab.type(torch.LongTensor)
 
-	model = NetSimp3(init_zeros = args.z).to(device)
+	model = NetSimp2(init_zeros = args.z).to(device)
 
 	if args.a:
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
