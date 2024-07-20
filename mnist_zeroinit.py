@@ -238,7 +238,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu):
 			lloss = loss.detach().cpu().item()
 			print(lloss)
 	else:
-		if uu % 30 == 29:
+		if uu % 120 == 119:
 			print(".", end="", flush=True)
 
 
@@ -269,7 +269,7 @@ def main():
 							help='input data size for training (default: 64)')
 	parser.add_argument('--epochs', type=int, default=5, metavar='N',
 							help='number of epochs to train (default: 5)')
-	parser.add_argument('--cuda-device', type=int, default=0, metavar='N',
+	parser.add_argument('-c', type=int, default=0, metavar='N',
 							help='which CUDA device to use')
 	parser.add_argument('-z', action='store_true', default=False,
 							help='Zero init')
@@ -284,7 +284,7 @@ def main():
 
 	# torch.manual_seed(args.seed)
 
-	device = torch.device(f"cuda:{args.cuda_device}")
+	device = torch.device(f"cuda:{args.c}")
 
 	train_kwargs = {'batch_size': args.batch_size}
 	test_kwargs = {'batch_size': args.batch_size}
