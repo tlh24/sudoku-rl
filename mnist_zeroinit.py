@@ -51,7 +51,7 @@ class STNFunction(torch.autograd.Function):
 		ac = torch.squeeze(activ)
 		ac = torch.exp(-5.0*ac)
 		s = torch.sum(ac)
-		ac[0] = s*50 # controls the probability of adding a new unit
+		ac[0] = s*25 # controls the probability of adding a new unit
 		# unit zero is hence never enabled.
 		# this causes scaling problems... meh.
 		r = torch.multinomial(ac, batch_size, replacement=True) # sample 1 row to activate, based on the probability distribution 'ac'.
@@ -215,8 +215,6 @@ def main():
 							help='input data size for training (default: 64)')
 	parser.add_argument('--epochs', type=int, default=5, metavar='N',
 							help='number of epochs to train (default: 5)')
-	parser.add_argument('--lr', type=float, default=0.006, metavar='LR',
-							help='learning rate (default: 0.006)')
 	parser.add_argument('--cuda-device', type=int, default=0, metavar='N',
 							help='which CUDA device to use')
 	parser.add_argument('-z', action='store_true', default=False,
