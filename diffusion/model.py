@@ -351,11 +351,9 @@ class GaussianDiffusion(nn.Module):
         cond: (dict) key is timestep to replace and value is the obs at that timestep to condition on 
         horizon: (int) Length in timesteps of the plan to be generated
         '''
-        device = self.betas.device
         num_envs = len(cond[0])
         sample_shape = (num_envs, horizon, self.trans_dim)
         return self.p_sample_loop(sample_shape, cond)
-
 
     def q_sample(self, x_start, t, noise=None):
         '''

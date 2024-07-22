@@ -7,6 +7,9 @@ from datasets.data import SequenceDataset
 from model import TemporalUnet, GaussianDiffusion, InvKinematicsModel
 import pdb 
 import numpy as np 
+import os 
+from datetime import datetime
+from tqdm import tqdm 
 ENV_NAME = 'maze2d-large-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
@@ -32,58 +35,79 @@ def get_action(plan, t: int):
     plan = torch.flatten(plan)
     return plan[t+1][:2] - plan[t][:2]
 
-def eval(trainer, diffusion_loadpath, ema_loadpath, inv_kin_loadpath, device, horizon, history_len=20):
-    #TODO: adapt the code for multiple envs and verify
-    trainer.load(diffusion_loadpath, ema_loadpath, inv_kin_loadpath)
-    for name, model in trainer.models.items():
-        model.eval()
-    pdb.set_trace()
-    env_list = [gym.make(ENV_NAME) for _ in range(NUM_ENVS)]
-    dones = [0 for _ in range(NUM_ENVS)]
-    episode_rewards = [0 for _ in range(NUM_ENVS)]
+        
+class EvalExperimenter:
+    def __init__(self, log_folder, num_experiments, num_envs, trainer, horizon,\
+                 diffusion_loadpath, ema_loadpath, inv_kin_loadpath):
+        self.log_folder = log_folder
+        self.num_experiments = num_experiments
+        self.num_envs = num_envs 
+        self.trainer = trainer 
+        self.trainer.load(diffusion_loadpath, ema_loadpath, inv_kin_loadpath)
+        self.horizon = horizon 
+        # experiment reward log file 
+        time_str = datetime.now().strftime('%Y-%m-%d-%H:%M')
+        file_name = f'{self.num_experiments}runs_{self.num_envs}envs_eval_log_{time_str}.txt'
+        self.fp = open(os.path.join(self.log_folder, file_name), 'w')
 
-    obs_history = np.array([env.reset()[None] for env in env_list]) # shape is (num_envs, num_timesteps, state_dim)
-    t = 0
-    while sum(dones) < NUM_ENVS:
-        norm_history = trainer.train_dataset.normalizers['observations'].normalize(obs_history[:, -history_len:]) 
-        conditions = {} # key is time step t to replace, value is state at timestep t  
-        for i in range(0, norm_history.shape[1]):
-             conditions[i] = to_torch(norm_history[:, i], dtype=DTYPE, device=DEVICE)
+    def run_experiments(self):
+        for exp_num in tqdm(range(1, self.num_experiments + 1)):
+            self.eval(exp_num)
         
-        sample = trainer.models['diffusion'].conditional_sample(conditions, horizon)
-        num_envs, horizon = sample.shape[0], sample.shape[1]
-        # TODO: add generated plan visualization, allow for more than the first diffusion plan 
-        if t == 0:
-            unnormalized_sample = trainer.train_dataset.normalizers['observations'].unnormalize(sample.detach().cpu().numpy())
-            # visualize_plan(unnormalized_sample)
+    def eval(self, exp_num, history_len=20):
+        # Load models and set to eval mode
+        for name, model in self.trainer.models.items():
+            model.eval()
         
-        comb_obs = trainer.models['inv_kinematics'].get_combined_obs(sample) #(num_envs*H, 2*obs_dim)
-        predicted_actions = trainer.models['inv_kinematics'](comb_obs) #(num_envs* H-1, act_dim)
-        assert (horizon-1)*num_envs == predicted_actions.shape[0]
-        
-        predicted_actions = predicted_actions.reshape(num_envs, horizon-1, -1)
-        envs_action = predicted_actions[:, t]
-        obs_arr = []
-        for i in range(0, num_envs):
-            obs, reward, done, _ = env_list[i].step(envs_action[i].detach().cpu().numpy())
-            obs_arr.append(obs[None])
+        env_list = [gym.make(ENV_NAME) for _ in range(self.num_envs)]
+        dones = [0 for _ in range(self.num_envs)]
+        episode_rewards = [0 for _ in range(self.num_envs)]
+        obs_history = np.array([env.reset()[None] for env in env_list]) # shape is (num_envs, num_timesteps, obs_dim)
+        t = 0
+        visualized_initial_plan = False
+
+        # Iterate until all envs finish
+        while sum(dones) < self.num_envs:
+            norm_history = self.trainer.train_dataset.normalizers['observations'].normalize(obs_history[:, -history_len:]) 
+            conditions = {} # key is time step t to replace, value is state at timestep t  
+            for i in range(0, norm_history.shape[1]):
+                conditions[i] = to_torch(norm_history[:, i], dtype=DTYPE, device=DEVICE)
             
-            if dones[i] == 1:
-                pass 
-            elif done:
-                dones[i] = 1
-                episode_rewards[i] += reward 
-                print(f"Episode {i} : reward {episode_rewards[i]}")
-            else:
-                episode_rewards[i] += reward 
-        
-        obs_arr = np.stack(obs_arr, axis=0)
+            sample = self.trainer.models['diffusion'].conditional_sample(conditions, self.horizon)
+            num_envs, horizon = sample.shape[0], sample.shape[1]
+            # TODO: add generated plan visualization
+            if not visualized_initial_plan:
+                visualized_initial_plan = True
+                unnormalized_sample = self.trainer.train_dataset.normalizers['observations'].unnormalize(sample.detach().cpu().numpy())
+                # visualize_plan(unnormalized_sample)
+            
+            comb_obs = self.trainer.models['inv_kinematics'].get_combined_obs(sample) #(num_envs*H, 2*obs_dim)
+            predicted_actions = self.trainer.models['inv_kinematics'](comb_obs) #(num_envs* H-1, act_dim)
+            assert (horizon-1)*num_envs == predicted_actions.shape[0]
+            
+            predicted_actions = predicted_actions.reshape(num_envs, horizon-1, -1)
+            envs_action = predicted_actions[:, t]
+            obs_arr = [] #
+            for i in range(0, num_envs):
+                obs, reward, done, _ = env_list[i].step(envs_action[i].detach().cpu().numpy())
+                obs_arr.append(obs[None])
+                if dones[i] == 1:
+                    pass 
+                elif done:
+                    dones[i] = 1
+                    episode_rewards[i] += reward 
+                    print(f"Episode {i} : reward {episode_rewards[i]}")
+                    self.fp.write(f"exp_{exp_num}_eps_{i}:{episode_rewards[i]}")
+                else:
+                    episode_rewards[i] += reward 
+            
+            obs_arr = np.stack(obs_arr, axis=0) # (num_envs, 1, obs_dim)
 
-        obs_history = np.concatenate((obs_history, obs_arr), axis=1)
-        # note that we condition on the last HL observations in our plan;
-        # thus the action index should be at most HL-1 (try it for HL=1)
-        t = min(history_len-1, t+1) 
-        
+            obs_history = np.concatenate((obs_history, obs_arr), axis=1)
+            # note that we condition on the last HL observations in our plan;
+            # thus the action index should be at most HL-1 (try it for HL=1)
+            t = min(history_len-1, t+1) 
+    
 
 def main(args=None):
     seed = 42
@@ -118,7 +142,8 @@ def main(args=None):
     if args.train:
         trainer.train()
     else:
-        eval(trainer, "checkpoints/diffusion-step-65001.pt", "checkpoints/ema-step-65001.pt", "checkpoints/inv_kin-step-205001.pt", device=DEVICE, horizon=args.H)
+        experimenter = EvalExperimenter("logging/", 1, 1, trainer, args.H, "checkpoints/diffusion-step-65001.pt", "checkpoints/ema-step-65001.pt", "checkpoints/inv_kin-step-205001.pt")
+        experimenter.run_experiments()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -60,7 +60,7 @@ class Trainer:
         train_dataset: (torch Dataset)  training trajectories
         '''
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.models = self.models = {name: model.to(self.device) for name, model in models.items()}
+        self.models = {name: model.to(self.device) for name, model in models.items()}
 
         self.train_dataset = train_dataset
         self.config = config
