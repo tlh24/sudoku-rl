@@ -210,9 +210,74 @@ class NetSimp4(nn.Module):
 		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
 		return output
 
+class NetSimpAE(nn.Module):
+	# a simple MLP with 3 layers
+	def __init__(self, init_zeros:bool):
+		super(NetSimpAE, self).__init__()
+		self.init_zeros = init_zeros
+		self.fc1 = nn.Linear(784, 256)
+		self.stn1 = StraightThroughNormal(256)
+		self.fc2 = nn.Linear(256, 48)
+		self.stn2 = StraightThroughNormal(48)
+		self.fc3 = nn.Linear(48, 256)
+		self.stn3 = StraightThroughNormal(256)
+		self.fc4 = nn.Linear(256, 784)
+
+		self.fco1 = nn.Linear(48, 20)
+		self.fco2 = nn.Linear(20, 10)
+		self.gelu = QuickGELU()
+		if init_zeros:
+			torch.nn.init.zeros_(self.fc1.weight)
+			torch.nn.init.zeros_(self.fc1.bias)
+			torch.nn.init.zeros_(self.fc2.weight)
+			torch.nn.init.zeros_(self.fc2.bias)
+			torch.nn.init.zeros_(self.fc3.weight)
+			torch.nn.init.zeros_(self.fc3.bias)
+			torch.nn.init.zeros_(self.fc4.weight)
+			torch.nn.init.zeros_(self.fc4.bias)
+
+			# torch.nn.init.zeros_(self.fco1.weight)
+			# torch.nn.init.zeros_(self.fco1.bias)
+			# torch.nn.init.zeros_(self.fco2.weight)
+			# torch.nn.init.zeros_(self.fco2.bias)
+
+	def forwardAE(self, x):
+		x = torch.reshape(x, (-1, 1, 784))
+		x = self.fc1(x)
+		if self.init_zeros:
+			x = self.stn1(x, 0.01)
+		x = self.gelu(x)
+		x = self.fc2(x)
+		if self.init_zeros:
+			x = self.stn2(x, 0.01)
+		x = self.gelu(x)
+		y = x
+		x = self.fc3(x)
+		if self.init_zeros:
+			x = self.stn3(x, 0.01)
+		x = self.gelu(x)
+		x = self.fc4(x)
+		x = x.reshape(-1,28,28)
+		return x
+
+	def forwardClass(self, x):
+		with torch.no_grad():
+			x = torch.reshape(x, (-1, 1, 784))
+			x = self.fc1(x)
+			x = self.gelu(x)
+			x = self.fc2(x)
+			x = self.gelu(x)
+			y = x
+		y = self.fco1(y)
+		y = self.gelu(y)
+		y = self.fco2(y)
+		y = y.squeeze()
+		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
+		return output.squeeze()
 
 
-def train(args, model, device, train_im, train_lab, optimizer, uu):
+
+def train(args, model, device, train_im, train_lab, optimizer, uu, mode):
 	indx = torch.randperm(train_lab.shape[0])
 	indx = indx[:args.batch_size]
 	im = train_im[indx,:,:]
@@ -222,8 +287,12 @@ def train(args, model, device, train_im, train_lab, optimizer, uu):
 
 	if args.a:
 		optimizer.zero_grad()
-		output = model(images)
-		loss = F.nll_loss(output, labels)
+		if mode == 0:
+			x = model.forwardAE(images)
+			loss = torch.sum((x - images)**2) / 70
+		if mode == 1:
+			output = model.forwardClass(images)
+			loss = F.nll_loss(output, labels)
 		loss.backward()
 		optimizer.step()
 	else:
@@ -236,7 +305,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu):
 	if args.g:
 		if uu % 10 == 9:
 			lloss = loss.detach().cpu().item()
-			print(lloss)
+			print(mode, lloss)
 	else:
 		if uu % 120 == 119:
 			print(".", end="", flush=True)
@@ -246,7 +315,7 @@ def test(model, device, test_im, test_lab):
 	with torch.no_grad():
 		test_im = test_im.to(device)
 		test_lab = test_lab.to(device)
-		output = model(test_im)
+		output = model.forwardClass(test_im)
 		test_loss = F.nll_loss(output, test_lab, reduction='sum').item()
 		pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
 		correct = pred.eq(test_lab.view_as(pred)).sum().item()
@@ -317,16 +386,8 @@ def main():
 		images[j,:,:] = im[0,:,:]
 		labels[j] = lab
 
-	shuffl = torch.randperm(70000)
-	train_im = images[shuffl[0:args.train_size],:,:]
-	train_lab = labels[shuffl[0:args.train_size]]
-	test_im = images[shuffl[args.train_size:],:,:]
-	test_lab = labels[shuffl[args.train_size:]]
+	model = NetSimpAE(init_zeros = args.z).to(device)
 
-	train_lab = train_lab.type(torch.LongTensor)
-	test_lab = test_lab.type(torch.LongTensor)
-
-	model = NetSimp4(init_zeros = args.z).to(device)
 
 	if args.a:
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
@@ -338,7 +399,19 @@ def main():
 			rank_of_approximation=10, grad_clip_max_norm=5.0)
 
 	for uu in range(args.num_iters):
-		train(args, model, device, train_im, train_lab, optimizer, uu)
+		train(args, model, device, images, torch.zeros_like(labels), optimizer, uu, 0)
+
+	shuffl = torch.randperm(70000)
+	train_im = images[shuffl[0:args.train_size],:,:]
+	train_lab = labels[shuffl[0:args.train_size]]
+	test_im = images[shuffl[args.train_size:],:,:]
+	test_lab = labels[shuffl[args.train_size:]]
+
+	train_lab = train_lab.type(torch.LongTensor)
+	test_lab = test_lab.type(torch.LongTensor)
+
+	for uu in range(args.num_iters):
+		train(args, model, device, train_im, train_lab, optimizer, uu, 1)
 
 	test(model, device, test_im, test_lab)
 
