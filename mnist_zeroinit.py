@@ -326,7 +326,7 @@ def main():
 	train_lab = train_lab.type(torch.LongTensor)
 	test_lab = test_lab.type(torch.LongTensor)
 
-	model = NetSimp2(init_zeros = args.z).to(device)
+	model = NetSimp4(init_zeros = args.z).to(device)
 
 	if args.a:
 		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)

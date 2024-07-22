@@ -1,6 +1,6 @@
 #!/bin/bash
 
-train_size=100
+train_size=60000
 
 python mnist_zeroinit.py --train-size $train_size -a -z -c 0 &
 python mnist_zeroinit.py --train-size $train_size -a -z -c 0 &
