@@ -10,10 +10,10 @@ import numpy as np
 import os 
 from datetime import datetime
 from tqdm import tqdm 
-ENV_NAME = 'maze2d-large-v1'
+from constants import maze2d_medium_v1_max_episode_steps
+ENV_NAME = 'maze2d-medium-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
-NUM_ENVS = 10
 
 def to_torch(x, dtype=None, device=None):
 	dtype = dtype or DTYPE
@@ -38,17 +38,22 @@ def get_action(plan, t: int):
         
 class EvalExperimenter:
     def __init__(self, log_folder, num_experiments, num_envs, trainer, horizon,\
-                 diffusion_loadpath, ema_loadpath, inv_kin_loadpath):
+                 diffusion_loadpath, ema_loadpath, inv_kin_loadpath, max_episode_steps,\
+                    is_random_agent):
         self.log_folder = log_folder
         self.num_experiments = num_experiments
         self.num_envs = num_envs 
         self.trainer = trainer 
         self.trainer.load(diffusion_loadpath, ema_loadpath, inv_kin_loadpath)
         self.horizon = horizon 
+        self.max_episode_steps = max_episode_steps
+        self.is_random_agent = is_random_agent
         # experiment reward log file 
         time_str = datetime.now().strftime('%Y-%m-%d-%H:%M')
         file_name = f'{self.num_experiments}runs_{self.num_envs}envs_eval_log_{time_str}.txt'
-        self.fp = open(os.path.join(self.log_folder, file_name), 'w')
+        self.file_path = os.path.join(self.log_folder, file_name)
+        self.fp = open(self.file_path, 'w')
+
 
     def run_experiments(self):
         for exp_num in tqdm(range(1, self.num_experiments + 1)):
@@ -65,9 +70,10 @@ class EvalExperimenter:
         obs_history = np.array([env.reset()[None] for env in env_list]) # shape is (num_envs, num_timesteps, obs_dim)
         t = 0
         visualized_initial_plan = False
+        num_episode_steps = 0
 
-        # Iterate until all envs finish
-        while sum(dones) < self.num_envs:
+        # Iterate until all envs finish but cap at max episode steps
+        while sum(dones) < self.num_envs and num_episode_steps < self.max_episode_steps:
             norm_history = self.trainer.train_dataset.normalizers['observations'].normalize(obs_history[:, -history_len:]) 
             conditions = {} # key is time step t to replace, value is state at timestep t  
             for i in range(0, norm_history.shape[1]):
@@ -86,8 +92,13 @@ class EvalExperimenter:
             assert (horizon-1)*num_envs == predicted_actions.shape[0]
             
             predicted_actions = predicted_actions.reshape(num_envs, horizon-1, -1)
-            envs_action = predicted_actions[:, t]
-            obs_arr = [] #
+            
+            # allow evaluating randomly generated actions 
+            if self.is_random_agent:
+                envs_action = [torch.from_numpy(env.action_space.sample()) for env in env_list]
+            else:
+                envs_action = predicted_actions[:, t]
+            obs_arr = [] 
             for i in range(0, num_envs):
                 obs, reward, done, _ = env_list[i].step(envs_action[i].detach().cpu().numpy())
                 obs_arr.append(obs[None])
@@ -97,7 +108,7 @@ class EvalExperimenter:
                     dones[i] = 1
                     episode_rewards[i] += reward 
                     print(f"Episode {i} : reward {episode_rewards[i]}")
-                    self.fp.write(f"exp_{exp_num}_eps_{i}:{episode_rewards[i]}")
+                    self.fp.write(f"{'random_' if self.is_random_agent else ''}exp_{exp_num}_eps_{i}:{episode_rewards[i]}\n")
                 else:
                     episode_rewards[i] += reward 
             
@@ -107,6 +118,17 @@ class EvalExperimenter:
             # note that we condition on the last HL observations in our plan;
             # thus the action index should be at most HL-1 (try it for HL=1)
             t = min(history_len-1, t+1) 
+            num_episode_steps += 1
+        
+        # log all timeout'ed episodes as the sum reward received within alloted time
+        for i in range(0, num_envs):
+            if dones[i] != 0:
+                print(f"Timeout Episode {i} : reward {episode_rewards[i]}\n")
+                self.fp.write(f"{'random_' if self.is_random_agent else ''}exp_{exp_num}_eps_{i}:{episode_rewards[i]}\n")
+                
+        
+        
+            
     
 
 def main(args=None):
@@ -142,12 +164,17 @@ def main(args=None):
     if args.train:
         trainer.train()
     else:
-        experimenter = EvalExperimenter("logging/", 1, 1, trainer, args.H, "checkpoints/diffusion-step-65001.pt", "checkpoints/ema-step-65001.pt", "checkpoints/inv_kin-step-205001.pt")
+        experimenter = EvalExperimenter("logging/", args.numexps, args.numenvs, trainer, args.H,\
+                                         "checkpoints/diffusion-step-65001.pt", "checkpoints/ema-step-65001.pt",\
+                                            "checkpoints/inv_kin-step-205001.pt", maze2d_medium_v1_max_episode_steps,\
+                                                is_random_agent=True)
         experimenter.run_experiments()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--H', type=int, default=128, help='Horizon length') #refers to both training horizon and generation horizon
+    parser.add_argument('--numexps', type=int, default=3, help='Number of experiments to run') 
+    parser.add_argument('--numenvs', type=int, default=20, help='Number of envs; the batch size of diffusion plan generation') 
     parser.add_argument('--dsteps', type=int, default=128, help='Num diffusion steps')
     parser.add_argument('--train', action="store_true", help="Add flag to train or eval")
     parser.add_argument('--inv_kin', action="store_true", help="Add flag to train inv_kinematics instead of diffusion")
