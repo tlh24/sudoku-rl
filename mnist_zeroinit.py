@@ -51,13 +51,15 @@ class STNFunction(torch.autograd.Function):
 		ac = torch.squeeze(activ)
 		ac = torch.exp(-5.0*ac)
 		s = torch.sum(ac)
-		ac[0] = s*999 # controls the probability of adding a new unit
+		ac[0] = s*2000 # controls the probability of adding a new unit
+		# seems to be a sensitive hyper-parameter: might want to change per layer?
 		# unit zero is hence never enabled.
 		# this causes scaling problems... meh.
 		r = torch.multinomial(ac, batch_size, replacement=True) # sample 1 row to activate, based on the probability distribution 'ac'.
 		i = torch.arange(batch_size)
 		x = input
-		x[i,0,r] = x[i,0,r] + (std * (r > 0))
+		x[i,0,r] = x[i,0,r] + (std * (r > 0)) * (torch.randint(2,(1,), device=x.device) * 2 - 1)
+		# mask off the zeroth unit; vary the sign of the activation.
 		return x
 
 	@staticmethod
@@ -284,23 +286,31 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode):
 	lab = train_lab[indx]
 	images = im.to(device)
 	labels = lab.to(device)
+	
+	threshold = args.num_iters # pdgd seems to hurt here! HUH
+	# if args.z: 
+	# 	threshold = threshold // 2
 
-	if args.a:
-		optimizer.zero_grad()
+	if uu < threshold:
+		optimizer[0].zero_grad()
 		if mode == 0:
 			x = model.forwardAE(images)
 			loss = torch.sum((x - images)**2) / 70
 		if mode == 1:
 			output = model.forwardClass(images)
 			loss = F.nll_loss(output, labels)
+		if mode == 2: 
+			output = model.forward(images)
+			loss = F.nll_loss(output, labels)
 		loss.backward()
-		optimizer.step()
+		optimizer[0].step()
 	else:
 		def closure():
 			output = model(images)
-			loss = F.nll_loss(output, labels)
+			loss = F.nll_loss(output, labels) + sum( \
+					[torch.sum(1e-3 * torch.rand_like(param) * param * param) for param in model.parameters()])
 			return loss
-		loss = optimizer.step(closure)
+		loss = optimizer[1].step(closure)
 
 	if args.g:
 		if uu % 10 == 9:
@@ -311,20 +321,24 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode):
 			print(".", end="", flush=True)
 
 
-def test(model, device, test_im, test_lab):
+def test(args, model, device, test_im, test_lab, fd_results):
 	with torch.no_grad():
 		test_im = test_im.to(device)
 		test_lab = test_lab.to(device)
-		output = model.forwardClass(test_im)
+		if args.ae: 
+			output = model.forwardClass(test_im)
+		else: 
+			output = model.forward(test_im)
 		test_loss = F.nll_loss(output, test_lab, reduction='sum').item()
 		pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
 		correct = pred.eq(test_lab.view_as(pred)).sum().item()
 
 	test_loss /= test_im.shape[0]
 
-	print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
+	print('Test set: Avg loss: {:.4f}, Accuracy: {}/{} ({:.1f}%)'.format(
 		test_loss, correct, test_im.shape[0],
 		100. * correct / test_im.shape[0]))
+	fd_results.write('{}\t{}\t{}\t{:.3f}\t'.format(args.z, args.train_size, args.num_iters, correct / test_im.shape[0]))
 
 
 def main():
@@ -346,6 +360,10 @@ def main():
 							help='use AdamW')
 	parser.add_argument('-g', action='store_true', default=False,
 							help='debug / print loss')
+	parser.add_argument('--ae', action='store_true', default=False,
+							help='use autoencoder')
+	parser.add_argument('-p', action='store_true', default=False,
+							help='plot weight histograms')
 	# parser.add_argument('--seed', type=int, default=1, metavar='S',
 	# 						help='random seed (default: 1)')
 
@@ -385,36 +403,81 @@ def main():
 		j = i + 60000
 		images[j,:,:] = im[0,:,:]
 		labels[j] = lab
+		
+	fd_results = open('mnist_zeroinit.txt', 'a')
 
-	model = NetSimpAE(init_zeros = args.z).to(device)
+	for repeat in range(100): 
+			
+		if args.ae: 
+			model = NetSimpAE(init_zeros = args.z).to(device)
+		else: 
+			model = NetSimp3(init_zeros = args.z).to(device)
+			
+		optimizer = []
+	
+		# optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
+		optimizer.append( optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01) )
 
-
-	if args.a:
-		optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
-	else:
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,\
+		optimizer.append( psgd.LRA(model.parameters(),lr_params=0.01,\
 			lr_preconditioner=0.01, momentum=0.9,\
 			preconditioner_update_probability=0.1, \
 			exact_hessian_vector_product=False, \
-			rank_of_approximation=10, grad_clip_max_norm=5.0)
+			rank_of_approximation=10, grad_clip_max_norm=5.0) )
 
-	for uu in range(args.num_iters):
-		train(args, model, device, images, torch.zeros_like(labels), optimizer, uu, 0)
+		if args.ae: 
+			for uu in range(args.num_iters):
+				train(args, model, device, images, torch.zeros_like(labels), optimizer1, uu, 0)
 
-	shuffl = torch.randperm(70000)
-	train_im = images[shuffl[0:args.train_size],:,:]
-	train_lab = labels[shuffl[0:args.train_size]]
-	test_im = images[shuffl[args.train_size:],:,:]
-	test_lab = labels[shuffl[args.train_size:]]
+		shuffl = torch.randperm(70000)
+		train_im = images[shuffl[0:args.train_size],:,:]
+		train_lab = labels[shuffl[0:args.train_size]]
+		test_im = images[shuffl[args.train_size:],:,:]
+		test_lab = labels[shuffl[args.train_size:]]
 
-	train_lab = train_lab.type(torch.LongTensor)
-	test_lab = test_lab.type(torch.LongTensor)
+		train_lab = train_lab.type(torch.LongTensor)
+		test_lab = test_lab.type(torch.LongTensor)
+		
+		if args.ae: 
+			for uu in range(args.num_iters):
+				train(args, model, device, train_im, train_lab, optimizer, uu, 1)
+		else: 
+			for uu in range(args.num_iters):
+				train(args, model, device, train_im, train_lab, optimizer, uu, 2)
 
-	for uu in range(args.num_iters):
-		train(args, model, device, train_im, train_lab, optimizer, uu, 1)
 
-	test(model, device, test_im, test_lab)
+		test(args, model, device, test_im, test_lab, fd_results)
+		
+		w = [model.fc1.weight.detach().cpu().numpy(), \
+					model.fc2.weight.detach().cpu().numpy(), \
+					model.fc3.weight.detach().cpu().numpy()]
+		
+		sparsity = np.zeros((3,))
+		for j in range(3): 
+			x = w[j].flatten()
+			nonsparse = np.count_nonzero(abs(x) > 1e-5)
+			sparsity[j] = int(1000 * (1 - nonsparse/x.size)) / 1000.0
+		print(f" sparsity:{sparsity[0]},{sparsity[1]},{sparsity[2]}")
+		fd_results.write(f"{sparsity[0]}\t{sparsity[1]}\t{sparsity[2]}\n")
+		fd_results.flush()
+		
+		if args.p: 
+			plot_rows = 2
+			plot_cols = 3
+			figsize = (16, 8)
+			fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
+			
+			
+			for j in range(3): 
+				x = w[j].flatten()
+				axs[0,j].hist(x, 250)
+				nonsparse = np.count_nonzero(x)
+				axs[0,j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
+				axs[0,j].set_yscale('log', nonpositive='clip')
+				# axs[0,j].yscale('log')
+			
+			plt.show()
 
+	fd_results.close()
 
 if __name__ == '__main__':
     main()
