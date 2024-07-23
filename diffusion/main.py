@@ -11,6 +11,7 @@ import os
 from datetime import datetime
 from tqdm import tqdm 
 from constants import maze2d_medium_v1_max_episode_steps
+from viz import show_diffusion, MuJoCoRenderer
 ENV_NAME = 'maze2d-medium-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
@@ -39,7 +40,7 @@ def get_action(plan, t: int):
 class EvalExperimenter:
     def __init__(self, log_folder, num_experiments, num_envs, trainer, horizon,\
                  diffusion_loadpath, ema_loadpath, inv_kin_loadpath, max_episode_steps,\
-                    is_random_agent):
+                    is_random_agent, viz_plans):
         self.log_folder = log_folder
         self.num_experiments = num_experiments
         self.num_envs = num_envs 
@@ -48,9 +49,10 @@ class EvalExperimenter:
         self.horizon = horizon 
         self.max_episode_steps = max_episode_steps
         self.is_random_agent = is_random_agent
+        self.viz_plans = viz_plans
         # experiment reward log file 
         time_str = datetime.now().strftime('%Y-%m-%d-%H:%M')
-        file_name = f'{self.num_experiments}runs_{self.num_envs}envs_eval_log_{time_str}.txt'
+        file_name = f"{'random_' if self.is_random_agent else ''}{self.num_experiments}runs_{self.num_envs}envs_eval_log_{time_str}.txt"
         self.file_path = os.path.join(self.log_folder, file_name)
         self.fp = open(self.file_path, 'w')
 
@@ -69,37 +71,36 @@ class EvalExperimenter:
         episode_rewards = [0 for _ in range(self.num_envs)]
         obs_history = np.array([env.reset()[None] for env in env_list]) # shape is (num_envs, num_timesteps, obs_dim)
         t = 0
-        visualized_initial_plan = False
         num_episode_steps = 0
+        diffusion_plans = [] # (num_episode_steps x num_envs x horizon x obs_dim)
 
         # Iterate until all envs finish but cap at max episode steps
         while sum(dones) < self.num_envs and num_episode_steps < self.max_episode_steps:
-            norm_history = self.trainer.train_dataset.normalizers['observations'].normalize(obs_history[:, -history_len:]) 
-            conditions = {} # key is time step t to replace, value is state at timestep t  
-            for i in range(0, norm_history.shape[1]):
-                conditions[i] = to_torch(norm_history[:, i], dtype=DTYPE, device=DEVICE)
-            
-            sample = self.trainer.models['diffusion'].conditional_sample(conditions, self.horizon)
-            num_envs, horizon = sample.shape[0], sample.shape[1]
-            # TODO: add generated plan visualization
-            if not visualized_initial_plan:
-                visualized_initial_plan = True
-                unnormalized_sample = self.trainer.train_dataset.normalizers['observations'].unnormalize(sample.detach().cpu().numpy())
-                # visualize_plan(unnormalized_sample)
-            
-            comb_obs = self.trainer.models['inv_kinematics'].get_combined_obs(sample) #(num_envs*H, 2*obs_dim)
-            predicted_actions = self.trainer.models['inv_kinematics'](comb_obs) #(num_envs* H-1, act_dim)
-            assert (horizon-1)*num_envs == predicted_actions.shape[0]
-            
-            predicted_actions = predicted_actions.reshape(num_envs, horizon-1, -1)
-            
-            # allow evaluating randomly generated actions 
-            if self.is_random_agent:
-                envs_action = [torch.from_numpy(env.action_space.sample()) for env in env_list]
-            else:
+            if not self.is_random_agent:
+                norm_history = self.trainer.train_dataset.normalizers['observations'].normalize(obs_history[:, -history_len:]) 
+                conditions = {} # key is time step t to replace, value is state at timestep t  
+                for i in range(0, norm_history.shape[1]):
+                    conditions[i] = to_torch(norm_history[:, i], dtype=DTYPE, device=DEVICE)
+                
+                sample = self.trainer.models['diffusion'].conditional_sample(conditions, self.horizon)
+                num_envs, horizon = sample.shape[0], sample.shape[1]
+
+                # save diffusion plans for viz
+                if self.viz_plans:
+                    unnormalized_sample = self.trainer.train_dataset.normalizers['observations'].unnormalize(sample.detach().cpu().numpy())
+                    diffusion_plans.append(unnormalized_sample)
+
+                comb_obs = self.trainer.models['inv_kinematics'].get_combined_obs(sample) #(num_envs*H, 2*obs_dim)
+                predicted_actions = self.trainer.models['inv_kinematics'](comb_obs) #(num_envs* H-1, act_dim)
+                assert (horizon-1)*self.num_envs == predicted_actions.shape[0]
+                
+                predicted_actions = predicted_actions.reshape(self.num_envs, horizon-1, -1)
                 envs_action = predicted_actions[:, t]
+            else:
+                envs_action = [torch.from_numpy(env.action_space.sample()) for env in env_list]
+            
             obs_arr = [] 
-            for i in range(0, num_envs):
+            for i in range(0, self.num_envs):
                 obs, reward, done, _ = env_list[i].step(envs_action[i].detach().cpu().numpy())
                 obs_arr.append(obs[None])
                 if dones[i] == 1:
@@ -108,7 +109,7 @@ class EvalExperimenter:
                     dones[i] = 1
                     episode_rewards[i] += reward 
                     print(f"Episode {i} : reward {episode_rewards[i]}")
-                    self.fp.write(f"{'random_' if self.is_random_agent else ''}exp_{exp_num}_eps_{i}:{episode_rewards[i]}\n")
+                    self.fp.write(f"exp_{exp_num}_eps_{i}:{episode_rewards[i]}\n")
                 else:
                     episode_rewards[i] += reward 
             
@@ -121,15 +122,16 @@ class EvalExperimenter:
             num_episode_steps += 1
         
         # log all timeout'ed episodes as the sum reward received within alloted time
-        for i in range(0, num_envs):
-            if dones[i] != 0:
+        for i in range(0, self.num_envs):
+            if dones[i] != 1:
                 print(f"Timeout Episode {i} : reward {episode_rewards[i]}\n")
-                self.fp.write(f"{'random_' if self.is_random_agent else ''}exp_{exp_num}_eps_{i}:{episode_rewards[i]}\n")
-                
+                self.fp.write(f"timeout_exp_{exp_num}_eps_{i}:{episode_rewards[i]}\n")
         
-        
-            
-    
+        if len(diffusion_plans) and self.viz_plans:
+            renderer = MuJoCoRenderer(gym.make(ENV_NAME))
+            diffusion_plans = np.stack(diffusion_plans, axis=0)
+            show_diffusion(renderer, diffusion_plans)
+
 
 def main(args=None):
     seed = 42
@@ -167,7 +169,7 @@ def main(args=None):
         experimenter = EvalExperimenter("logging/", args.numexps, args.numenvs, trainer, args.H,\
                                          "checkpoints/diffusion-step-65001.pt", "checkpoints/ema-step-65001.pt",\
                                             "checkpoints/inv_kin-step-205001.pt", maze2d_medium_v1_max_episode_steps,\
-                                                is_random_agent=True)
+                                                is_random_agent=False, viz_plans=True)
         experimenter.run_experiments()
 
 if __name__ == "__main__":
