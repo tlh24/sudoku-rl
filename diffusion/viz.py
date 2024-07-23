@@ -10,8 +10,14 @@ import imageio
 import torch 
 import warnings
 import mujoco_py as mjc
+from PIL import Image 
 
 ## video generation ##
+def _make_dir(filename):
+    folder = os.path.dirname(filename)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
 def save_video(filename, video_frames, fps=60, video_format='mp4'):
     assert fps == int(fps), fps
 
@@ -139,11 +145,14 @@ class MuJoCoRenderer:
         return np.stack(images, axis=0)
 
     def renders(self, samples, partial=False, **kwargs):
+        #samples: (H, obs_dim )
+        
         if partial:
             samples = self.pad_observations(samples)
             partial = False
 
         sample_images = self._renders(samples, partial=partial, **kwargs)
+        # (H, img_dims)
 
         composite = np.ones_like(sample_images[0]) * 255
 
@@ -158,13 +167,14 @@ class MuJoCoRenderer:
         render_kwargs = {
             'trackbodyid': 2,
             'distance': 10,
-            'lookat': [5, 2, 0.5],
-            'elevation': 0
+            'lookat': [5, 5, 0],
+            'elevation': -90.0
         }
         images = []
         for path in paths:
             ## path is [ H x obs_dim ]
             path = atmost_2d(path)
+            # get a composite image representing all the obs in the path
             img = self.renders(to_np(path), dim=dim, partial=True, qvel=True, render_kwargs=render_kwargs, **kwargs)
             images.append(img)
         images = np.concatenate(images, axis=0)
@@ -176,7 +186,7 @@ class MuJoCoRenderer:
         return images
 
 
-def show_diffusion(renderer, observations, n_repeat=100, substep=100, filename='diffusion.mp4', savefolder='/videos'):
+def show_diffusion(renderer, observations, n_repeat=100, substep=100, filename='diffusion.mp4', savefolder='videos/'):
     '''
         Saves a video which is a composition of visualization of generated plans 
         observations : [ n_diffusion_steps x batch_size x horizon x observation_dim ]
@@ -198,6 +208,28 @@ def show_diffusion(renderer, observations, n_repeat=100, substep=100, filename='
     ], axis=0)
 
     save_video(savepath, images)
+
+def show_plan_over_time(renderer, observations, savefolder='images/'):
+    '''
+    observations: [n_env_steps, horizon, obs_dim]
+    '''
+    # create save folder if doesn't exist
+    _make_dir(os.path.join(savefolder, "fake_file.png"))
+
+    for step in range(0, len(observations)):
+        diffusion_plan = observations[step]
+        diffusion_plan = np.expand_dims(diffusion_plan, axis=0) #(1,horizon,obs_dim)
+        np_img = renderer.composite(None, diffusion_plan)
+        img = Image.fromarray(np_img)
+        filename = f'envstep{step + 1}_plan.png'
+        savepath = os.path.join(savefolder, filename)
+        img.save(savepath)
+    
+    return 
+
+
+
+
 
 
 

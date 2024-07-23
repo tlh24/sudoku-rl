@@ -11,7 +11,7 @@ import os
 from datetime import datetime
 from tqdm import tqdm 
 from constants import maze2d_medium_v1_max_episode_steps
-from viz import show_diffusion, MuJoCoRenderer
+from viz import show_diffusion, MuJoCoRenderer, show_plan_over_time
 ENV_NAME = 'maze2d-medium-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
@@ -130,7 +130,11 @@ class EvalExperimenter:
         if len(diffusion_plans) and self.viz_plans:
             renderer = MuJoCoRenderer(gym.make(ENV_NAME))
             diffusion_plans = np.stack(diffusion_plans, axis=0)
-            show_diffusion(renderer, diffusion_plans)
+            plan_over_steps = diffusion_plans[:, 0,:, :] #choose the first episode
+            #show_diffusion(renderer, diffusion_plans)
+          
+            show_plan_over_time(renderer, plan_over_steps,\
+                                 savefolder=f'images/exp_num{exp_num}')
 
 
 def main(args=None):
