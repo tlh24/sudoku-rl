@@ -164,7 +164,7 @@ class ResidualAttentionBlock(nn.Module):
 		width = x.shape[2]
 		
 		if pas == 0 and self.init_zeros: 
-			schedule = 2000 # slower for SGD
+			schedule = 10000 # slower for SGD
 			init_head = n // schedule
 			if n % schedule == layer*(schedule//2) and init_head < self.n_head and (not self.head_enabled[init_head]): # only 2 layers! 
 				with torch.no_grad(): 

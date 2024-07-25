@@ -38,6 +38,11 @@ def slidingWindowR2(x, y, window_size, stride):
 	return r2_values
 
 
+def isFileEmpty(file_path):
+    # Check if file exist and it is empty
+    return os.path.exists(file_path) and os.path.getsize(file_path) == 0
+
+
 while True: 
 	fname = "losslog.txt"
 	if cmd_args.t:
@@ -92,4 +97,4 @@ while True:
 	fig.canvas.flush_events()
 	time.sleep(1)
 	print("tock")
-	#plt.show()
+	plt.show()
