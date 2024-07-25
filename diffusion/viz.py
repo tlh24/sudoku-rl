@@ -98,9 +98,6 @@ class MuJoCoRenderer:
             self.viewer = None
 
     def pad_observation(self, observation):
-        '''
-        
-        '''
         state = np.concatenate([
             np.zeros(1),
             observation,
