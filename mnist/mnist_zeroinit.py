@@ -204,7 +204,7 @@ class NetSimp4(nn.Module):
 			torch.nn.init.zeros_(self.fc4.weight)
 			torch.nn.init.zeros_(self.fc4.bias)
 
-	def forward(self, x):
+	def forward(self, x, n_enable):
 		x = torch.reshape(x, (-1, 1, 784))
 		x = self.fc1(x)
 		if self.init_zeros:
@@ -221,7 +221,7 @@ class NetSimp4(nn.Module):
 		x = self.fc4(x)
 		y = torch.squeeze(x)
 		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
-		return output
+		return output, torch.tensor(0.0)
 
 class NetSimpAE(nn.Module):
 	# a simple MLP with 3 layers
@@ -300,7 +300,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_loss
 	
 	threshold = args.num_iters # pdgd seems to hurt here! HUH
 	# if args.z: 
-	# 	threshold = threshold // 2
+	threshold = 0
 
 	if uu < threshold:
 		optimizer[0].zero_grad()
@@ -317,7 +317,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_loss
 		optimizer[0].step()
 	else:
 		def closure():
-			output = model(images)
+			output,_ = model(images, uu)
 			loss = F.nll_loss(output, labels) + sum( \
 					[torch.sum(1e-3 * torch.rand_like(param) * param * param) for param in model.parameters()])
 			return loss
@@ -330,9 +330,9 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_loss
 	if args.g:
 		if uu % 10 == 9:
 			print(mode, lloss)
-	else:
-		if uu % 120 == 119:
-			print(".", end="", flush=True)
+	# else:
+	# 	if uu % 120 == 119:
+	# 		print(".", end="", flush=True)
 
 
 def test(args, model, device, test_im, test_lab, fd_results):
@@ -422,13 +422,19 @@ def main():
 		
 	fd_results = open('mnist_zeroinit.txt', 'a')
 	fd_losslog = open('../losslog.txt', 'w')
+	
+	if args.p: 
+		plot_rows = 10
+		plot_cols = 3
+		figsize = (16, 24)
+		fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 
-	for repeat in range(1): 
+	for repeat in range(10): 
 			
 		if args.ae: 
 			model = NetSimpAE(init_zeros = args.z).to(device)
 		else: 
-			model = NetSimp3(init_zeros = args.z).to(device)
+			model = NetSimp4(init_zeros = args.z).to(device)
 			
 		optimizer = []
 	
@@ -460,7 +466,7 @@ def main():
 			for uu in range(args.num_iters):
 				train(args, model, device, train_im, train_lab, optimizer, uu, 1, fd_losslog)
 		else: 
-			for uu in range(args.num_iters):
+			for uu in range(args.num_iters // 10 * repeat):
 				train(args, model, device, train_im, train_lab, optimizer, uu, 2, fd_losslog)
 
 
@@ -481,27 +487,27 @@ def main():
 		fd_results.write(f"{sparsity[0]}\t{sparsity[1]}\t{sparsity[2]}\n")
 		fd_results.flush()
 		
+		
 		if args.p: 
-			plot_rows = 2
-			plot_cols = 3
-			figsize = (16, 8)
-			fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
-			
 			
 			for j in range(3): 
 				x = w[j].flatten()
-				axs[0,j].hist(x, 250)
+				if args.z:
+					rnge = (-0.5, 0.5)
+				else:
+					rnge = (-0.2, 0.2)
+				axs[repeat,j].hist(x, 400, rnge)
 				nonsparse = np.count_nonzero(x)
-				axs[0,j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
-				axs[0,j].set_yscale('log', nonpositive='clip')
+				axs[repeat,j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
+				axs[repeat,j].set_yscale('log', nonpositive='clip')
 				# axs[0,j].yscale('log')
 				
-			axs[1,0].plot(model.stn1.activ.detach().cpu().squeeze().numpy())
-			axs[1,0].set_title(f'H1 unit fading memory average activity')
-			axs[1,1].plot(model.stn2.activ.detach().cpu().squeeze().numpy())
-			axs[1,1].set_title(f'H2 unit fading memory average activity')
+			# axs[1,0].plot(model.stn1.activ.detach().cpu().squeeze().numpy())
+			# axs[1,0].set_title(f'H1 unit fading memory average activity')
+			# axs[1,1].plot(model.stn2.activ.detach().cpu().squeeze().numpy())
+			# axs[1,1].set_title(f'H2 unit fading memory average activity')
 			
-			plt.show()
+	plt.show()
 
 	fd_results.close()
 
