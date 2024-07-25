@@ -113,7 +113,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.init_zeros = init_zeros
 		# self.ln_1 = LayerNorm(d_model) # unused
 		# self.ln_2 = LayerNorm(d_model) # unused
-		self.wqkv = tl.L1(nn.Linear(d_model, n_head*2*d_model), weight_decay = 5e-2)
+		self.wqkv = nn.Linear(d_model, n_head*2*d_model)
 		self.wk = nn.Linear(d_model, n_head, bias=False)
 		# self.bv = nn.Linear(d_model, n_head, bias=False)
 		self.head_enabled = [False for _ in range(n_head)]
@@ -133,10 +133,10 @@ class ResidualAttentionBlock(nn.Module):
 			torch.nn.init.zeros_(self.fanin.bias)
 		else: 
 			with torch.no_grad(): 
-				w = torch.zeros_like(self.wqkv.module.weight)
-				self.wqkv.module.weight.copy_(w)
-				w = torch.zeros_like(self.wqkv.module.bias)
-				self.wqkv.module.bias.copy_(w)
+				w = torch.zeros_like(self.wqkv.weight)
+				self.wqkv.weight.copy_(w)
+				w = torch.zeros_like(self.wqkv.bias)
+				self.wqkv.bias.copy_(w)
 		torch.nn.init.zeros_(self.wk.weight)
 		
 	def attention(self, x:torch.Tensor, n:int, layer:int):
@@ -187,7 +187,7 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.fanin_stn(self.fanin(y), std)
 		# y = self.fanin(y)
 		# y = self.gelu(y) # ??
-		return x + y, ap, self.wqkv.module.weight.detach().cpu()
+		return x + y, ap, self.wqkv.weight.detach().cpu()
 		
 		
 class Transformer(nn.Module): 

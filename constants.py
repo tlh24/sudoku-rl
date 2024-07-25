@@ -22,3 +22,4 @@ else:
 	SuN = 9 # 4 x 4 board: 4 entries per row, column and box.
 	SuH = 3 # sqrt SuN
 	SuK = 25
+

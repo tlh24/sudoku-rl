@@ -15,6 +15,10 @@ class Sudoku:
 		self.mat = np.zeros((N, N), dtype=np.int32)
 	
 	def fillValues(self):
+		'''
+		Fills the sudoku matrix and leaves K digits empty
+		'''
+
 		# Fill the diagonal of SRN x SRN matrices
 		# 4x4 matrices have a good chance of being unsolvable.
 		done = False
@@ -27,6 +31,9 @@ class Sudoku:
 		# print(self.mat)
 	
 	def fillDiagonal(self):
+		'''
+		Fills the block diagonal with blocks of width self.SRN
+		'''
 		for i in range(0, self.N, self.SRN):
 			self.fillBoxS(i, i)
 	
@@ -38,6 +45,12 @@ class Sudoku:
 		return True
 		
 	def fillBoxS(self, row, col):
+		'''
+		Fills a box of width and height self.SRN randomly with unique numbers in [1,N]
+		
+		row, col: (int). Represent the (i,j) element offset which defines the top left corner
+		of the box to be filled. 
+		'''
 		# just a permutation. 
 		nums = [i+1 for i in range(self.N)]
 		random.shuffle(nums)
@@ -45,8 +58,16 @@ class Sudoku:
 			for j in range(self.SRN): 
 				num = nums[i*self.SRN + j]
 				self.mat[row + i, col + j] = num
-	
+
 	def fillBox(self, row, col):
+		'''
+		DEPRECATED. fillBoxS() is faster version.
+
+		Fills a box of width and height self.SRN randomly with unique numbers in [1,N]
+		
+		row, col: (int). Represent the (i,j) element offset which defines the top left corner
+		of the box to be filled. 
+		'''
 		num = 0
 		for i in range(self.SRN):
 			for j in range(self.SRN):
@@ -57,6 +78,9 @@ class Sudoku:
 				self.mat[row + i, col + j] = num
 	
 	def randomGenerator(self, num):
+		'''
+		Returns a uniformly random number in range [1,num] inclusive
+		'''
 		return math.floor(random.random() * num + 1)
 	
 	def checkIfSafe(self, i, j, num):
