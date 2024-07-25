@@ -80,6 +80,9 @@ class Racoonizer(nn.Module):
 		
 		
 	def encodePos(self, i, j): # row, column
+		'''
+		Encodes the position (i,j) into a 8 dimension vector embedding
+		'''
 		p = np.zeros(8)
 		scl = 2 * math.pi / 9.0
 		p[0] = math.sin(i*scl)
@@ -94,6 +97,10 @@ class Racoonizer(nn.Module):
 		return p
 
 	def encodeBoard(self, cursPos, board, guess, notes): 
+		# Board is 81+1 by world_dim. The first row represents the cursor position embedding
+		# Other 81 rows represent each cell. The first elm in the embedding is a flag if cell corresponds to cursor,
+		# next 9 elms are a one-hot of cell digit and next 9 elms are a one-hot of guess digit 
+
 		x = np.zeros((self.num_tokens, self.world_dim))
 		
 		# first token is the cursor (redundant -- might not be needed?)
@@ -104,14 +111,22 @@ class Racoonizer(nn.Module):
 		for i in range(9): 
 			for j in range(9): 
 				k = 1 + i*9 + j # token number
+				# The first element of the vector is -1. if token num corresponding to cursPos, else 0
 				if i == cursPos[0] and j == cursPos[1]: 
 					x[k,0] = -1.0 # cursor on this square
-				m = math.floor(board[i][j]) # works b/c 1 indexed.
-				if m > 0: 
-					x[k, m] = 1.0
-				m = math.floor(guess[i][j]) # also ok: 1-indexed.
-				if m > 0: 
-					x[k, m+9] = 1.0
+				else:
+					x[k,0] = 0.0
+
+				cell_val = math.floor(board[i][j]) # works b/c 1 indexed.
+				# One hot encode the next 9 (or # digits) elements based on cell digit if digit exists
+				# If cell has a digit (1-indexed), then set the corresponding index in the embedding to 1.
+				if cell_val > 0: 
+					x[k, cell_val] = 1.0
+
+				# One hot encode the next 9 (or # digits) elements based on guess digit if digit exists
+				guess_val = math.floor(guess[i][j]) # also ok: 1-indexed.
+				if guess_val > 0: 
+					x[k, guess_val+9] = 1.0
 				x[k, 1+9*2:1+9*3] = notes[i,j,:]
 				x[k,1+9*3:] = self.encodePos(i, j)
 		return x

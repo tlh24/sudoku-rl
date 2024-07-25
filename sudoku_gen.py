@@ -21,6 +21,10 @@ class Sudoku:
 
 	
 	def fillValues(self):
+		'''
+		Fills the sudoku matrix and leaves K digits empty
+		'''
+
 		# Fill the diagonal of SRN x SRN matrices
 		# 4x4 matrices have a good chance of being unsolvable.
 		self.mat = np.zeros((self.N, self.N), dtype=np.int32) #add this so we can properly fill values if we need to redo
@@ -31,9 +35,12 @@ class Sudoku:
 			done = self.fillRemaining(0, self.SRN)
 		# Remove Randomly K digits to make game
 		self.removeKDigits()
-		print(self.mat)
+		# print(self.mat)
 	
 	def fillDiagonal(self):
+		'''
+		Fills the block diagonal with blocks of width self.SRN
+		'''
 		for i in range(0, self.N, self.SRN):
 			self.fillBoxS(i, i)
 	
@@ -45,6 +52,12 @@ class Sudoku:
 		return True
 		
 	def fillBoxS(self, row, col):
+		'''
+		Fills a box of width and height self.SRN randomly with unique numbers in [1,N]
+		
+		row, col: (int). Represent the (i,j) element offset which defines the top left corner
+		of the box to be filled. 
+		'''
 		# just a permutation. 
 		nums = [i+1 for i in range(self.N)]
 		random.shuffle(nums)
@@ -52,8 +65,16 @@ class Sudoku:
 			for j in range(self.SRN): 
 				num = nums[i*self.SRN + j]
 				self.mat[row + i, col + j] = num
-	
+
 	def fillBox(self, row, col):
+		'''
+		DEPRECATED. fillBoxS() is faster version.
+
+		Fills a box of width and height self.SRN randomly with unique numbers in [1,N]
+		
+		row, col: (int). Represent the (i,j) element offset which defines the top left corner
+		of the box to be filled. 
+		'''
 		num = 0
 		for i in range(self.SRN):
 			for j in range(self.SRN):
@@ -64,6 +85,9 @@ class Sudoku:
 				self.mat[row + i, col + j] = num
 	
 	def randomGenerator(self, num):
+		'''
+		Returns a uniformly random number in range [1,num] inclusive
+		'''
 		return math.floor(random.random() * num + 1)
 	
 	def checkIfSafe(self, i, j, num):
@@ -82,6 +106,38 @@ class Sudoku:
 			if self.mat[i,j] == num:
 				return False
 		return True
+		
+	def checkIfValid(self): 
+		# verify that the current puzzle has no contradictions. 
+		valid = True
+		for i in range(self.N): 
+			match = self.mat == i+1
+			if np.max(np.sum(match, 1)) > 1: 
+				valid = False
+			if np.max(np.sum(match, 0)) > 1: 
+				valid = False
+			blocks = []
+			for i in range(0, self.N, self.SRN):
+				for j in range(0, self.N, self.SRN):
+					block = match[i:i+3, j:j+3].flatten()
+					blocks.append(block)
+			match = np.array(blocks)
+			if np.max(np.sum(match, 1)) > 1: 
+				valid = False
+		return valid
+			
+	def checkOpen(self, i, j): 
+		# check if there are open moves for this row, column, block
+		ok = np.ones((10,))
+		ok[0] = 0
+		m = self.SRN
+		for k in range(self.N):
+			ok[self.mat[i,k]] = 0
+			ok[self.mat[k,j]] = 0
+			bi = i // m
+			bj = j // m
+			ok[self.mat[bi*m+k//m,bj*m+k%m]] = 0
+		return np.sum(ok) > 0
 	
 	def fillRemaining(self, i, j):
 		# Check if we have reached the end of the matrix
@@ -113,38 +169,44 @@ class Sudoku:
 
 	def removeKDigits(self):
 		count = self.K
-
 		while (count != 0):
 			i = self.randomGenerator(self.N) - 1
 			j = self.randomGenerator(self.N) - 1
 			if (self.mat[i,j] != 0):
 				count -= 1
 				self.mat[i,j] = 0
-	
 		return
 	
 	def makeMove(self, i, j, num):
 		self.mat[i, j] = num
 
-	def getLegalMoveMask(self):
-		'''
-		Updates action_mask to be a binary vector where 1 for each action that is a valid move, 0 for an action 
-			that is invalid. See SudokuEnv for more context- the action space is a int in [0, board_width**3) which 
-			maps to a (i, j, digit) where i,j is the board cell location and digit is the proposed digit placement 
-		'''
-
-
 	def setMat(self, mat): 
 		self.mat = mat.astype(np.int32) # must be int!  == comparisons! 
 
-	def printSudoku(self):
+	def printSudoku(self, indent, puzzl_mat, guess_mat=None, curs_pos=None):
 		for i in range(self.N):
+			print(indent, end="")
 			for j in range(self.N):
 				k = i // self.SRN + j // self.SRN
 				color = "black" if k % 2 == 0 else "red"
-				p = math.floor(self.mat[i,j])
-				print(colored(p, color), end=" ")
+				p = math.floor(puzzl_mat[i,j])
+				if guess_mat is not None:
+					if np.round(guess_mat[i,j]) > 0:
+						p = guess_mat[i,j]
+						color = "blue" if k % 2 == 0 else "magenta"
+				bgcol = None
+				if curs_pos is not None: 
+					if curs_pos[0] == i and curs_pos[1] == j: 
+						bgcol = "on_light_yellow"
+				if bgcol is not None: 
+					print(colored(p, color, bgcol), end=" ")
+				else: 
+					print(colored(p, color), end=" ")
 			print()
+		self.mat = puzzl_mat
+		if guess_mat is not None: 
+			self.mat = self.mat + guess_mat
+		print(f"{indent}Valid:", self.checkIfValid(), end=" ")
 
 
 def generateInitialBoard(percent_filled=0.75):
@@ -207,7 +269,8 @@ def generateInitialBoard(percent_filled=0.75):
 	def pluck(puzzle, n=0):
 		"""
 		Answers the question: can the cell (i,j) in the puzzle "puz" contain the number
-		in cell "c"? """
+		in cell "c"? 
+    Note: curent graph transformer can do this. """
 		def canBeA(puz, i, j, c):
 			v = puz[c//9][c%9]
 			if puz[i][j] == v: return True
@@ -309,28 +372,46 @@ class LoadSudoku(Sudoku):
 if __name__ == "__main__":
 	N = 9
 	K = 81-37
-	#sudoku = LoadSudoku(N, K)
-	#sudoku.fillValues()
-	#sudoku.printSudoku()
-	puzzles_file = "/home/justin/Desktop/Code/sudoku-rl/satnet_puzzle_0.95_filled_10000.pt"
-	puzzles_list = torch.load(puzzles_file)
-	start = time.perf_counter()
-	for _ in range(1000):
-		sudoku = FasterSudoku(9, 0.75)
-		sudoku.fillValues()
-	end = time.perf_counter()
-	elapsed = end-start 
-	print(f"Faster sudoku took: {elapsed}s for 1000 iters")
+  if True: 
+    #sudoku = LoadSudoku(N, K)
+    #sudoku.fillValues()
+    #sudoku.printSudoku()
+    puzzles_file = "satnet_puzzle_0.95_filled_10000.pt"
+    puzzles_list = torch.load(puzzles_file)
+    start = time.perf_counter()
+    for _ in range(1000):
+      sudoku = FasterSudoku(9, 0.75)
+      sudoku.fillValues()
+    end = time.perf_counter()
+    elapsed = end-start 
+    print(f"Faster sudoku took: {elapsed}s for 1000 iters")
 
-	start = time.perf_counter()
-	for _ in range(1000):
-		sudoku = LoadSudoku(9, puzzles_list)
-		sudoku.fillValues()
-	end = time.perf_counter()
-	elapsed = end-start 
-	print(f"Load sudoku took: {elapsed}s for 1000 iters")
+    start = time.perf_counter()
+    for _ in range(1000):
+      sudoku = LoadSudoku(9, puzzles_list)
+      sudoku.fillValues()
+    end = time.perf_counter()
+    elapsed = end-start 
+    print(f"Load sudoku took: {elapsed}s for 1000 iters")
 
 
+	sudoku = Sudoku(N, K)
+	sudoku.fillValues()
+	sudoku.printSudoku("", sudoku.mat)
+	print("base",sudoku.checkIfValid())
+	# check the validate fn. 
+	for r in range(N): 
+		for c in range(N): 
+			if sudoku.mat[r,c] == 0: 
+				for i in range(N):
+					sudoku.mat[r,c] = i+1
+					print(r,c,i+1,sudoku.checkIfValid())
+				sudoku.mat[r,c] = 0
 
-
+	# check the open Fn
+	sudoku.printSudoku("", sudoku.mat)
+	for r in range(N): 
+		for c in range(N): 
+			if sudoku.mat[r,c] == 0: 
+				print(r,c,sudoku.checkOpen(r,c))
 
