@@ -31,8 +31,8 @@ import psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
 from utils import set_seed
-from baseline.data import getBaselineDataloaders
-from baseline.model import GPTConfig, GPT
+# from diffusion.data import getBaselineDataloaders
+# from diffusion.model import GPTConfig, GPT
 
 sys.path.insert(0, "baseline/")
 
@@ -521,43 +521,41 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 		with torch.no_grad():
 			self.forwardLoop(self.args.epochs, False, self.test_dl)
 		
-class RecurrentBaselineTrainer(Trainer):
-	'''
-	Used for the recurrent transformer baseline. 
-	'''
-	def __init__(self, model, train_dl, test_dl, device, optimizer_name, args, loss_log_path='losslog.txt'):
-		super().__init__(model, train_dl, test_dl, device, optimizer_name, None, args, None, loss_log_path)
-	
-	def forwardLoop(self, epoch, is_train, data_loader):
-		sum_batch_loss = 0.0
-
-		for batch_idx, (x,y) in enumerate(data_loader):
-			x = x.to(self.device)
-			y = y.to(self.device)
-
-			# forward the model
-			with torch.set_grad_enabled(is_train):
-				logits, loss, atts = self.model(x,y)
-				loss = loss.mean()
-				sum_batch_loss += loss.item()
-
-			if is_train:
-				self.model.zero_grad()
-				loss.backward()
-				torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-				self.optimizer.step()
-		
-			sum_batch_loss += loss.cpu().item()
-		
-		# add epoch loss to file
-		avg_batch_loss = sum_batch_loss / len(data_loader)
-		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
-		self.fd_loss_log.flush()
-		return 
+# class RecurrentBaselineTrainer(Trainer):
+# 	'''
+# 	Used for the recurrent transformer baseline. 
+# 	'''
+# 	def __init__(self, model, train_dl, test_dl, device, optimizer_name, args, loss_log_path='losslog.txt'):
+# 		super().__init__(model, train_dl, test_dl, device, optimizer_name, None, args, None, loss_log_path)
+# 	
+# 	def forwardLoop(self, epoch, is_train, data_loader):
+# 		sum_batch_loss = 0.0
+# 
+# 		for batch_idx, (x,y) in enumerate(data_loader):
+# 			x = x.to(self.device)
+# 			y = y.to(self.device)
+# 
+# 			# forward the model
+# 			with torch.set_grad_enabled(is_train):
+# 				logits, loss, atts = self.model(x,y)
+# 				loss = loss.mean()
+# 				sum_batch_loss += loss.item()
+# 
+# 			if is_train:
+# 				self.model.zero_grad()
+# 				loss.backward()
+# 				torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+# 				self.optimizer.step()
+# 		
+# 			sum_batch_loss += loss.cpu().item()
+# 		
+# 		# add epoch loss to file
+# 		avg_batch_loss = sum_batch_loss / len(data_loader)
+# 		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
+# 		self.fd_loss_log.flush()
+# 		return 
 			
 
-			
-			
 		
 			
 ## graph-baseline
@@ -622,36 +620,37 @@ def main(args):
 	print(f"Program duration: {program_duration} sec")
 
 	
+## graph-baseline 
 
-if __name__ == '__main__':
-	parser = argparse.ArgumentParser()
-	# Training
-	parser.add_argument('--epochs', type=int, default=200)
-	parser.add_argument('--eval_interval', type=int, default=1, help='Compute eval for how many epochs')
-	parser.add_argument('--batch_size', type=int, default=128)
-	parser.add_argument('--lr', type=float, default=6e-4)
-	parser.add_argument('--lr_decay', default=False, action='store_true')
-
-	# Model and loss
-	parser.add_argument('--n_layer', type=int, default=1, help='Number of sequential self-attention blocks.')
-	parser.add_argument('--n_recur', type=int, default=32, help='Number of recurrency of all self-attention blocks.')
-	parser.add_argument('--n_head', type=int, default=4, help='Number of heads in each self-attention block.')
-	parser.add_argument('--n_embd', type=int, default=128, help='Vector embedding size.')
-	parser.add_argument('--loss', default=[], nargs='+', help='specify regularizers in \{c1, att_c1\}')
-	parser.add_argument('--all_layers', default=False, action='store_true', help='apply losses to all self-attention layers')    
-	parser.add_argument('--hyper', default=[1, 0.1], nargs='+', type=float, help='Hyper parameters: Weights of [L_sudoku, L_attention]')
-
-	# Data
-	parser.add_argument('--n_train', type=int, default=10000, help='The number of data for training')
-	parser.add_argument('--n_test', type=int, default=2000, help='The number of data for testing')
-
-	# Other
-	parser.add_argument('--seed', type=int, default=0, help='Random seed for reproductivity.')
-	parser.add_argument('--gpu', type=int, default=-1, help='gpu index; -1 means using all GPUs or using CPU if no GPU is available')
-	parser.add_argument("--gracoonizer", action=argparse.BooleanOptionalAction, default=True)
-	args = parser.parse_args()
-
-	main(args)
+# if __name__ == '__main__':
+# 	parser = argparse.ArgumentParser()
+# 	# Training
+# 	parser.add_argument('--epochs', type=int, default=200)
+# 	parser.add_argument('--eval_interval', type=int, default=1, help='Compute eval for how many epochs')
+# 	parser.add_argument('--batch_size', type=int, default=128)
+# 	parser.add_argument('--lr', type=float, default=6e-4)
+# 	parser.add_argument('--lr_decay', default=False, action='store_true')
+# 
+# 	# Model and loss
+# 	parser.add_argument('--n_layer', type=int, default=1, help='Number of sequential self-attention blocks.')
+# 	parser.add_argument('--n_recur', type=int, default=32, help='Number of recurrency of all self-attention blocks.')
+# 	parser.add_argument('--n_head', type=int, default=4, help='Number of heads in each self-attention block.')
+# 	parser.add_argument('--n_embd', type=int, default=128, help='Vector embedding size.')
+# 	parser.add_argument('--loss', default=[], nargs='+', help='specify regularizers in \{c1, att_c1\}')
+# 	parser.add_argument('--all_layers', default=False, action='store_true', help='apply losses to all self-attention layers')    
+# 	parser.add_argument('--hyper', default=[1, 0.1], nargs='+', type=float, help='Hyper parameters: Weights of [L_sudoku, L_attention]')
+# 
+# 	# Data
+# 	parser.add_argument('--n_train', type=int, default=10000, help='The number of data for training')
+# 	parser.add_argument('--n_test', type=int, default=2000, help='The number of data for testing')
+# 
+# 	# Other
+# 	parser.add_argument('--seed', type=int, default=0, help='Random seed for reproductivity.')
+# 	parser.add_argument('--gpu', type=int, default=-1, help='gpu index; -1 means using all GPUs or using CPU if no GPU is available')
+# 	parser.add_argument("--gracoonizer", action=argparse.BooleanOptionalAction, default=True)
+# 	args = parser.parse_args()
+# 
+# 	main(args)
 
 ## main
 	

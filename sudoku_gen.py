@@ -54,7 +54,6 @@ class Sudoku:
 	def fillBoxS(self, row, col):
 		'''
 		Fills a box of width and height self.SRN randomly with unique numbers in [1,N]
-		
 		row, col: (int). Represent the (i,j) element offset which defines the top left corner
 		of the box to be filled. 
 		'''
@@ -71,7 +70,6 @@ class Sudoku:
 		DEPRECATED. fillBoxS() is faster version.
 
 		Fills a box of width and height self.SRN randomly with unique numbers in [1,N]
-		
 		row, col: (int). Represent the (i,j) element offset which defines the top left corner
 		of the box to be filled. 
 		'''
@@ -269,18 +267,17 @@ def generateInitialBoard(percent_filled=0.75):
 	def pluck(puzzle, n=0):
 		"""
 		Answers the question: can the cell (i,j) in the puzzle "puz" contain the number
-		in cell "c"? 
-    Note: curent graph transformer can do this. """
-		def canBeA(puz, i, j, c):
-			v = puz[c//9][c%9]
+		in cell (ii,jj)? """
+		def canBeA(puz, i, j, ii, jj):
+			v = puz[ii][jj]
 			if puz[i][j] == v: return True
 			if puz[i][j] in range(1,10): return False
 				
 			for m in range(9): # test row, col, square
 				# if not the cell itself, and the mth cell of the group contains the value v, then "no"
-				if not (m==c//9 and j==c%9) and puz[m][j] == v: return False
-				if not (i==c//9 and m==c%9) and puz[i][m] == v: return False
-				if not ((i//3)*3 + m//3==c//9 and (j//3)*3 + m%3==c%9) and puz[(i//3)*3 + m//3][(j//3)*3 + m%3] == v:
+				if not (m==ii and j==jj) and puz[m][j] == v: return False
+				if not (i==ii and m==jj) and puz[i][m] == v: return False
+				if not ((i//3)*3 + m//3==ii and (j//3)*3 + m%3==jj) and puz[(i//3)*3 + m//3][(j//3)*3 + m%3] == v:
 					return False
 
 			return True
@@ -294,23 +291,26 @@ def generateInitialBoard(percent_filled=0.75):
 		while len(cells) > n and len(cellsleft):
 			cell = random.choice(list(cellsleft)) # choose a cell from ones we haven't tried
 			cellsleft.discard(cell) # record that we are trying this cell
-
 			# row, col and square record whether another cell in those groups could also take
 			# on the value we are trying to pluck. (If another cell can, then we can't use the
 			# group to deduce this value.) If all three groups are True, then we cannot pluck
 			# this cell and must try another one.
-			row = col = square = False
+			row = col = block = False
+			ii = cell // 9 # row
+			jj = cell % 9 # column
+			for k in range(9):
+				if k != ii: # iterate over a column
+					if canBeA(puzzle, k, jj, ii, jj): col = True
+				if k != jj: # iterate over a row
+					if canBeA(puzzle, ii, k, ii, jj): row = True
+				bi = ((ii)//3)*3 # block row
+				bj = ((jj)%3)*3 # block col
+				if not (bi + k//3 == ii and bj + k%3 == jj):
+					if canBeA(puzzle, bi + k//3, bj + k%3, ii, jj): block = True
 
-			for i in range(9):
-				if i != cell//9:
-					if canBeA(puzzle, i, cell%9, cell): row = True
-				if i != cell%9:
-					if canBeA(puzzle, cell//9, i, cell): col = True
-				if not (((cell//9)//3)*3 + i//3 == cell//9 and ((cell//9)%3)*3 + i%3 == cell%9):
-					if canBeA(puzzle, ((cell//9)//3)*3 + i//3, ((cell//9)%3)*3 + i%3, cell): square = True
-
-			if row and col and square:
-				continue # could not pluck this cell, try again.
+			if row and col and block:
+				# this means that trivial deduction cannot determine the value in the cell -- there is another option of the same value in this cell's row, column, or block. So, try again.
+				continue 
 			else:
 				# this is a pluckable cell!
 				puzzle[cell//9][cell%9] = 0 # 0 denotes a blank cell
@@ -367,33 +367,31 @@ class LoadSudoku(Sudoku):
 		self.mat = rand_board.astype(np.uint8)
 
 
-
 # Driver code
 if __name__ == "__main__":
 	N = 9
 	K = 81-37
-  if True: 
-    #sudoku = LoadSudoku(N, K)
-    #sudoku.fillValues()
-    #sudoku.printSudoku()
-    puzzles_file = "satnet_puzzle_0.95_filled_10000.pt"
-    puzzles_list = torch.load(puzzles_file)
-    start = time.perf_counter()
-    for _ in range(1000):
-      sudoku = FasterSudoku(9, 0.75)
-      sudoku.fillValues()
-    end = time.perf_counter()
-    elapsed = end-start 
-    print(f"Faster sudoku took: {elapsed}s for 1000 iters")
+	if False: # need to get the datafile from Justin
+		#sudoku = LoadSudoku(N, K)
+		#sudoku.fillValues()
+		#sudoku.printSudoku()
+		puzzles_file = "satnet_puzzle_0.95_filled_10000.pt"
+		puzzles_list = torch.load(puzzles_file)
+		start = time.perf_counter()
+		for _ in range(1000):
+			sudoku = FasterSudoku(9, 0.75)
+			sudoku.fillValues()
+		end = time.perf_counter()
+		elapsed = end-start 
+		print(f"Faster sudoku took: {elapsed}s for 1000 iters")
 
-    start = time.perf_counter()
-    for _ in range(1000):
-      sudoku = LoadSudoku(9, puzzles_list)
-      sudoku.fillValues()
-    end = time.perf_counter()
-    elapsed = end-start 
-    print(f"Load sudoku took: {elapsed}s for 1000 iters")
-
+		start = time.perf_counter()
+		for _ in range(1000):
+			sudoku = LoadSudoku(9, puzzles_list)
+			sudoku.fillValues()
+		end = time.perf_counter()
+		elapsed = end-start 
+		print(f"Load sudoku took: {elapsed}s for 1000 iters")
 
 	sudoku = Sudoku(N, K)
 	sudoku.fillValues()
