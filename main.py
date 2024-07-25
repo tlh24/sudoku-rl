@@ -131,7 +131,7 @@ def runAction(action, sudoku, cursPos, guess, notes):
 	cursPos[0] = cursPos[0] % 9 # wrap at the edges; 
 	cursPos[1] = cursPos[1] % 9 # works for negative nums
 	
-	if act == 4: 
+	if act == 4: # set guess
 		clue = sudoku.mat[cursPos[0], cursPos[1]]
 		curr = guess[cursPos[0], cursPos[1]]
 		if sudoku.checkIfSafe(cursPos[0], cursPos[1], num) and clue == 0 and curr == 0:
@@ -140,7 +140,7 @@ def runAction(action, sudoku, cursPos, guess, notes):
 			guess[cursPos[0], cursPos[1]] = num
 		else:
 			reward = -1
-	if act == 5: 
+	if act == 5: # unset guess
 		curr = guess[cursPos[0], cursPos[1]]
 		if curr != 0: 
 			guess[cursPos[0], cursPos[1]] = 0

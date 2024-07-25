@@ -8,7 +8,6 @@ import numpy as np
 from constants import sudoku_width
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
-import model
 from multiprocessing import Pool
 from itertools import product
 
@@ -17,11 +16,16 @@ from itertools import product
 # parallelize and save the results for fast loading later.
 
 N = 500000
-x = torch.zeros(N, sudoku_width, sudoku_width)
+S = 9 # normally 9
+
+x = torch.zeros(N, S, S)
 
 def makePuzzle(j): # argument is ignored.
-	k = np.random.randint(20) + 25 # how many positions to blank.
-	sudoku = Sudoku(sudoku_width, k)
+	if S == 9: 
+		k = np.random.randint(45) + 5 # how many positions to blank.
+	if S == 4: 
+		k = np.random.randint(5) + 6
+	sudoku = Sudoku(S, k)
 	sudoku.fillValues()
 	return torch.tensor(sudoku.mat)
 
@@ -32,4 +36,4 @@ for ind, res in enumerate(pool.imap_unordered(makePuzzle, range(N), chunksize)):
 	x[ind, :, :] = res
 
 
-torch.save(x, f'puzzles_{N}.pt')
+torch.save(x, f'puzzles_{S}_{N}.pt')
