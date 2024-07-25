@@ -35,9 +35,28 @@ def save_video(filename, video_frames, fps=60, video_format='mp4'):
 
 ## helper functions ##
 def get_image_mask(img):
+    # Returns mask that is True for non-all-white pixels, False for all white pixels
     background = (img == 255).all(axis=-1, keepdims=True)
     mask = ~background.repeat(3, axis=-1)
     return mask
+
+def create_background_mask(image, tolerance=80):
+    '''
+    Returns a boolean array of same shape as image; pixel is true iff non maze2d background
+    '''
+    img_array = np.array(image)
+    
+    # Define the background colors
+    bg_color1 = np.array([25, 51, 76])  # Dark blue
+    bg_color2 = np.array([51, 76, 102])  # Lighter blue
+    
+    diff1 = np.sum(np.abs(img_array - bg_color1), axis=-1)
+    diff2 = np.sum(np.abs(img_array - bg_color2), axis=-1)
+    
+    # Create a mask where pixels are true if NOT close to either background color
+    background_mask = (diff1 > tolerance) & (diff2 > tolerance)
+    return background_mask
+
 
 def atmost_2d(x):
     while x.ndim > 2:
@@ -79,6 +98,9 @@ class MuJoCoRenderer:
             self.viewer = None
 
     def pad_observation(self, observation):
+        '''
+        
+        '''
         state = np.concatenate([
             np.zeros(1),
             observation,
@@ -144,20 +166,33 @@ class MuJoCoRenderer:
             images.append(img)
         return np.stack(images, axis=0)
 
-    def renders(self, samples, partial=False, **kwargs):
-        #samples: (H, obs_dim )
+    def renders(self, samples, partial=False, dim=(1024, 256), qvel=True, render_kwargs=None,**kwargs):
+        '''
+        Renders a path and returns a collated image of the observations
+            For our purposes, partial should remain false
+
+        samples: (H, obs_dim )
         
+        '''
+        assert partial == False 
         if partial:
             samples = self.pad_observations(samples)
             partial = False
+        
+        if render_kwargs is None:
+            render_kwargs = {
+                'trackbodyid': 2,
+                'distance': 10,
+                'lookat': [5, 5, 0],
+                'elevation': -90.0
+            }
 
-        sample_images = self._renders(samples, partial=partial, **kwargs)
+        sample_images = self._renders(samples, partial=partial,dim=dim, qvel=qvel,render_kwargs=render_kwargs, **kwargs)
         # (H, img_dims)
 
         composite = np.ones_like(sample_images[0]) * 255
-
         for img in sample_images:
-            mask = get_image_mask(img)
+            mask = create_background_mask(img)
             composite[mask] = img[mask]
 
         return composite
