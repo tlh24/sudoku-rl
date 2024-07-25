@@ -1,16 +1,19 @@
+'''
+Generates N sudoku maps with some positions blank and some filled. 
+Saves the tensor of maps as a torch file named puzzles_{N}.pt
+'''
 import math
 import torch
 import numpy as np
+from constants import sudoku_width
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
-import model
 from multiprocessing import Pool
 from itertools import product
 import random, copy
 import os 
 
-
-def generatePuzzles(N=500000,S=4):
+def generatePuzzles(N=500000,S=9):
 	'''
 	Generate puzzles following Tim's puzzle generation code 
 	'''
@@ -27,13 +30,11 @@ def generatePuzzles(N=500000,S=4):
 		sudoku.fillValues()
 		return torch.tensor(sudoku.mat)
 
-
 	pool = Pool() #defaults to number of available CPU's
 	chunksize = 1 # some puzzles require a lot of backtracking to fill, so keep small
 	for ind, res in enumerate(pool.imap_unordered(makePuzzle, range(N), chunksize)):
 		x[ind, :, :] = res
-
-
+    
 	torch.save(x, f'puzzles_{S}_{N}.pt')
 
 def generateSATNetPuzzles(num_puzzles, percent_filled=0.75):
@@ -96,7 +97,8 @@ def generateSATNetPuzzles(num_puzzles, percent_filled=0.75):
 	def pluck(puzzle, n=0):
 		"""
 		Answers the question: can the cell (i,j) in the puzzle "puz" contain the number
-		in cell "c"? """
+		in cell "c"? 
+    (world model can do this..) """
 		def canBeA(puz, i, j, c):
 			v = puz[c//9][c%9]
 			if puz[i][j] == v: return True
@@ -110,7 +112,6 @@ def generateSATNetPuzzles(num_puzzles, percent_filled=0.75):
 					return False
 
 			return True
-
 
 		"""
 		starts with a set of all 81 cells, and tries to remove one (randomly) at a time

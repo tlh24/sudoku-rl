@@ -78,11 +78,14 @@ if __name__ == "__main__":
 	initialized = False
 	im = [ [0]*plot_cols for i in range(plot_rows)]
 	cbar = [ [0]*plot_cols for i in range(plot_rows)]
+	
+	current_directory = os.getcwd()
+	base_dir = os.path.basename(current_directory)
+	fig.canvas.manager.set_window_title(f'plot_mmap {base_dir}')
 
 
 	def plot_tensor(r, c, v, name, lo, hi, colorbar=True):
 		if not initialized:
-			# seed with random data so we get the range right
 			cmap_name = 'PuRd' # purple-red
 			if lo == -1*hi:
 				cmap_name = 'seismic'
@@ -95,20 +98,20 @@ if __name__ == "__main__":
 		#cbar[r][c].update_normal(im[r][c]) # probably does nothing
 		axs[r,c].set_title(name)
 		axs[r,c].tick_params(bottom=True, top=True, left=True, right=True)
-
-	bs = batch_size
-	if batch_size > 4: 
-		bs = 4
 		
 	u = 0
+	cl = token_cnt
+	# cl = 120
 	
 	maxattn = th.ones(n_heads*2)
 	maxqkv = th.ones(n_heads*2)
+	mask = torch.zeros(token_cnt, world_dim)
+	mask[:,:32] = 1.0; 
+	lines = None
 
 	while True:
 		# i = np.random.randint(batch_size) # checking
 		i = 0
-		cl = token_cnt
 			
 		if mode == 0: 
 			board = read_mmap(fd_board, [batch_size, token_cnt, world_dim])
@@ -117,12 +120,26 @@ if __name__ == "__main__":
 			reward = read_mmap(fd_reward, [batch_size, reward_dim])
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
+			if u % 2 == 0 or True: 
+				err = torch.sum(torch.abs((boardp[:,:,33:] - new_board[:,:,1:32])), [1,2])
+				i = torch.argmax(err).item()
+			else: 
+				i = 0
+			
+			guess = 10 + torch.argmax(new_board[i,0,10:20])
+			
 			plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
-			plot_tensor(1, 0, boardp[i,:cl,:].T, f"worldp[{i},:,:]", -4.0, 4.0)
+			if lines is not None: 
+				lines.pop(0).remove()
+			lines = axs[0,0].plot([0,cl-1],[guess,guess], 'g', alpha=0.4)
+			plot_tensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
 			plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(worldp - board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
-			plot_tensor(1, 2, rewardp[:,:], f"rewardp[{i},:,:]", -2.0, 2.0)
+			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
+			plot_tensor(0, 2, (boardp[i,:cl,33:].T - new_board[i,:cl,1:32].T), f"(board_pred - new_board)[{i},:,:]", -4.0, 4.0)
+			# if not initialized: 
+			# 	axs[0,2].plot([0,token_cnt-1],[21,21], 'g', alpha=0.4) # make easier
+			# plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
+			plot_tensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
 			
 		if mode == 1: 
 			
@@ -144,8 +161,8 @@ if __name__ == "__main__":
 					x = x.T / maxqkv[head]
 					
 					plot_tensor(layer+2, head, x, f"wqv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
-					if not initialized: 
-						axs[layer+2,head].plot([19.5, 19.5], [0.0, 19.5], 'g')
+					# if not initialized: 
+					# 	axs[layer+2,head].plot([19.5, 19.5], [0.0, 19.5], 'g')
 					if head == 0: 
 						axs[layer+2,head].set_ylabel('input dim')
 						axs[layer+2,head].set_xlabel('output dim for Q & V')
@@ -155,7 +172,7 @@ if __name__ == "__main__":
 		fig.tight_layout()
 		fig.canvas.draw()
 		fig.canvas.flush_events()
-		# time.sleep(0.35)
+		time.sleep(5.0)
 		print("tock")
 		initialized=True
 		u = u + 1

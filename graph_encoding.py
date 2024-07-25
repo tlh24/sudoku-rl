@@ -8,6 +8,7 @@ from constants import SuN, SuH, SuK
 from type_file import Types, Axes, Action 
 import pdb
 
+# this is more like tree encoding, tbh. 
 
 class Node: 
 	def __init__(self, typ, val):
@@ -41,7 +42,7 @@ class Node:
 # how to encode a variable number of edges then? 
 
 
-def sudokuActionNodes(action_type: int, action_value:int): 
+def sudokuActionNodes(action_type:int, action_value:int): 
 	'''
 	Returns a list containing action node: [action_node]
 

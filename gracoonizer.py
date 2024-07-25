@@ -1,14 +1,19 @@
 import math
 import numpy as np
-import torch as th
+import torch
 from torch import nn, optim
 import graph_transformer
+import nanogpt_model
 import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
-from constants import n_heads, g_zeroinit
+from constants import token_cnt, g_zeroinit, g_dtype
 import graph_encoding
+from nanogpt_model import GPTConfig, GPT
+from netdenoise import NetDenoise
 
+USE_GRAPH_XFRMR = True
+USE_NANOGPT = False
 
 class Gracoonizer(nn.Module):
 	
@@ -16,51 +21,73 @@ class Gracoonizer(nn.Module):
 		self,
 		xfrmr_dim:int, 
 		world_dim:int,
-		reward_dim:int
+		n_heads:int,
+		n_layers:int,
+		repeat:int,
+		mode:int
 		): 
 		super().__init__()
 		self.xfrmr_dim = xfrmr_dim
 		self.world_dim = world_dim
-		self.reward_dim = reward_dim
-		self.n_head = n_heads # need one head for each of the 4 connection types.
+		self.n_head = n_heads 
+		# assert(n_layers % 4 == 0) # one layer for each of the different types.
 		
-		# self.world_to_xfrmr = nn.Linear(world_dim, xfrmr_dim)
-		# with th.no_grad(): 
-		# 	w = th.cat([th.eye(world_dim, world_dim) for _ in range(self.n_head)], 0)
-		# 	self.world_to_xfrmr.weight.copy_( w )
-		# 	self.world_to_xfrmr.bias.copy_( th.zeros(xfrmr_dim) )
-		
-		self.gelu = graph_transformer.QuickGELU()
-		
-		self.xfrmr = graph_transformer.Transformer(
-			d_model = xfrmr_dim, 
-			layers = 2, # was 2
-			n_head = self.n_head, 
-			repeat = 1, # was 3
-			init_zeros = g_zeroinit
-			)
+		if mode == 0: # USE_GRAPH_XFRMR:
+			self.xfrmr = graph_transformer.Transformer(
+				d_model = xfrmr_dim,
+				layers = n_layers,
+				n_head = self.n_head,
+				repeat = repeat,
+				init_zeros = g_zeroinit
+				)
+		elif mode == 1: #USE_NANOGPT:
+			model_args = dict(
+				n_layer=6,
+				n_head=6,
+				n_embd=384,
+				block_size=token_cnt,
+				bias=False,
+				in_size=world_dim,
+				dropout=False)
+			gptconf = GPTConfig(**model_args)
+			self.xfrmr = nanogpt_model.GPT(gptconf)
+		else:
+			# simple MLP, as a control.
+			self.xfrmr = NetDenoise(token_cnt * world_dim)
 		
 		# self.xfrmr_to_world = graph_transformer.LinearM(xfrmr_dim, world_dim, True) 
-		# with th.no_grad(): 
-		# 	w = th.zeros(world_dim, xfrmr_dim+1)
+		# with torch.no_grad(): 
+		# 	w = torch.zeros(world_dim, xfrmr_dim+1)
 		# 	for i in range(min(xfrmr_dim, world_dim)): 
 		# 		w[i,i] = 1.0
 		# 	self.xfrmr_to_world.w.copy_( w )
 		
 		# self.softmax = nn.Softmax(dim = 2)
 		# self.critic_to_reward = graph_transformer.LinearM(xfrmr_dim, 2, True) # suck in everything. 
-		# with th.no_grad(): 
-		# 	self.critic_to_reward.w.copy_( th.ones(2, xfrmr_dim+1) / xfrmr_dim )
+		# with torch.no_grad(): 
+		# 	self.critic_to_reward.w.copy_( torch.ones(2, xfrmr_dim+1) / xfrmr_dim )
 	
-	def forward(self, benc, actenc, msk, n, record): 
+	def forward(self, benc, hcoo, n, record): 
 		batch_size = benc.shape[0]
 		board_size = benc.shape[1]
 		if record is not None: 
 			record.append(actenc)
-		x = th.cat((benc, actenc), axis=1)
-		y,a1,a2,w1,w2 = self.xfrmr(x,msk,n,record)
-		reward = th.ones(batch_size) * 0.05
-		return y[:,:board_size,:], reward, a1, a2, w1, w2
+		if USE_GRAPH_XFRMR: 
+			y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
+		elif USE_NANOGPT: 
+			y = self.xfrmr(benc)
+			w1 = None
+			w2 = None
+		else: 
+			bs = benc.shape[0]
+			ntok = benc.shape[1]
+			w = benc.shape[2]
+			benc = torch.reshape(benc, (bs, ntok*w))
+			y = self.xfrmr(benc, torch.zeros(bs, device=benc.device))
+			y = torch.reshape(y, (bs, ntok, w))
+			w1 = None
+			w2 = None
+		return y, w1, w2
 		
 	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd):
 		# record the real targets for the internal variables. 
@@ -71,7 +98,7 @@ class Gracoonizer(nn.Module):
 		actnodes = graph_encoding.sudokuActionNodes(-1) # null move.
 		_,actenc,_ = graph_encoding.encodeNodes([], actnodes) 
 		actenc = np.tile(actenc, [batch_size, 1, 1]) # tile the null move
-		action = th.tensor(actenc, requires_grad=True, device=benc.device)
+		action = torch.tensor(actenc, requires_grad=True, device=benc.device, dtype=g_dtype)
 		opt = optim.AdamW([action], lr=1e-3, weight_decay = 5e-2)
 		N = 5000
 		loss = np.zeros((N,6))
@@ -84,21 +111,21 @@ class Gracoonizer(nn.Module):
 			# pdb.set_trace()
 			y,_,_,_,_,_ = self.forward(benc, action, msk, n, record)
 			y = y * lossmask
-			err = 10 * th.sum((y - newbenc)**2) / np.prod(y.shape)
+			err = 10 * torch.sum((y - newbenc)**2) / np.prod(y.shape)
 			err.backward(retain_graph=True)
 			loss[i,0] = err.cpu().detach().item()
-			x = th.cat((benc, action), axis=1)
+			x = torch.cat((benc, action), axis=1)
 			losses = self.xfrmr.backAction(x, msk, newbenc, record, denoisenet, denoisestd, temp, record_true, doplot=(i==N-1))
 			for j,l in enumerate(losses):
 				loss[i,j+1] = l
 			print(loss[i])
 			opt.step()
-			# with th.no_grad(): 
-				# action -= th.nn.utils.clip_grad_norm(action, 1) * 0.05
+			# with torch.no_grad(): 
+				# action -= torch.nn.utils.clip_grad_norm(action, 1) * 0.05
 				# action -= action.grad * 0.1 # ??
 				# action -= action * 0.0001 # weight decay
-				# action += th.randn_like(action)*0.001
-				# action = th.clip(action, -2.5, 2.0) # breaks things?
+				# action += torch.randn_like(action)*0.001
+				# action = torch.clip(action, -2.5, 2.0) # breaks things?
 			if i == N-1:
 				fig, axs = plt.subplots(2, 3, figsize=(12,8))
 
@@ -137,18 +164,18 @@ class Gracoonizer(nn.Module):
 	def load_checkpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
-		self.load_state_dict(th.load(path))
+		self.load_state_dict(torch.load(path))
 		# if we load the state dict, then start all heads 'on'
-		self.xfrmr.allHeadsOn()
+		# self.xfrmr.allHeadsOn()
    
 	def save_checkpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
-		th.save(self.state_dict(), path)
+		torch.save(self.state_dict(), path)
 		print(f"saved checkpoint to {path}")
 
 	def printParamCount(self):
 		trainable_params = sum(
 			p.numel() for p in self.parameters() if p.requires_grad
 		)
-		print(f"Number of model parameters:{trainable_params/1e6}M")
+		print(f"Gracoonizer: number of model parameters:{trainable_params/1e6}M")
