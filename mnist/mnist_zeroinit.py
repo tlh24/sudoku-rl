@@ -46,34 +46,40 @@ class STNFunction(torch.autograd.Function):
 	# see https://www.kaggle.com/code/peggy1502/learning-pytorch-2-new-autograd-functions/notebook
 	# and https://hassanaskary.medium.com/intuitive-explanation-of-straight-through-estimators-with-pytorch-implementation-71d99d25d9d0
 	@staticmethod
-	def forward(ctx, input, std, activ):
+	def forward(ctx, input, std, activ, n_enable):
 		batch_size = input.shape[0]
+		if n_enable is None: 
+			n_enable = 0
+		else: 
+			n_enable = n_enable // 1000 + 1
+		
 		ac = torch.squeeze(activ)
+		# ac[n_enable:] = 10 # turn the other units off.
 		ac = torch.exp(-5.0*ac)
 		s = torch.sum(ac)
-		ac[0] = s*2000 # controls the probability of adding a new unit
+		ac[0] = s*4000 # controls the probability of adding a new unit
 		# seems to be a sensitive hyper-parameter: might want to change per layer?
 		# unit zero is hence never enabled.
 		# this causes scaling problems... meh.
-		r = torch.multinomial(ac, batch_size, replacement=True) # sample 1 row to activate, based on the probability distribution 'ac'.
+		r = torch.multinomial(ac, batch_size, replacement=True) # sample batch_size rows to activate, based on the probability distribution 'ac'.
 		i = torch.arange(batch_size)
 		x = input
-		x[i,0,r] = x[i,0,r] + (std * (r > 0)) * (torch.randint(2,(1,), device=x.device) * 2 - 1)
+		x[i,0,r] = x[i,0,r] + (std * (r > 0)) # * (torch.randint(2,(1,), device=x.device) * 2 - 1)
 		# mask off the zeroth unit; vary the sign of the activation.
 		return x
 
 	@staticmethod
 	def backward(ctx, grad_output):
-		return grad_output, None, None # grad for: input, std, activ
+		return grad_output, None, None, None # grad for: input, std, activ
 		
 class StraightThroughNormal(nn.Module):
 	def __init__(self,n):
 		super(StraightThroughNormal, self).__init__()
 		self.register_buffer('activ', torch.zeros(1,n))
 
-	def forward(self, x, std):
+	def forward(self, x, std, n_enable=None):
 		self.activ = 0.97 * self.activ + 0.03 * torch.mean(torch.abs(x), dim=0) # or x^2 ?
-		x = STNFunction.apply(x, std, self.activ.detach())
+		x = STNFunction.apply(x, std, self.activ.detach(), n_enable)
 		return x
 
 class NetSimp2(nn.Module):
@@ -99,7 +105,7 @@ class NetSimp2(nn.Module):
 		x = self.gelu(x)
 		x = self.fc2(x)
 		y = torch.squeeze(x)
-		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
+		output = F.log_softmax(y, dim=1) # necessary with nll_loss
 		return output
 		
 	def hidden(self, x):
@@ -119,15 +125,15 @@ class NetSimp2(nn.Module):
 		print(f"saved checkpoint to {path}")
 		
 class NetSimp3(nn.Module): 
-	# a simple MLP with 3 layers
+	# a simple MLP with 3 layers (2 hidden, one output)
 	def __init__(self, init_zeros:bool):
 		super(NetSimp3, self).__init__()
 		self.init_zeros = init_zeros
-		self.fc1 = nn.Linear(784, 1500)
-		self.stn1 = StraightThroughNormal(1500)
-		self.fc2 = nn.Linear(1500, 250)
-		self.stn2 = StraightThroughNormal(250)
-		self.fc3 = nn.Linear(250, 10)
+		self.fc1 = nn.Linear(784, 512)
+		self.stn1 = StraightThroughNormal(512)
+		self.fc2 = nn.Linear(512, 128)
+		self.stn2 = StraightThroughNormal(128)
+		self.fc3 = nn.Linear(128, 10)
 		self.gelu = QuickGELU()
 		if init_zeros: 
 			torch.nn.init.zeros_(self.fc1.weight)
@@ -137,20 +143,25 @@ class NetSimp3(nn.Module):
 			torch.nn.init.zeros_(self.fc3.weight)
 			torch.nn.init.zeros_(self.fc3.bias)
 		
-	def forward(self, x): 
+	def forward(self, x, n_enable): 
 		x = torch.reshape(x, (-1, 1, 784))
 		x = self.fc1(x)
 		if self.init_zeros:
-			x = self.stn1(x, 0.001)
-		x = self.gelu(x)
-		x = self.fc2(x)
+			x2 = self.stn1(x, 0.001, n_enable)
+		else:
+			x2 = x
+		x2 = self.gelu(x2)
+		x2 = self.fc2(x2)
 		if self.init_zeros:
-			x = self.stn2(x, 0.001)
-		x = self.gelu(x)
-		x = self.fc3(x)
-		y = torch.squeeze(x)
-		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
-		return output
+			x3 = self.stn2(x2, 0.001, n_enable)
+		else:
+			x3 = x2
+		x3 = self.gelu(x3)
+		x3 = self.fc3(x3)
+		y = torch.squeeze(x3)
+		output = F.log_softmax(y, dim=1) # necessary with nll_loss
+		sum_activ = torch.sum(x**2) + torch.sum(x2**2)
+		return output, sum_activ
 		
 	def hidden(self, x):
 		x = torch.reshape(x, (-1, 1, 784))
@@ -279,7 +290,7 @@ class NetSimpAE(nn.Module):
 
 
 
-def train(args, model, device, train_im, train_lab, optimizer, uu, mode):
+def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_losslog):
 	indx = torch.randperm(train_lab.shape[0])
 	indx = indx[:args.batch_size]
 	im = train_im[indx,:,:]
@@ -300,8 +311,8 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode):
 			output = model.forwardClass(images)
 			loss = F.nll_loss(output, labels)
 		if mode == 2: 
-			output = model.forward(images)
-			loss = F.nll_loss(output, labels)
+			output,sum_activ = model.forward(images, uu )
+			loss = F.nll_loss(output, labels) # + 1e-6 * sum_activ
 		loss.backward()
 		optimizer[0].step()
 	else:
@@ -312,9 +323,12 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode):
 			return loss
 		loss = optimizer[1].step(closure)
 
+	lloss = loss.detach().cpu().item()
+	fd_losslog.write(f'{uu}\t{lloss}\t0.0\n')
+	fd_losslog.flush()
+
 	if args.g:
 		if uu % 10 == 9:
-			lloss = loss.detach().cpu().item()
 			print(mode, lloss)
 	else:
 		if uu % 120 == 119:
@@ -328,7 +342,7 @@ def test(args, model, device, test_im, test_lab, fd_results):
 		if args.ae: 
 			output = model.forwardClass(test_im)
 		else: 
-			output = model.forward(test_im)
+			output,_ = model.forward(test_im, None)
 		test_loss = F.nll_loss(output, test_lab, reduction='sum').item()
 		pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
 		correct = pred.eq(test_lab.view_as(pred)).sum().item()
@@ -356,8 +370,10 @@ def main():
 							help='which CUDA device to use')
 	parser.add_argument('-z', action='store_true', default=False,
 							help='Zero init')
-	parser.add_argument('-a', action='store_true', default=False,
+	parser.add_argument('--adamw', action='store_true', default=False,
 							help='use AdamW')
+	parser.add_argument('--adagrad', action='store_true', default=False,
+							help='use AdaGrad')
 	parser.add_argument('-g', action='store_true', default=False,
 							help='debug / print loss')
 	parser.add_argument('--ae', action='store_true', default=False,
@@ -405,8 +421,9 @@ def main():
 		labels[j] = lab
 		
 	fd_results = open('mnist_zeroinit.txt', 'a')
+	fd_losslog = open('../losslog.txt', 'w')
 
-	for repeat in range(100): 
+	for repeat in range(1): 
 			
 		if args.ae: 
 			model = NetSimpAE(init_zeros = args.z).to(device)
@@ -415,8 +432,10 @@ def main():
 			
 		optimizer = []
 	
-		# optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
-		optimizer.append( optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01) )
+		if args.adamw: 
+			optimizer.append(optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True, weight_decay=0.01))
+		if args.adagrad:
+			optimizer.append( optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01) )
 
 		optimizer.append( psgd.LRA(model.parameters(),lr_params=0.01,\
 			lr_preconditioner=0.01, momentum=0.9,\
@@ -426,7 +445,7 @@ def main():
 
 		if args.ae: 
 			for uu in range(args.num_iters):
-				train(args, model, device, images, torch.zeros_like(labels), optimizer1, uu, 0)
+				train(args, model, device, images, torch.zeros_like(labels), optimizer1, uu, 0, fd_losslog)
 
 		shuffl = torch.randperm(70000)
 		train_im = images[shuffl[0:args.train_size],:,:]
@@ -439,10 +458,10 @@ def main():
 		
 		if args.ae: 
 			for uu in range(args.num_iters):
-				train(args, model, device, train_im, train_lab, optimizer, uu, 1)
+				train(args, model, device, train_im, train_lab, optimizer, uu, 1, fd_losslog)
 		else: 
 			for uu in range(args.num_iters):
-				train(args, model, device, train_im, train_lab, optimizer, uu, 2)
+				train(args, model, device, train_im, train_lab, optimizer, uu, 2, fd_losslog)
 
 
 		test(args, model, device, test_im, test_lab, fd_results)
@@ -452,11 +471,13 @@ def main():
 					model.fc3.weight.detach().cpu().numpy()]
 		
 		sparsity = np.zeros((3,))
+		num_nonzero = 0
 		for j in range(3): 
 			x = w[j].flatten()
 			nonsparse = np.count_nonzero(abs(x) > 1e-5)
+			num_nonzero = num_nonzero + nonsparse
 			sparsity[j] = int(1000 * (1 - nonsparse/x.size)) / 1000.0
-		print(f" sparsity:{sparsity[0]},{sparsity[1]},{sparsity[2]}")
+		print(f" sparsity:{sparsity[0]},{sparsity[1]},{sparsity[2]};tot nonzero param:{num_nonzero}")
 		fd_results.write(f"{sparsity[0]}\t{sparsity[1]}\t{sparsity[2]}\n")
 		fd_results.flush()
 		
@@ -474,6 +495,11 @@ def main():
 				axs[0,j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
 				axs[0,j].set_yscale('log', nonpositive='clip')
 				# axs[0,j].yscale('log')
+				
+			axs[1,0].plot(model.stn1.activ.detach().cpu().squeeze().numpy())
+			axs[1,0].set_title(f'H1 unit fading memory average activity')
+			axs[1,1].plot(model.stn2.activ.detach().cpu().squeeze().numpy())
+			axs[1,1].set_title(f'H2 unit fading memory average activity')
 			
 			plt.show()
 

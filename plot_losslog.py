@@ -8,7 +8,7 @@ import argparse
 # import sklearn
 
 # remove menubar buttons
-plt.rcParams['toolbar'] = 'None'
+# plt.rcParams['toolbar'] = 'None'
 
 plot_rows = 1
 plot_cols = 1
@@ -90,6 +90,6 @@ while True:
 	fig.tight_layout()
 	fig.canvas.draw()
 	fig.canvas.flush_events()
-	time.sleep(5)
+	time.sleep(1)
 	print("tock")
 	#plt.show()
