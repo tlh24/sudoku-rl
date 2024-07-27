@@ -1,6 +1,6 @@
 from enum import Enum 
 
-class Types(int, Enum): # these are categorical one-hot encoded. 
+class Types(int, Enum): # Node types are categorical one-hot encoded. 
 	CURSOR = 1
 	POSITION = 2 # value is the axis
 	REWARD = 3 # bare value

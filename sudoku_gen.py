@@ -18,8 +18,6 @@ class Sudoku:
 		self.SRN = int(SRNd)
 		self.mat = np.zeros((N, N), dtype=np.int32)
 		
-
-	
 	def fillValues(self):
 		'''
 		Fills the sudoku matrix and leaves K digits empty
@@ -342,7 +340,6 @@ class FasterSudoku(Sudoku):
 		Populates the board and generates an initial board
 		'''
 		self.mat = np.array(generateInitialBoard(self.percent_filled), dtype=np.int32)
-		
 
 
 class LoadSudoku(Sudoku):
@@ -412,4 +409,15 @@ if __name__ == "__main__":
 		for c in range(N): 
 			if sudoku.mat[r,c] == 0: 
 				print(r,c,sudoku.checkOpen(r,c))
+				
+	# check FasterSudoku
+	sudokuf = FasterSudoku(N, 25/81)
+	sudokuf.fillValues()
+	sudokuf.printSudoku("", sudokuf.mat)
+	print("")
 
+	# check original Sudoku
+	sudoku = Sudoku(N, 81-25)
+	sudoku.fillValues()
+	sudoku.printSudoku("", sudoku.mat)
+	print("")

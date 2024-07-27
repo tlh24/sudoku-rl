@@ -140,9 +140,11 @@ def sudokuActionNodes(action_type, action_value):
 		
 		case Action.SET_GUESS.value: 
 			na = Node(Types.GUESS_ACTION, action_value)
+			# na.setAxVal( Axes.N_AX, action_value ) FIXME! turn this on
 			# na.addChild( Node(Types.GUESS, action_value) ) # dummy.
 		case Action.UNSET_GUESS.value:
 			na = Node(Types.GUESS_ACTION, 0)
+			na.setAxVal( Axes.N_AX, 0 )
 			# na.addChild( Node(Types.GUESS, -2) ) # dummy.
 			
 		case Action.SET_NOTE.value: 

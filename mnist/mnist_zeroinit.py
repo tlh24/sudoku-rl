@@ -300,7 +300,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_loss
 	
 	threshold = args.num_iters # pdgd seems to hurt here! HUH
 	# if args.z: 
-	threshold = 0
+	# threshold = 0
 
 	if uu < threshold:
 		optimizer[0].zero_grad()
