@@ -30,6 +30,7 @@ class Gracoonizer(nn.Module):
 		self.xfrmr_dim = xfrmr_dim
 		self.world_dim = world_dim
 		self.n_head = n_heads 
+		self.mode = mode
 		# assert(n_layers % 4 == 0) # one layer for each of the different types.
 		
 		if mode == 0: # USE_GRAPH_XFRMR:
@@ -42,8 +43,8 @@ class Gracoonizer(nn.Module):
 				)
 		elif mode == 1: #USE_NANOGPT:
 			model_args = dict(
-				n_layer=6,
-				n_head=6,
+				n_layer=n_layers,
+				n_head=n_heads,
 				n_embd=384,
 				block_size=token_cnt,
 				bias=False,
@@ -72,9 +73,9 @@ class Gracoonizer(nn.Module):
 		board_size = benc.shape[1]
 		if record is not None: 
 			record.append(actenc)
-		if USE_GRAPH_XFRMR: 
+		if self.mode == 0: 
 			y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
-		elif USE_NANOGPT: 
+		elif self.mode == 1: 
 			y = self.xfrmr(benc)
 			w1 = None
 			w2 = None

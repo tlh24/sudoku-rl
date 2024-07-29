@@ -876,7 +876,7 @@ def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 	pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
 	anode_list = []
 	sudoku = Sudoku(SuN, SuK)
-	for n in range(nn):
+	for n in range(159,nn):
 		puzzl_mat = np.zeros((bs,SuN,SuN))
 		for k in range(bs):
 			puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
@@ -1104,7 +1104,7 @@ if __name__ == '__main__':
 	mfun.printParamCount()
 
 	# qfun predictor
-	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=6, n_layers=6, repeat=1, mode=0).to(device)
+	qfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=6, n_layers=6, repeat=1, mode=1).to(device)
 	qfun.printParamCount()
 
 	optimizer_name = "psgd" # adam, adamw, psgd, or sgd
@@ -1165,7 +1165,7 @@ if __name__ == '__main__':
 	if cmd_args.q: 
 		plt.rcParams['toolbar'] = 'toolbar2'  # Enables the toolbar & inspection
 		bs = 96
-		nfiles = 160
+		nfiles = 250
 		rollouts_board = torch.zeros(duration, bs*nfiles, token_cnt, 32, dtype=torch.float16)
 		rollouts_parent_board = torch.zeros_like(rollouts_board)
 		rollouts_reward = torch.zeros(duration, bs*nfiles)
@@ -1227,7 +1227,7 @@ if __name__ == '__main__':
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_parent_board, rollouts_reward, rollouts_action, 300000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
+		trainQfun(rollouts_parent_board, rollouts_reward, rollouts_action, 1300000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
 		
 	
 	uu = 0
