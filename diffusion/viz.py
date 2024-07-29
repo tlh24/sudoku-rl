@@ -241,23 +241,45 @@ def show_diffusion(renderer, observations, n_repeat=100, substep=100, filename='
 
     save_video(savepath, images)
 
-def show_plan_over_time(renderer, observations, savefolder='images/'):
+
+def show_plans_over_time(renderer, observation, savefolder='images/'):
     '''
+    For each environment, saves a tiled image that commposes all of the visualized plans at each timestep 
+
+    observations: [n_env_steps, n_envs, horizon, obs_dim]
+    '''
+    pass 
+     
+
+def viz_plan_over_time(renderer, observations, savefolder=None):
+    '''
+    For a fixed env, return a tiled image that composes all of the visualized plans at each timestep  
+
     observations: [n_env_steps, horizon, obs_dim]
     '''
-    # create save folder if doesn't exist
-    _make_dir(os.path.join(savefolder, "fake_file.png"))
+    if savefolder:
+        # create save folder if doesn't exist
+        _make_dir(os.path.join(savefolder, "fake_file.png"))
+
+    render_kwargs = {
+            'trackbodyid': 2,
+            'distance': 15,
+            'lookat': [5, 5, 0],
+            'elevation': -90.0
+    }
 
     for step in range(0, len(observations)):
-        diffusion_plan = observations[step]
-        diffusion_plan = np.expand_dims(diffusion_plan, axis=0) #(1,horizon,obs_dim)
-        np_img = renderer.composite(None, diffusion_plan)
-        img = Image.fromarray(np_img)
-        filename = f'envstep{step + 1}_plan.png'
+        diffusion_plan = observations[step] # (horizon, obs_dim)
+    
+        np_img = renderer.renders(diffusion_plan, partial=False, qvel=True, dim=(256,256), render_kwargs=render_kwargs)
+        new_image = Image.fromarray(np_img)
+        filename = f'envstep{step + 1}_firstplan.png'
         savepath = os.path.join(savefolder, filename)
-        img.save(savepath)
+        new_image.save(savepath)
     
     return 
+
+
 
 
 
