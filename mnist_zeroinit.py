@@ -287,9 +287,10 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode):
 	images = im.to(device)
 	labels = lab.to(device)
 	
-	threshold = args.num_iters # pdgd seems to hurt here! HUH
+	# threshold = args.num_iters # pdgd seems to hurt here! HUH
 	# if args.z: 
 	# 	threshold = threshold // 2
+	threshold = 0
 
 	if uu < threshold:
 		optimizer[0].zero_grad()
@@ -415,8 +416,8 @@ def main():
 			
 		optimizer = []
 	
-		# optimizer = optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True)
-		optimizer.append( optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01) )
+		optimizer.append(optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True))
+		# optimizer.append( optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01) )
 
 		optimizer.append( psgd.LRA(model.parameters(),lr_params=0.01,\
 			lr_preconditioner=0.01, momentum=0.9,\
