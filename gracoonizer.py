@@ -52,7 +52,7 @@ class Gracoonizer(nn.Module):
 				dropout=False)
 			gptconf = GPTConfig(**model_args)
 			self.xfrmr = nanogpt_model.GPT(gptconf)
-		else:
+		else: #Use NetDenoise MLP 
 			# simple MLP, as a control.
 			self.xfrmr = NetDenoise(token_cnt * world_dim)
 		
@@ -69,6 +69,9 @@ class Gracoonizer(nn.Module):
 		# 	self.critic_to_reward.w.copy_( torch.ones(2, xfrmr_dim+1) / xfrmr_dim )
 	
 	def forward(self, benc, hcoo, n, record): 
+		'''
+		Given an input board, returns another board (whose shape is identical to the input board) 
+		'''
 		batch_size = benc.shape[0]
 		board_size = benc.shape[1]
 		if record is not None: 
