@@ -11,7 +11,7 @@ import os
 from datetime import datetime
 from tqdm import tqdm 
 from constants import maze2d_medium_v1_max_episode_steps
-from viz import show_diffusion, MuJoCoRenderer, show_plan_over_time
+from viz import show_diffusion, MuJoCoRenderer, viz_plan_over_time
 ENV_NAME = 'maze2d-medium-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
@@ -74,6 +74,8 @@ class EvalExperimenter:
         num_episode_steps = 0
         diffusion_plans = [] # (num_episode_steps x num_envs x horizon x obs_dim)
 
+
+
         # Iterate until all envs finish but cap at max episode steps
         while sum(dones) < self.num_envs and num_episode_steps < self.max_episode_steps:
             if not self.is_random_agent:
@@ -99,7 +101,7 @@ class EvalExperimenter:
             else:
                 envs_action = [torch.from_numpy(env.action_space.sample()) for env in env_list]
             
-            obs_arr = [] 
+            obs_arr = [] # contains the observations across envs for this timestep 
             for i in range(0, self.num_envs):
                 obs, reward, done, _ = env_list[i].step(envs_action[i].detach().cpu().numpy())
                 obs_arr.append(obs[None])
@@ -130,14 +132,14 @@ class EvalExperimenter:
         if len(diffusion_plans) and self.viz_plans:
             renderer = MuJoCoRenderer(gym.make(ENV_NAME))
             diffusion_plans = np.stack(diffusion_plans, axis=0)
-            plan_over_steps = diffusion_plans[:, 0,:, :] #choose the first episode
-            #show_diffusion(renderer, diffusion_plans)
-          
-            show_plan_over_time(renderer, plan_over_steps,\
+            first_env_plans = diffusion_plans[:,0,:,:]
+            viz_plan_over_time(renderer, first_env_plans,\
                                  savefolder=f'images/exp_num{exp_num}')
 
 
 def main(args=None):
+    print(f"Arguments {vars(args)}")
+
     seed = 42
     ###
     #Load Data
