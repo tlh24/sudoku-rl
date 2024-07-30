@@ -21,8 +21,8 @@ current_directory = os.getcwd()
 base_dir = os.path.basename(current_directory)
 fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
-parser = argparse.ArgumentParser(description="Train sudoku world model")
-parser.add_argument('-t', action='store_true', help='plot test_gtrans')
+parser = argparse.ArgumentParser(description="Plot a txt file of losses")
+parser.add_argument('-f', type=str, default="./losslog.txt", help='which file to read')
 cmd_args = parser.parse_args()
 
 def slidingWindowR2(x, y, window_size, stride):
@@ -44,9 +44,7 @@ def isFileEmpty(file_path):
 
 
 while True: 
-	fname = "losslog.txt"
-	if cmd_args.t:
-		fname = "test_gtrans/losslog.txt"
+	fname = cmd_args.f
 	with open(fname, 'r') as x:
 		data = list(csv.reader(x, delimiter="\t"))
 	data = np.array(data)
@@ -97,4 +95,3 @@ while True:
 	fig.canvas.flush_events()
 	time.sleep(1)
 	print("tock")
-	plt.show()

@@ -1,6 +1,6 @@
-# want to test the graph transformer on a few basic tasks
-# e.g. is an element in the set, 
-# what is the distance to match a given pattern.  
+# want to test the L1 transformer on a few basic tasks
+# e.g. is an element in the set? 
+# if so, what is the distance to match a given pattern? 
 import argparse
 import math
 import numpy as np
@@ -51,8 +51,6 @@ def genData(nn):
 	for n in range(nn): 
 		# shuffle tokens
 		indx = torch.randperm(npos)
-		# print(indx)
-		# indx = torch.arange(0,npos) # should not matter. 
 		y[n,0:npos,:] = x[indx, :]
 		# add positional encoding
 		y[n,0:npos,5] = lin
