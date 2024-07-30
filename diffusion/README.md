@@ -5,6 +5,8 @@
 This contains driver code to train the diffusion model and also load the trained diffusion model and evaluate it on an antmaze environment. 
 The trained diffusion model will be stored in a file. Note that the diffusion model is a wrapper that houses a temporalUnet model which can predict noise. 
 
+To train the diffusion model you can simply run `python main.py --train`. If you want to train the inverse kinematics model than run `python main.py --train --inv_kin`. If you want to evaluate a trained diffusion model, then simply run `python main.py`
+
 *model.py*
 
 Most importantly, this contains the class GaussianDiffusion and TemporalUnet. GaussianDiffusion is a wrapper that houses the temporalUnet noise prediction model.

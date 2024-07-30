@@ -38,9 +38,18 @@ def get_action(plan, t: int):
 
         
 class EvalExperimenter:
-    def __init__(self, log_folder, num_experiments, num_envs, trainer, horizon,\
-                 diffusion_loadpath, ema_loadpath, inv_kin_loadpath, max_episode_steps,\
-                    is_random_agent, viz_plans):
+    '''
+    Evaluates the diffusion model and (optionally) visualizes the generated plans 
+    '''
+    def __init__(self, log_folder: str, num_experiments: int, num_envs: int, trainer, horizon: int,\
+                 diffusion_loadpath: str, ema_loadpath: str, inv_kin_loadpath: str, max_episode_steps: int,\
+                    is_random_agent: bool, viz_plans: bool):
+        '''
+        horizon: (int) Lnegth of the plan that gets generated 
+        diffusion_loadpath: (str) Path to the diffusion model weights 
+        ema_loadpath: (str) Path to ema diffusion model weights
+        inv_kin_loadpath: (str) Path to inverse kinematics (action predictor) model weights 
+        '''
         self.log_folder = log_folder
         self.num_experiments = num_experiments
         self.num_envs = num_envs 
@@ -50,7 +59,7 @@ class EvalExperimenter:
         self.max_episode_steps = max_episode_steps
         self.is_random_agent = is_random_agent
         self.viz_plans = viz_plans
-        # experiment reward log file 
+        # experiment reward log file saved by file pointer fp 
         time_str = datetime.now().strftime('%Y-%m-%d-%H:%M')
         file_name = f"{'random_' if self.is_random_agent else ''}{self.num_experiments}runs_{self.num_envs}envs_eval_log_{time_str}.txt"
         self.file_path = os.path.join(self.log_folder, file_name)
@@ -58,10 +67,22 @@ class EvalExperimenter:
 
 
     def run_experiments(self):
+        '''
+        Runs self.eval() num_experiments many times 
+        '''
         for exp_num in tqdm(range(1, self.num_experiments + 1)):
             self.eval(exp_num)
         
-    def eval(self, exp_num, history_len=20):
+    def eval(self, exp_num: int, history_len=20):
+        '''
+        Runs one experiment and evaluates the diffusion model on num_envs many environments. 
+            Runs until all envs terminate; then returns the mean reward across the envs, also optionally visualizes generated 
+            diffusion plans  
+
+        history_len: (int) This is the max number of states to condition the plan on.
+            For HL=20, up to the first 20 states of the diffusion plan are the last (up to) 20 visited states
+            In janner, they condition only on the last visited state, i.e HL=1
+        '''
         # Load models and set to eval mode
         for name, model in self.trainer.models.items():
             model.eval()
@@ -69,14 +90,13 @@ class EvalExperimenter:
         env_list = [gym.make(ENV_NAME) for _ in range(self.num_envs)]
         dones = [0 for _ in range(self.num_envs)]
         episode_rewards = [0 for _ in range(self.num_envs)]
-        obs_history = np.array([env.reset()[None] for env in env_list]) # shape is (num_envs, num_timesteps, obs_dim)
+        # shape is (num_envs, num_timesteps, obs_dim), where obs_dim is the dimension of the diffusion plan object for a fixed timestep 
+        obs_history = np.array([env.reset()[None] for env in env_list]) 
         t = 0
         num_episode_steps = 0
         diffusion_plans = [] # (num_episode_steps x num_envs x horizon x obs_dim)
 
-
-
-        # Iterate until all envs finish but cap at max episode steps
+        # Iterate until all envs finish but cap at max episode steps taken
         while sum(dones) < self.num_envs and num_episode_steps < self.max_episode_steps:
             if not self.is_random_agent:
                 norm_history = self.trainer.train_dataset.normalizers['observations'].normalize(obs_history[:, -history_len:]) 
@@ -129,6 +149,7 @@ class EvalExperimenter:
                 print(f"Timeout Episode {i} : reward {episode_rewards[i]}\n")
                 self.fp.write(f"timeout_exp_{exp_num}_eps_{i}:{episode_rewards[i]}\n")
         
+        # optionally visualize the diffusion plans and save them to a folder 
         if len(diffusion_plans) and self.viz_plans:
             renderer = MuJoCoRenderer(gym.make(ENV_NAME))
             diffusion_plans = np.stack(diffusion_plans, axis=0)

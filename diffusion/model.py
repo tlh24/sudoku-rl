@@ -205,10 +205,12 @@ class TemporalUnet(nn.Module):
         return x   
 
 class GaussianDiffusion(nn.Module):
-    def __init__(self, denoise_fn, timesteps, trans_dim=4):
+    def __init__(self, denoise_fn, timesteps: int, trans_dim=4):
         '''
         trans_dim: (int) The size of the vector corresponding to a particular timestep that is being diffused.
             For state only, it is the dim of the state vector
+        denoise_fn: This is the TemporalUnet nn.Module that predicts the noise from the observation  
+        timesteps: (int) Number of diffusion timesteps 
         ''' 
         super().__init__()
         self.denoise_fn = denoise_fn
@@ -275,12 +277,21 @@ class GaussianDiffusion(nn.Module):
         return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
     def predict_start_from_noise(self, x_t, t, noise):
+        '''
+        Predicts x_0 given a noisy x_t
+
+        noise: This is a sampled random gaussian noise
+        '''
         return (
             GaussianDiffusion.extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape)*x_t - 
             GaussianDiffusion.extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)*noise
         )
 
     def q_posterior(self, x_start, x_t, t):
+        '''
+        Returns posterior mean and variance 
+        '''
+        
         posterior_mean = (
             GaussianDiffusion.extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
             GaussianDiffusion.extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
@@ -291,6 +302,8 @@ class GaussianDiffusion(nn.Module):
 
     def p_mean_variance(self, x, cond, t):
         '''
+        Returns the mean and variance from which the reverse diffused output is sampled from 
+
         x: the noisy input at time t 
         t: (batch_size, ) torch.full of the int timestep t
         cond: dictionary with key as timestep to replace, value is obs 
@@ -328,7 +341,7 @@ class GaussianDiffusion(nn.Module):
     @torch.no_grad()
     def p_sample_loop(self, shape, cond):
         '''
-        Generates a plan based on the given condition dictionary
+        Generates a plan based on the given condition dictionary which conditions the first plan states
 
         cond: (dict) key is timestep to replace, value is timestep state
         shape: (num_envs, horizon, trans_dim)
@@ -370,6 +383,8 @@ class GaussianDiffusion(nn.Module):
 
     def p_losses(self, x_start, batch_t):
         '''
+        MSE loss function to train the noise prediction model 
+
         x_start: (torch.Tensor) initial uncorrupted data
         batch_t: (batch_size,) A random integer timestep cloned batch_size times
         '''
@@ -395,6 +410,10 @@ class GaussianDiffusion(nn.Module):
         return self.p_losses(obs, batch_t)
 
 class InvKinematicsModel(nn.Module):
+    '''
+    Model takes in two observations (o_t, o_t+1) and predicts the action in between that led to
+        o_t+1
+    '''
     def __init__(self, obs_dim, action_dim, hidden_dim=256):
         super().__init__()
         self.obs_dim = obs_dim
@@ -430,6 +449,8 @@ class InvKinematicsModel(nn.Module):
 
     def compute_loss(self, obs, action):
         '''
+        Computes a MSE loss between the predicted action and the actual action 
+
         obs: (batch, horizon, obs_dim)
         action: (batch, horizon, act_dim)
         '''

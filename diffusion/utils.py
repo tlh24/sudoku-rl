@@ -64,16 +64,19 @@ class Trainer:
 
         self.train_dataset = train_dataset
         self.config = config
+        # create an infinite iterator for the training data
         self.train_dataloader = cycle(DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, pin_memory=True))
+        # init optimizers for each model 
         self.optimizers = {}
         for name, model in self.models.items():
             self.optimizers[name] = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
+        # training config
         self.train_num_steps = config.train_num_steps
         self.print_loss_num_steps = config.print_loss_num_steps
         self.save_model_num_steps = config.save_model_num_steps
         self.save_folder=save_folder
-        # TODO: if breaks, load previous ema model 
+        # early stoppping config TODO: if breaks, load previous ema model 
         self.patience = config.patience
         self.min_delta = config.min_delta
         self.best_loss = float('inf')
@@ -88,6 +91,7 @@ class Trainer:
         self.step = 0
 
     def reset_parameters(self):
+        '''Reset EMA model to match the current diffusion model'''
         self.ema_model.load_state_dict(self.models['diffusion'].state_dict()) 
     
     def step_ema(self):
@@ -100,6 +104,7 @@ class Trainer:
         self.ema.update_model_average(self.ema_model, self.models['diffusion'])
     
     def train(self):
+        '''Main training loop'''
         if self.config.train_noise_prediction:
             training_log = open(os.path.join(self.save_folder, 'diffusion_training_log.txt'), 'w')
         if self.config.train_inverse_kinematics:
@@ -165,7 +170,7 @@ class Trainer:
 
     def save(self, step: int):
         '''
-        Save the model into a folder
+        Save the model checkpoints into self.save_folder
         ''' 
         if self.config.train_noise_prediction:
             torch.save(self.models['diffusion'].state_dict(), os.path.join(self.save_folder, f'diffusion-step-{step}.pt'))
@@ -202,6 +207,9 @@ def count_parameters(model):
 
 def apply_cond(x, cond, trans_dim):
     '''
+    Condition the input plan  
+
+
     cond: (dict) key is timestep t to replace, val is a state at time t
     trans_dim: (int) length of the state in the history of observations to condition on
     '''
