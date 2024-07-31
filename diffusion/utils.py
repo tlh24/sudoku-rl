@@ -9,6 +9,8 @@ import math
 from tqdm import tqdm 
 import os 
 from copy import deepcopy
+import pdb
+import matplotlib.pyplot as plt
 
 def cycle(dl):
     while True:
@@ -39,7 +41,7 @@ class TrainerConfig:
     train_num_steps = 1000000
     print_loss_num_steps = 1000 #print training loss every _ steps
     save_model_num_steps = 10000
-    patience = 1000 # num of steps to wait and see if loss decreases
+    patience = 5000 # num of steps to wait and see if loss decreases
     min_delta = 0.001 # how much loss needs to decrease by to update best_loss 
     ema_decay = 0.995
     step_start_ema=2000
@@ -63,20 +65,18 @@ class Trainer:
         self.models = {name: model.to(self.device) for name, model in models.items()}
 
         self.train_dataset = train_dataset
+        pdb.set_trace()
         self.config = config
-        # create an infinite iterator for the training data
         self.train_dataloader = cycle(DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, pin_memory=True))
-        # init optimizers for each model 
         self.optimizers = {}
         for name, model in self.models.items():
             self.optimizers[name] = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
-        # training config
         self.train_num_steps = config.train_num_steps
         self.print_loss_num_steps = config.print_loss_num_steps
         self.save_model_num_steps = config.save_model_num_steps
         self.save_folder=save_folder
-        # early stoppping config TODO: if breaks, load previous ema model 
+        # TODO: if breaks, load previous ema model 
         self.patience = config.patience
         self.min_delta = config.min_delta
         self.best_loss = float('inf')
@@ -91,7 +91,6 @@ class Trainer:
         self.step = 0
 
     def reset_parameters(self):
-        '''Reset EMA model to match the current diffusion model'''
         self.ema_model.load_state_dict(self.models['diffusion'].state_dict()) 
     
     def step_ema(self):
@@ -104,7 +103,7 @@ class Trainer:
         self.ema.update_model_average(self.ema_model, self.models['diffusion'])
     
     def train(self):
-        '''Main training loop'''
+        fd_losslog = open('losslog.txt', 'w')
         if self.config.train_noise_prediction:
             training_log = open(os.path.join(self.save_folder, 'diffusion_training_log.txt'), 'w')
         if self.config.train_inverse_kinematics:
@@ -141,7 +140,7 @@ class Trainer:
 
             if (self.step % self.print_loss_num_steps == 0):
                 current_loss = total_loss.cpu().item()
-                print(f"Training loss at batch step {self.step+1}: {current_loss:.4f}")
+                # print(f"Training loss at batch step {self.step+1}: {current_loss:.4f}")
                 training_log.write(f"Batch {self.step+1}: {current_loss:.4f}\n")
                 training_log.flush()
 
@@ -171,7 +170,7 @@ class Trainer:
 
     def save(self, step: int):
         '''
-        Save the model checkpoints into self.save_folder
+        Save the model into a folder
         ''' 
         if self.config.train_noise_prediction:
             torch.save(self.models['diffusion'].state_dict(), os.path.join(self.save_folder, f'diffusion-step-{step}.pt'))
@@ -208,9 +207,6 @@ def count_parameters(model):
 
 def apply_cond(x, cond, trans_dim):
     '''
-    Condition the input plan  
-
-
     cond: (dict) key is timestep t to replace, val is a state at time t
     trans_dim: (int) length of the state in the history of observations to condition on
     '''
