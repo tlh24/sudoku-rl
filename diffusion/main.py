@@ -12,6 +12,7 @@ from datetime import datetime
 from tqdm import tqdm 
 from constants import maze2d_medium_v1_max_episode_steps
 from viz import show_diffusion, MuJoCoRenderer, viz_plan_over_time
+from datasets.test_diffusion import LinearDataset
 ENV_NAME = 'maze2d-medium-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
@@ -104,7 +105,9 @@ class EvalExperimenter:
                 for i in range(0, norm_history.shape[1]):
                     conditions[i] = to_torch(norm_history[:, i], dtype=DTYPE, device=DEVICE)
                 
-                sample = self.trainer.models['diffusion'].conditional_sample(conditions, self.horizon)
+                shape = [self.num_envs, 128, 4]
+                sample = self.trainer.models['diffusion'].p_sample_loop(shape, {})
+                #sample = self.trainer.models['diffusion'].conditional_sample(conditions, self.horizon)
                 num_envs, horizon = sample.shape[0], sample.shape[1]
 
                 # save diffusion plans for viz
@@ -153,6 +156,8 @@ class EvalExperimenter:
         if len(diffusion_plans) and self.viz_plans:
             renderer = MuJoCoRenderer(gym.make(ENV_NAME))
             diffusion_plans = np.stack(diffusion_plans, axis=0)
+            breakpoint()
+            
             first_env_plans = diffusion_plans[:,0,:,:]
             viz_plan_over_time(renderer, first_env_plans,\
                                  savefolder=f'images/exp_num{exp_num}')
@@ -172,7 +177,9 @@ def main(args=None):
     #env = wrappers.EpisodeMonitor(env)
     #env = wrappers.SinglePrecision(env)
     #TODO: make the training horizon smaller than the inference horizon if doesn't work
+    
     dataset = SequenceDataset(env_name=ENV_NAME, horizon=args.H)
+
 
     ###
     #Build diffusion model and trainer

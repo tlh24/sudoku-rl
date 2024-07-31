@@ -336,7 +336,7 @@ class GaussianDiffusion(nn.Module):
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
 
         return pred_img
-        
+
     
     @torch.no_grad()
     def p_sample_loop(self, shape, cond):
