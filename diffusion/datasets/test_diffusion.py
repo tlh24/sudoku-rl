@@ -8,6 +8,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname('./..'))
 from utils import Trainer, TrainerConfig 
 from model import TemporalUnet, GaussianDiffusion, InvKinematicsModel
+from datasets.data import LimitsNormalizer
 
 class LinearDataset(torch.utils.data.Dataset):
     def __init__(self, dataset_size, horizon):
@@ -39,10 +40,38 @@ class LinearDataset(torch.utils.data.Dataset):
         return self.data.shape[0]
 
     def __getitem__(self, idx):
-        
-
         return self.data[idx].numpy(), np.zeros(2)
     
+class FuzzyLinearDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset_size, horizon=64):
+        x = np.linspace(-1,1, horizon)[None] 
+        x = np.repeat(x, dataset_size, axis=0) #(batch_size, horizon)
+        y = x + np.random.randn(*x.shape)*0.1   
+        dataset = np.stack([x,y,x,y], axis=-1) #(batch_size, horizon, 4)
+        unrolled_dataset = dataset.reshape(-1,4) #(batch_size*horizon, 4)   
+        self.normalizers = self.get_normalizers(unrolled_dataset)
+        norm_unrolled_dataset = self.normalizers['observations'].normalize(unrolled_dataset)
+        self.norm_dataset = norm_unrolled_dataset.reshape(dataset_size, horizon, 4) 
+    def get_normalizers(self, dataset):
+        '''
+        Returns a dictionary where key is 'observations' and value is LimitsNormalizer
+        '''
+        normalizers = {}
+        for key in ['observations']:
+            normalizers[key] = LimitsNormalizer(dataset)
+        return normalizers
+
+    def plotIt(self): 
+        for plan_idx in range(0, len(self.norm_dataset)):
+            plt.plot(self.norm_dataset[plan_idx, :, 0], self.norm_dataset[plan_idx, :, 1])
+        plt.savefig('plot_fuzzy_linear.png')
+        
+    def __len__(self):
+        return self.norm_dataset.shape[0]
+
+    def __getitem__(self, idx):
+        return self.norm_dataset[idx], np.zeros(2)
+
 def generate_plans():
     '''
     Returns plans of shape (num_envs, horizon, trans_dim)
@@ -73,7 +102,8 @@ def visualize_plan(plan):
 
 
 if __name__ == '__main__':
-    #d = LinearDataset(1000, 100)
-    #d.plotIt()
-    plans = generate_plans()
-    visualize_plan(plans[0])
+    breakpoint()
+    d = FuzzyLinearDataset(1000, 64)
+    d.plotIt()
+    #plans = generate_plans()
+    #visualize_plan(plans[0])
