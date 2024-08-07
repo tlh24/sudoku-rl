@@ -12,6 +12,9 @@ from datetime import datetime
 from tqdm import tqdm 
 from constants import maze2d_medium_v1_max_episode_steps
 from viz import show_diffusion, MuJoCoRenderer, viz_plan_over_time
+from datasets.test_diffusion import LinearDataset, FuzzyLinearDataset, visualize_plan
+
+
 ENV_NAME = 'maze2d-medium-v1'
 DTYPE = torch.float
 DEVICE = 'cuda'
@@ -104,6 +107,8 @@ class EvalExperimenter:
                 for i in range(0, norm_history.shape[1]):
                     conditions[i] = to_torch(norm_history[:, i], dtype=DTYPE, device=DEVICE)
                 
+                shape = [self.num_envs, 128, 4]
+                #sample = self.trainer.models['diffusion'].p_sample_loop(shape, {})
                 sample = self.trainer.models['diffusion'].conditional_sample(conditions, self.horizon)
                 num_envs, horizon = sample.shape[0], sample.shape[1]
 
@@ -153,9 +158,44 @@ class EvalExperimenter:
         if len(diffusion_plans) and self.viz_plans:
             renderer = MuJoCoRenderer(gym.make(ENV_NAME))
             diffusion_plans = np.stack(diffusion_plans, axis=0)
+            breakpoint()
+            
             first_env_plans = diffusion_plans[:,0,:,:]
             viz_plan_over_time(renderer, first_env_plans,\
                                  savefolder=f'images/exp_num{exp_num}')
+
+    def visualize_first_plan(self, starting_point=None, use_maze=False):
+        '''
+        Visualizes first plan starting on some (optional) given start point. For datasets other than maze2d, starting_point must be supplied
+            If starting_point is None, then generates a starting point using env.reset()
+        '''
+        # Load models and set to eval mode
+        for name, model in self.trainer.models.items():
+            model.eval()
+        
+        if starting_point is None:
+            assert use_maze == True 
+            env = gym.make(ENV_NAME)
+            starting_point = env.reset()[None] #(1, obs_dim)
+    
+        norm_starting_point = self.trainer.train_dataset.normalizers['observations'].normalize(starting_point) 
+        conditions = {} # key is time step t to replace, value is state at timestep t  
+        conditions[0] = to_torch(norm_starting_point, dtype=DTYPE, device=DEVICE)
+        
+        sample = self.trainer.models['diffusion'].conditional_sample(conditions, self.horizon)
+        unnormalized_sample = self.trainer.train_dataset.normalizers['observations'].unnormalize(sample.detach().cpu().numpy())
+
+        if use_maze:  
+            renderer = MuJoCoRenderer(gym.make(ENV_NAME))
+            viz_plan_over_time(renderer, unnormalized_sample,\
+                                    savefolder=f'images/first_plan')
+        else:
+            # visualize plan; assume plan is [x,y]
+            assert sample.shape[-1] == 2
+            visualize_plan(sample)
+
+
+
 
 
 def main(args=None):
@@ -172,7 +212,9 @@ def main(args=None):
     #env = wrappers.EpisodeMonitor(env)
     #env = wrappers.SinglePrecision(env)
     #TODO: make the training horizon smaller than the inference horizon if doesn't work
-    dataset = SequenceDataset(env_name=ENV_NAME, horizon=args.H)
+    
+    #dataset = SequenceDataset(env_name=ENV_NAME, horizon=args.H)
+    dataset = FuzzyLinearDataset(1000, args.H)
 
     ###
     #Build diffusion model and trainer

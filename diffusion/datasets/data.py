@@ -10,9 +10,9 @@ class Normalizer:
     '''
 
     def __init__(self, X):
-        self.X = X.astype(np.float32)
-        self.mins = X.min(axis=0)
-        self.maxs = X.max(axis=0)
+        self.X = X.astype(np.float32) #expect shape (_, obs_dim)
+        self.mins = X.min(axis=0) #(obs_dim, )
+        self.maxs = X.max(axis=0) #(obs_dim, )
 
     def __repr__(self):
         return (
@@ -33,7 +33,7 @@ class LimitsNormalizer(Normalizer):
         maps [ xmin, xmax ] to [ -1, 1 ]
     '''
 
-    def normalize(self, x):
+    def normalize(self, x): #expect x in shape (_, obs_dim)
         ## [ 0, 1 ]
         x = (x - self.mins) / (self.maxs - self.mins)
         ## [ -1, 1 ]

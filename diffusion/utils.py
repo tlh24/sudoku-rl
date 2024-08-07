@@ -39,9 +39,9 @@ class TrainerConfig:
     horizon=128
     learning_rate = 2e-5
     train_num_steps = 1000000
-    print_loss_num_steps = 1 #print training loss every _ steps
-    save_model_num_steps = 100000
-    patience = 50000 # num of steps to wait and see if loss decreases
+    print_loss_num_steps = 1000 #print training loss every _ steps
+    save_model_num_steps = 10000
+    patience = 5000 # num of steps to wait and see if loss decreases
     min_delta = 0.001 # how much loss needs to decrease by to update best_loss 
     ema_decay = 0.995
     step_start_ema=2000
@@ -142,7 +142,7 @@ class Trainer:
                 current_loss = total_loss.cpu().item()
                 # print(f"Training loss at batch step {self.step+1}: {current_loss:.4f}")
                 training_log.write(f"Batch {self.step+1}: {current_loss:.4f}\n")
-                fd_losslog.write(f'{self.step}\t{current_loss}\t0.0\n')
+                training_log.flush()
 
                 # early stopping check
                 if self.check_early_stopping(current_loss):
