@@ -100,8 +100,8 @@ class ResidualAttentionBlock(nn.Module):
 		self.fanout = LinearM(d_model, d_model * 1, False)
 		# self.fanin = LinearM(d_model*2, d_model, False) # this doesn't work?!
 		# self.gelu = QuickGELU()
-		# self.gelu = nn.ReLU()
-		self.gelu = nn.LeakyReLU()
+		self.gelu = nn.ReLU()
+		# self.gelu = nn.LeakyReLU()
 
 	def fixedInit(self):
 		with torch.no_grad():

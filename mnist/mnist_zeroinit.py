@@ -130,6 +130,7 @@ class NetSimp3(nn.Module):
 		super(NetSimp3, self).__init__()
 		self.init_zeros = init_zeros
 		self.fc1 = nn.Linear(784, 512)
+			# deliberate overparameterization
 		self.stn1 = StraightThroughNormal(512)
 		self.fc2 = nn.Linear(512, 128)
 		self.stn2 = StraightThroughNormal(128)
@@ -335,7 +336,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_loss
 	# 		print(".", end="", flush=True)
 
 
-def test(args, model, device, test_im, test_lab, fd_results):
+def test(args, model, device, test_im, test_lab, fd_results, optname):
 	with torch.no_grad():
 		test_im = test_im.to(device)
 		test_lab = test_lab.to(device)
@@ -352,7 +353,8 @@ def test(args, model, device, test_im, test_lab, fd_results):
 	print('Test set: Avg loss: {:.4f}, Accuracy: {}/{} ({:.1f}%)'.format(
 		test_loss, correct, test_im.shape[0],
 		100. * correct / test_im.shape[0]))
-	fd_results.write('{}\t{}\t{}\t{:.3f}\t'.format(args.z, args.train_size, args.num_iters, correct / test_im.shape[0]))
+
+	fd_results.write('{}\t{}\t{}\t{}\t{:.3f}\t'.format(args.z, optname, args.train_size, args.num_iters, correct / test_im.shape[0]))
 
 
 def main():
@@ -424,17 +426,17 @@ def main():
 	fd_losslog = open('../losslog.txt', 'w')
 	
 	if args.p: 
-		plot_rows = 10
+		plot_rows = 1
 		plot_cols = 3
-		figsize = (16, 24)
+		figsize = (16, 5)
 		fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 
-	for repeat in range(10): 
+	for repeat in range(10):
 			
 		if args.ae: 
 			model = NetSimpAE(init_zeros = args.z).to(device)
 		else: 
-			model = NetSimp4(init_zeros = args.z).to(device)
+			model = NetSimp3(init_zeros = args.z).to(device)
 			
 		optimizer = []
 	
@@ -442,6 +444,12 @@ def main():
 			optimizer.append(optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True, weight_decay=0.01))
 		if args.adagrad:
 			optimizer.append( optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01) )
+
+		optname = ''
+		if args.adamw:
+			optname = 'adamw'
+		if args.adagrad:
+			optname = 'adagrad'
 
 		optimizer.append( psgd.LRA(model.parameters(),lr_params=0.01,\
 			lr_preconditioner=0.01, momentum=0.9,\
@@ -466,11 +474,11 @@ def main():
 			for uu in range(args.num_iters):
 				train(args, model, device, train_im, train_lab, optimizer, uu, 1, fd_losslog)
 		else: 
-			for uu in range(args.num_iters // 10 * repeat):
+			for uu in range(args.num_iters ):
 				train(args, model, device, train_im, train_lab, optimizer, uu, 2, fd_losslog)
 
 
-		test(args, model, device, test_im, test_lab, fd_results)
+		test(args, model, device, test_im, test_lab, fd_results, optname)
 		
 		w = [model.fc1.weight.detach().cpu().numpy(), \
 					model.fc2.weight.detach().cpu().numpy(), \
@@ -487,27 +495,25 @@ def main():
 		fd_results.write(f"{sparsity[0]}\t{sparsity[1]}\t{sparsity[2]}\n")
 		fd_results.flush()
 		
-		
-		if args.p: 
-			
+		if args.p and repeat == 9:
 			for j in range(3): 
 				x = w[j].flatten()
 				if args.z:
-					rnge = (-0.5, 0.5)
+					rnge = (-0.5, 0.5) # larger weights with zero init
 				else:
 					rnge = (-0.2, 0.2)
-				axs[repeat,j].hist(x, 400, rnge)
+				axs[j].hist(x, 400, rnge)
 				nonsparse = np.count_nonzero(x)
-				axs[repeat,j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
-				axs[repeat,j].set_yscale('log', nonpositive='clip')
+				axs[j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
+				axs[j].set_yscale('log', nonpositive='clip')
 				# axs[0,j].yscale('log')
 				
 			# axs[1,0].plot(model.stn1.activ.detach().cpu().squeeze().numpy())
 			# axs[1,0].set_title(f'H1 unit fading memory average activity')
 			# axs[1,1].plot(model.stn2.activ.detach().cpu().squeeze().numpy())
 			# axs[1,1].set_title(f'H2 unit fading memory average activity')
-			
-	plt.show()
+			plt.savefig(f'histogram_{optname}_zeroinit_{args.z}.pdf')
+			plt.show()
 
 	fd_results.close()
 
