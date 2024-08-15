@@ -771,7 +771,12 @@ if __name__ == '__main__':
 	parser.add_argument('-m', action='store_true', help='train Q function for movements')
 	cmd_args = parser.parse_args()
 	
-	puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
+	try: 
+		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
+	except Exception as error:
+		print(colored(f"could not load model checkpoint {error}", "red"))
+		print("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing")
+	
 	NUM_TRAIN = 64 * 1800
 	NUM_VALIDATE = 64 * 300
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
