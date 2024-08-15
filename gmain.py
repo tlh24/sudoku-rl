@@ -848,7 +848,7 @@ if __name__ == '__main__':
 				print(colored(latest_file, "green"))
 				return latest_file
 
-			model.load_checkpoint(getLatestFile("rac*"))
+			model.load_checkpoint(getLatestFile("racoon*"))
 			print(colored("loaded model checkpoint", "blue"))
 
 			mfun.load_checkpoint(getLatestFile("mouse*"))
