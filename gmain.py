@@ -100,7 +100,7 @@ def getDataDict(puzzles, num_samples, num_validate):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board, new_board, coo, a2a, rewards, reward_loc = board_ops.enumerateBoards(puzzles, num_samples)
+	orig_board, new_board, coo, a2a, rewards, reward_loc = board_ops.enumerateBoards(puzzles)
 	print(orig_board.shape, new_board.shape, rewards.shape)
 	train_orig_board, test_orig_board = trainValSplit(orig_board, num_validate)
 	train_new_board, test_new_board = trainValSplit(new_board, num_validate)
@@ -471,7 +471,7 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 	ntok = board.shape[1]
 	width = board.shape[2]
 		
-	action_types,action_values = board_ops.enumerateActionList(9+4+1)
+	action_types,action_values = board_ops.enumerateActionList()
 		# inculdes 'unguess' action - presently unnecessary
 	nact = len(action_types)
 	
