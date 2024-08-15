@@ -168,7 +168,7 @@ class Gracoonizer(nn.Module):
 	def load_checkpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
-		self.load_state_dict(torch.load(path))
+		self.load_state_dict(torch.load(path,weights_only=True))
 		# if we load the state dict, then start all heads 'on'
 		# self.xfrmr.allHeadsOn()
    

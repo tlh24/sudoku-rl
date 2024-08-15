@@ -325,7 +325,7 @@ def main():
 	train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
 	test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
-	model = NetSimp(init_zeros = True).to(device) 
+	model = NetConv(init_zeros = True).to(device) 
 	hdenoise = NetDenoise(250).to(device)
 	idenoise = NetDenoise2(784).to(device)
 	try: 

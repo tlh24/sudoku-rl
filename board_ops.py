@@ -206,9 +206,9 @@ def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
 	# changing the strategy: for each board, do all possible actions.
 	# this serves as a stronger set of constraints than random enumeration.
 	try:
-		orig_board_enc = torch.load(f'orig_board_enc_{n}.pt')
-		new_board_enc = torch.load(f'new_board_enc_{n}.pt')
-		rewards_enc = torch.load(f'rewards_enc_{n}.pt')
+		orig_board_enc = torch.load(f'orig_board_enc_{n}.pt',weights_only=True)
+		new_board_enc = torch.load(f'new_board_enc_{n}.pt',weights_only=True)
+		rewards_enc = torch.load(f'rewards_enc_{n}.pt',weights_only=True)
 		# need to get the coo, a2a, etc variables - so run one encoding.
 		n = 1
 	except Exception as error:
