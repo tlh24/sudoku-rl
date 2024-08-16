@@ -361,41 +361,6 @@ def main_(args):
 	end_time = time.time()
 	program_duration = end_time - start_time
 	print(f"Program duration: {program_duration} sec")
-
-	
-## graph-baseline 
-
-# if __name__ == '__main__':
-# 	parser = argparse.ArgumentParser()
-# 	# Training
-# 	parser.add_argument('--epochs', type=int, default=200)
-# 	parser.add_argument('--eval_interval', type=int, default=1, help='Compute eval for how many epochs')
-# 	parser.add_argument('--batch_size', type=int, default=128)
-# 	parser.add_argument('--lr', type=float, default=6e-4)
-# 	parser.add_argument('--lr_decay', default=False, action='store_true')
-# 
-# 	# Model and loss
-# 	parser.add_argument('--n_layer', type=int, default=1, help='Number of sequential self-attention blocks.')
-# 	parser.add_argument('--n_recur', type=int, default=32, help='Number of recurrency of all self-attention blocks.')
-# 	parser.add_argument('--n_head', type=int, default=4, help='Number of heads in each self-attention block.')
-# 	parser.add_argument('--n_embd', type=int, default=128, help='Vector embedding size.')
-# 	parser.add_argument('--loss', default=[], nargs='+', help='specify regularizers in \{c1, att_c1\}')
-# 	parser.add_argument('--all_layers', default=False, action='store_true', help='apply losses to all self-attention layers')    
-# 	parser.add_argument('--hyper', default=[1, 0.1], nargs='+', type=float, help='Hyper parameters: Weights of [L_sudoku, L_attention]')
-# 
-# 	# Data
-# 	parser.add_argument('--n_train', type=int, default=10000, help='The number of data for training')
-# 	parser.add_argument('--n_test', type=int, default=2000, help='The number of data for testing')
-# 
-# 	# Other
-# 	parser.add_argument('--seed', type=int, default=0, help='Random seed for reproductivity.')
-# 	parser.add_argument('--gpu', type=int, default=-1, help='gpu index; -1 means using all GPUs or using CPU if no GPU is available')
-# 	parser.add_argument("--gracoonizer", action=argparse.BooleanOptionalAction, default=True)
-# 	args = parser.parse_args()
-# 
-# 	main(args)
-
-## main
 	
 def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs, name):
 	n_roll = rollouts_board.shape[0]
@@ -871,7 +836,8 @@ if __name__ == '__main__':
 				
 	if cmd_args.m:
 		bs = 96
-		nn = 1600
+		nn = 16 * 32 
+		# only 32 different boards, each with 4 different cursor pos
 		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
 
 		optimizer = getOptimizer(optimizer_name, mfun)
