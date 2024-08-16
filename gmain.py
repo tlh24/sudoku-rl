@@ -148,7 +148,7 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	elif optimizer_name == 'sgd':
 		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.03,lr_preconditioner=0.01, momentum=0.9,\
+		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.02, momentum=0.9,\
 			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
 	return optimizer 
 
@@ -460,7 +460,7 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			qfun.save_checkpoint(f"checkpoints/{name}_{uu//1000}.pth")
 		
 	
-def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, time, sum_contradiction, action_nodes):
+def evaluateActions(model, mfun, qfun, board, hcoo, reward_loc, locs, time, sum_contradiction, action_nodes):
 	''' evaluate all the possible actions for a current board
 		by running the forward world model
 		thereby predicting reward per action '''
@@ -546,7 +546,6 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 	reward_np = reward_pred_taken
 	
 	action_node_new = []
-	indent = " " # * depth
 	for j in range(bs):
 		at_t = action_types[indx[j]]
 		av_t = action_values[indx[j]]
@@ -577,7 +576,7 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 			else:
 				color = "black"
 			print(colored(f"is_done {is_done[0]}", color))
-			sparse_encoding.decodeNodes(indent, boards_pred_taken[0,:,:], locs)
+			sparse_encoding.decodeNodes(" ", boards_pred_taken[0,:,:], locs)
 		
 	return boards_pred_taken, action_node_new, reward_pred, contradiction, is_done
 
@@ -685,7 +684,6 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		print(colored(f"could not load precomputed data {error}", "red"))
 
 	if nn > 0:
-		pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
 		boards = torch.zeros(nn,bs,token_cnt,32)
 		actions = torch.zeros(nn,bs,2)
 		rewards = torch.zeros(nn,bs)
@@ -696,11 +694,13 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 			c = r // 2
 			for i in range(r):
 				for j in range(r):
+					# filters are a bunch of r-sized diamonds.  
 					if abs(i-c) + abs(j-c) <= r//2:
 						filt[0,0,i,j] = 1.0
 			filts.append(filt)
 
-		for n in range(nn):
+		n = 0
+		for i_p in range(nn // 16):
 			# make the movements hard: only a few empties.
 			num_empty = np.random.randint(1,8, (bs,))
 			# these puzzles are degenerate, but that's ok
@@ -710,11 +710,8 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 				indx = np.random.randint(0,9, (ne,2))
 				lin = np.arange(0,ne)
 				puzzl_mat[k,indx[lin,0],indx[lin,1]] = 0
-			# puzzl_mat = np.zeros((bs,SuN,SuN))
-			# for k in range(bs):
-			# 	puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
-			guess_mat = np.zeros((bs,SuN,SuN)) # should not matter..
-			curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+			guess_mat = np.zeros((bs,SuN,SuN)) 
+			# due to the 1-hot represenation, guess / puzzle are equivalent. 
 			empty = torch.tensor(puzzl_mat[:,:,:] == 0, dtype=torch.float32)
 			value_mat = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
 			value_mat = value_mat + 1.0 * empty
@@ -728,32 +725,36 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 			# plt.imshow(value[0,:,:].squeeze().numpy())
 			# plt.colorbar()
 			# plt.show()
-			# select a move, calculate value. cursor pos is [x,y]
-			# x is hence row or up/down
-			move = np.random.randint(0,4,(bs,))
-			xnoty = move % 2 == 0
-			direct = (move // 2) * 2 - 1
-			direct = direct * (xnoty*2-1)
-			new_curs = torch.zeros_like(curs_pos)
-			new_curs[:,0] = curs_pos[:,0] + xnoty * direct
-			new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
-			hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
-				(new_curs[:,1] < 0) + (new_curs[:,1] > 8)
-			new_curs = torch.clip(new_curs, 0, 8)
-			lin = torch.arange(0,bs)
-			orig_val = value[lin,curs_pos[:,0],curs_pos[:,1]]
-			new_val = value[lin,new_curs[:,0],new_curs[:,1]]
-			reward = new_val - orig_val
-			reward = reward * (~hit_edge)
+			for i_c in range(4):
+				curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+				for i_m in range(4): 
+					# select a move, calculate value. cursor pos is [x,y]
+					# x is hence row or up/down
+					move = np.ones(bs) * i_m # up right down left
+					xnoty = move % 2 == 0
+					direct = (move // 2) * 2 - 1
+					direct = direct * (xnoty*2-1) # y axis is inverted
+					new_curs = torch.zeros_like(curs_pos)
+					new_curs[:,0] = curs_pos[:,0] + xnoty * direct
+					new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
+					hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
+						(new_curs[:,1] < 0) + (new_curs[:,1] > 8)
+					new_curs = torch.clip(new_curs, 0, 8)
+					lin = torch.arange(0,bs)
+					orig_val = value[lin,curs_pos[:,0],curs_pos[:,1]]
+					new_val = value[lin,new_curs[:,0],new_curs[:,1]]
+					reward = new_val - orig_val
+					reward = reward * (~hit_edge)
 
-			for k in range(bs):
-				nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
-				board,_,_ = sparse_encoding.encodeNodes(nodes)
-				boards[n,k,:,:] = board[:,:32]
-			actions[n,:,0] = torch.tensor(move)
-			rewards[n,:] = reward
-			if n % 5 == 4:
-				print(".", end = "", flush=True)
+					for k in range(bs):
+						nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
+						board,_,_ = sparse_encoding.encodeNodes(nodes)
+						boards[n,k,:,:] = board[:,:32]
+					actions[n,:,0] = torch.tensor(move)
+					rewards[n,:] = reward
+					if n % 5 == 4:
+						print(".", end = "", flush=True)
+					n = n + 1
 
 		torch.save(boards, 'rollouts/move_boards.pt')
 		torch.save(actions, 'rollouts/move_actions.pt')
@@ -870,7 +871,7 @@ if __name__ == '__main__':
 				
 	if cmd_args.m:
 		bs = 96
-		nn = 1500
+		nn = 1600
 		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
 
 		optimizer = getOptimizer(optimizer_name, mfun)
