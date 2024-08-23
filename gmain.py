@@ -367,6 +367,8 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 	n_tok = rollouts_board.shape[1]
 	width = rollouts_board.shape[2]
 	pred_data = {}
+	rollouts_board = rollouts_board.cuda()
+	rollouts_reward = rollouts_reward.cuda()
 	for uu in range(nn): 
 		indx = torch.randint(0,n_roll,(batch_size,))
 		boards = rollouts_board[indx,:,:].squeeze().float()
@@ -375,7 +377,7 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 		# already encoded in the board! 
 		
 		# expand boards
-		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width)), dim=2)
+		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width, device=boards.device)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
 		boards = torch.round(boards * 4.0) / 4.0
@@ -404,10 +406,11 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			else:
 				hcoo2 = hcoo
 			qfun_boards,_,_ = qfun.forward(model_boards,hcoo2,0,None)
+			# qfun_boards,_,_ = qfun.forward(boards,hcoo2,0,None)
 			reward_preds = qfun_boards[:,reward_loc, 32+26]
-			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
-								'rewards': reward, 'reward_preds': reward_preds,
-								'w1':None, 'w2':None}
+			# pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
+			# 					'rewards': reward, 'reward_preds': reward_preds,
+			# 					'w1':None, 'w2':None}
 			loss = torch.sum((reward - reward_preds)**2) + \
 				sum([torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in qfun.parameters()])
 			return loss
@@ -418,8 +421,8 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 		args["fd_losslog"].flush()
 		if uu % 10 == 9:
 			print(lloss)
-		if uu % 25 == 0:
-			updateMemory(memory_dict, pred_data)
+		# if uu % 25 == 0:
+		# 	updateMemory(memory_dict, pred_data)
 			
 		if uu % 1000 == 999: 
 			qfun.save_checkpoint(f"checkpoints/{name}_{uu//1000}.pth")
@@ -720,6 +723,15 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 					if n % 5 == 4:
 						print(".", end = "", flush=True)
 					n = n + 1
+				
+				plt.rcParams['toolbar'] = 'toolbar2'
+				fig,axs = plt.subplots(3,2,figsize=(30,20))
+				for k in range(4): 
+					axs[k//2,k%2].imshow(boards[n-4+k,0,:,:].T.cpu().numpy())
+					if k >= 2: 
+						dif = boards[n-4+k,0,:,:] - boards[n-4+k-2,0,:,:]
+						axs[k//2+1,k%2].imshow(dif.T.cpu().numpy())
+				plt.show()
 
 		torch.save(boards, 'rollouts/move_boards.pt')
 		torch.save(actions, 'rollouts/move_actions.pt')
@@ -835,10 +847,10 @@ if __name__ == '__main__':
 		anode_list = evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, 319)
 				
 	if cmd_args.m:
-		bs = 96
-		nn = 16 * 32 
-		# only 32 different boards, each with 4 different cursor pos
-		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
+		# 4*1024 samples - 256 different boards, each w 4 curs pos, 4 directions
+		bs = 64
+		nn = 4 * 4 * 4
+		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs, nn)
 
 		optimizer = getOptimizer(optimizer_name, mfun)
 
