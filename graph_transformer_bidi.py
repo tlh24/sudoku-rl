@@ -10,13 +10,6 @@ import pdb
 import matplotlib.pyplot as plt
 from constants import g_l1atten, SuN, g_dtype, token_cnt
 
-class LayerNorm(nn.LayerNorm):
-	"""Subclass torch's LayerNorm to handle fp16."""
-	def forward(self, x: torch.Tensor):
-		orig_type = x.dtype
-		ret = super().forward(x.type(torch.float32))
-		return ret.type(orig_type)
-
 class QuickGELU(nn.Module):
 	def forward(self, x: torch.Tensor):
 		return x * torch.sigmoid(1.702 * x)
@@ -56,11 +49,11 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.wq = LinearM(d_model, n_head*d_model, init_zeros) # constant init works fine, just a bit slower. 
-		self.wv = LinearM(d_model, n_head*d_model, init_zeros)
+		self.wv = LinearM(d_model, 2*n_head*d_model, init_zeros)
 		#self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
 		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
 		
-		self.l1a_s = l1attn_sparse_cuda.L1AttnSparse()
+		self.l1a_s = l1attn_sparse_bidi_cuda.L1AttnSparseBidi()
 		self.l1a_f = l1attn_cuda.L1Attn()
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
 		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
@@ -78,7 +71,9 @@ class ResidualAttentionBlock(nn.Module):
 		q = self.wq(x)
 		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
 		v = self.wv(x)
-		v = torch.reshape(v, (batch_size, ntok, self.n_head, d_head))
+		v = torch.reshape(v, (batch_size, ntok, 2*self.n_head, d_head))
+		vf,vb = torch.split(v, 2, 2)
+		pdb.set_trace()
 		
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
@@ -104,7 +99,9 @@ class ResidualAttentionBlock(nn.Module):
 				# output is b,src,dst,heads
 				a = F.softmax(a, 1) # see l1attn.py -- sm over src FIXME 1
 				a = a[:, :ntok, :ntok, :] # remove noop
-				b = torch.einsum('bsdh, bshw -> bdhw', a, v)
+				bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
+				bb = torch.einsum('bdsh, bshw -> bdhw', a, vb)
+				b = bf + bb
 			elif layer % 4 == 3:
 				# extract all global / all-to-all tokens
 				# really could do this with pure sparse attn.. will have to compare.
@@ -112,7 +109,8 @@ class ResidualAttentionBlock(nn.Module):
 				a2len = a2a.shape[0]
 				q = q[:,a2a,:,:]
 				k = k[:,a2a,:,:]
-				v = v[:,a2a,:,:]
+				vf = vf[:,a2a,:,:]
+				vb = vb[:,a2a,:,:]
 				# pad out to BLKSIZ tokens (for CUDA kernel).
 				padn = ((a2len + 15) // 16) * 16 - a2len
 				assert(padn > 0) # for noop
@@ -126,16 +124,17 @@ class ResidualAttentionBlock(nn.Module):
 				# output is b,src,dst,heads
 				a = F.softmax(a, 1) # see l1attn.py -- sm over src
 				a = a[:, :a2len, :a2len, :] # remove noop
-				bb = torch.einsum('bsdh, bshw -> bdhw', a, v)
+				bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
+				bb = torch.einsum('bdsh, bshw -> bdhw', a, vb)
 				# scatter to original sites
 				b = torch.zeros(batch_size, ntok, n_head, width, device=v.device)
 				indx = torch.arange(0, a2len, device=v.device)
-				b[:,a2a,:,:] = bb[:,indx,:,:]
+				b[:,a2a,:,:] = bf[:,indx,:,:] + bb[:,indx,:,:]
 			else: 
 				# sparse attention.
 				coo,dst_mxlen = hcoo[layer%4] 
 				use_softmax = True 
-				b = self.l1a_s(v,q,k,coo,dst_mxlen,use_softmax) 
+				b = self.l1a_s(vf,vb,q,k,coo,dst_mxlen,use_softmax)
 			ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		else: 
 			# DP attention

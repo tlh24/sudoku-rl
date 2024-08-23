@@ -55,18 +55,6 @@ class Gracoonizer(nn.Module):
 		else: #Use NetDenoise MLP 
 			# simple MLP, as a control.
 			self.xfrmr = NetDenoise(token_cnt * world_dim)
-		
-		# self.xfrmr_to_world = graph_transformer.LinearM(xfrmr_dim, world_dim, True) 
-		# with torch.no_grad(): 
-		# 	w = torch.zeros(world_dim, xfrmr_dim+1)
-		# 	for i in range(min(xfrmr_dim, world_dim)): 
-		# 		w[i,i] = 1.0
-		# 	self.xfrmr_to_world.w.copy_( w )
-		
-		# self.softmax = nn.Softmax(dim = 2)
-		# self.critic_to_reward = graph_transformer.LinearM(xfrmr_dim, 2, True) # suck in everything. 
-		# with torch.no_grad(): 
-		# 	self.critic_to_reward.w.copy_( torch.ones(2, xfrmr_dim+1) / xfrmr_dim )
 	
 	def forward(self, benc, hcoo, n, record): 
 		'''
@@ -77,11 +65,9 @@ class Gracoonizer(nn.Module):
 		if record is not None: 
 			record.append(actenc)
 		if self.mode == 0: 
-			y,w1,w2 = self.xfrmr(benc,hcoo,n,record)
+			y = self.xfrmr(benc,hcoo,n,record)
 		elif self.mode == 1: 
 			y = self.xfrmr(benc)
-			w1 = None
-			w2 = None
 		else: 
 			bs = benc.shape[0]
 			ntok = benc.shape[1]
@@ -89,9 +75,7 @@ class Gracoonizer(nn.Module):
 			benc = torch.reshape(benc, (bs, ntok*w))
 			y = self.xfrmr(benc, torch.zeros(bs, device=benc.device))
 			y = torch.reshape(y, (bs, ntok, w))
-			w1 = None
-			w2 = None
-		return y, w1, w2
+		return y
 		
 	def backAction(self, benc, msk, n, newbenc, actual_action, lossmask, denoisenet, denoisestd):
 		# record the real targets for the internal variables. 
