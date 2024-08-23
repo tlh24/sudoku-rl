@@ -38,7 +38,6 @@ from utils import set_seed
 
 sys.path.insert(0, "baseline/")
 
-
 def trainValSplit(data_matrix: torch.Tensor, num_validate):
 	'''
 	Split data matrix into train and val data matrices
@@ -101,7 +100,7 @@ def getDataDict(puzzles, num_samples, num_validate):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board, new_board, coo, a2a, rewards, reward_loc = board_ops.enumerateBoards(puzzles, num_samples)
+	orig_board, new_board, coo, a2a, rewards, reward_loc = board_ops.enumerateBoards(puzzles)
 	print(orig_board.shape, new_board.shape, rewards.shape)
 	train_orig_board, test_orig_board = trainValSplit(orig_board, num_validate)
 	train_new_board, test_new_board = trainValSplit(new_board, num_validate)
@@ -149,7 +148,7 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	elif optimizer_name == 'sgd':
 		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
+		optimizer = psgd.LRA(model.parameters(),lr_params=0.03,lr_preconditioner=0.01, momentum=0.9,\
 			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
 	return optimizer 
 
@@ -315,7 +314,7 @@ def main_(args):
 	torch.set_float32_matmul_precision('high')
 
 	if args.gracoonizer:
-		puzzles = torch.load('puzzles_500000.pt')
+		puzzles = torch.load('puzzles_500000.pt',weights_only=True)
 		
 		# get our train and test dataloaders
 		train_dataloader, test_dataloader = getDataLoaders(puzzles, args.n_train + args.n_test, args.n_test)
@@ -472,7 +471,7 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 	ntok = board.shape[1]
 	width = board.shape[2]
 		
-	action_types,action_values = board_ops.enumerateActionList(9+4+1)
+	action_types,action_values = board_ops.enumerateActionList()
 		# inculdes 'unguess' action - presently unnecessary
 	nact = len(action_types)
 	
@@ -498,7 +497,9 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 	mfun_pred,_,_ = mfun.forward(boards_pred,None,0,None)
 	# qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
 
-	boards_pred = boards_pred.detach().reshape(bs, nact, ntok, width)
+	new_boards = new_boards.reshape(bs, nact, ntok, width)
+	boards_pred = boards_pred.reshape(bs, nact, ntok, width)
+
 	mfun_pred = mfun_pred.detach().reshape(bs, nact, ntok, width)
 	mfun_pred = mfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
 	# qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
@@ -508,6 +509,16 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 	# this will have to be changed for longer-term memory TODO
 	boards_pred[:,:,:,1:32] = boards_pred[:,:,:,33:]
 	boards_pred[:,:,:,32:] = 0 # don't mess up forward computation
+	boards_delta = boards_pred - new_boards
+	# if can_guess[0] > 0.5:
+	# 	plt.rcParams['toolbar'] = 'toolbar2'
+	# 	fig,axs = plt.subplots(9,2,figsize=(30,20))
+	# 	for i in range(9):
+	# 		axs[i,0].imshow(boards_pred[0,i+4,:,:32].T.cpu().numpy())
+	# 		axs[i,1].imshow(boards_delta[0,i+4,:,:32].T.cpu().numpy())
+	# 	plt.show()
+	# 	pdb.set_trace()
+
 	boards_pred[:,:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
 	
 	# save the one-step reward predictions. 
@@ -666,9 +677,9 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		then calculate the value of random moves from random positions
 		as the discrete derivative of this '''
 	try:
-		boards = torch.load(f'rollouts/move_boards.pt')
-		actions = torch.load(f'rollouts/move_actions.pt')
-		rewards = torch.load(f'rollouts/move_rewards.pt')
+		boards = torch.load(f'rollouts/move_boards.pt',weights_only=True)
+		actions = torch.load(f'rollouts/move_actions.pt',weights_only=True)
+		rewards = torch.load(f'rollouts/move_rewards.pt',weights_only=True)
 		nn = 0
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
@@ -760,7 +771,12 @@ if __name__ == '__main__':
 	parser.add_argument('-m', action='store_true', help='train Q function for movements')
 	cmd_args = parser.parse_args()
 	
-	puzzles = torch.load(f'puzzles_{SuN}_500000.pt')
+	try: 
+		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
+	except Exception as error:
+		print(colored(f"could not load model checkpoint {error}", "red"))
+		print("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing")
+	
 	NUM_TRAIN = 64 * 1800
 	NUM_VALIDATE = 64 * 300
 	NUM_SAMPLES = NUM_TRAIN + NUM_VALIDATE
@@ -837,7 +853,7 @@ if __name__ == '__main__':
 				print(colored(latest_file, "green"))
 				return latest_file
 
-			model.load_checkpoint(getLatestFile("rac*"))
+			model.load_checkpoint(getLatestFile("racoon*"))
 			print(colored("loaded model checkpoint", "blue"))
 
 			mfun.load_checkpoint(getLatestFile("mouse*"))
@@ -883,11 +899,11 @@ if __name__ == '__main__':
 		rollouts_parent = torch.zeros(duration, bs*nfiles, dtype=int)
 		
 		for i in range(nfiles): 
-			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt')
-			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt')
-			r_rewardp = torch.load(f'rollouts/rollouts_reward_pred_{i}.pt')
-			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt')
-			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt')
+			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt',weights_only=True)
+			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt',weights_only=True)
+			r_rewardp = torch.load(f'rollouts/rollouts_reward_pred_{i}.pt',weights_only=True)
+			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt',weights_only=True)
+			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt',weights_only=True)
 			
 			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
 			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward

@@ -116,7 +116,7 @@ class NetSimp2(nn.Module):
 	def load_checkpoint(self, path:str=None):
 		if path is None:
 			path = "mnist_2layer.pth"
-		self.load_state_dict(torch.load(path))
+		self.load_state_dict(torch.load(path, weights_only=True))
 
 	def save_checkpoint(self, path:str=None):
 		if path is None:
@@ -126,12 +126,13 @@ class NetSimp2(nn.Module):
 		
 class NetSimp3(nn.Module): 
 	# a simple MLP with 3 layers (2 hidden, one output)
-	def __init__(self, init_zeros:bool):
+	def __init__(self, init_zeros:bool, hidden_width:int):
 		super(NetSimp3, self).__init__()
 		self.init_zeros = init_zeros
-		self.fc1 = nn.Linear(784, 512)
-		self.stn1 = StraightThroughNormal(512)
-		self.fc2 = nn.Linear(512, 128)
+		self.fc1 = nn.Linear(784, hidden_width)
+			# deliberate overparameterization
+		self.stn1 = StraightThroughNormal(hidden_width)
+		self.fc2 = nn.Linear(hidden_width, 128)
 		self.stn2 = StraightThroughNormal(128)
 		self.fc3 = nn.Linear(128, 10)
 		self.gelu = QuickGELU()
@@ -186,9 +187,9 @@ class NetSimp4(nn.Module):
 	def __init__(self, init_zeros:bool):
 		super(NetSimp4, self).__init__()
 		self.init_zeros = init_zeros
-		self.fc1 = nn.Linear(784, 1500)
-		self.stn1 = StraightThroughNormal(1500)
-		self.fc2 = nn.Linear(1500, 384)
+		self.fc1 = nn.Linear(784, 500)
+		self.stn1 = StraightThroughNormal(500)
+		self.fc2 = nn.Linear(500, 384)
 		self.stn2 = StraightThroughNormal(384)
 		self.fc3 = nn.Linear(384, 96)
 		self.stn3 = StraightThroughNormal(96)
@@ -288,7 +289,24 @@ class NetSimpAE(nn.Module):
 		output = F.log_softmax(y, dim=1) # necessarry with nll_loss
 		return output.squeeze()
 
+class NetConv(nn.Module):
+	def __init__(self, init_zeros:bool):
+		super(NetConv, self).__init__()
+		self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
+		self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+		self.conv2_drop = nn.Dropout2d()
+		self.fc1 = nn.Linear(320, 50)
+		self.fc2 = nn.Linear(50, 10)
 
+	def forward(self, x, uu):
+		x = x.unsqueeze(1) # add a channel dim
+		x = F.relu(F.max_pool2d(self.conv1(x), 2))
+		x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
+		x = x.view(-1, 320)
+		x = F.relu(self.fc1(x))
+		x = F.dropout(x, training=self.training)
+		x = self.fc2(x)
+		return F.log_softmax(x, dim=1), 0
 
 def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_losslog):
 	indx = torch.randperm(train_lab.shape[0])
@@ -321,7 +339,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_loss
 			loss = F.nll_loss(output, labels) + sum( \
 					[torch.sum(1e-3 * torch.rand_like(param) * param * param) for param in model.parameters()])
 			return loss
-		loss = optimizer[1].step(closure)
+		loss = optimizer[0].step(closure)
 
 	lloss = loss.detach().cpu().item()
 	fd_losslog.write(f'{uu}\t{lloss}\t0.0\n')
@@ -335,7 +353,7 @@ def train(args, model, device, train_im, train_lab, optimizer, uu, mode, fd_loss
 	# 		print(".", end="", flush=True)
 
 
-def test(args, model, device, test_im, test_lab, fd_results):
+def test(args, model, device, test_im, test_lab, fd_results, optname):
 	with torch.no_grad():
 		test_im = test_im.to(device)
 		test_lab = test_lab.to(device)
@@ -352,15 +370,16 @@ def test(args, model, device, test_im, test_lab, fd_results):
 	print('Test set: Avg loss: {:.4f}, Accuracy: {}/{} ({:.1f}%)'.format(
 		test_loss, correct, test_im.shape[0],
 		100. * correct / test_im.shape[0]))
-	fd_results.write('{}\t{}\t{}\t{:.3f}\t'.format(args.z, args.train_size, args.num_iters, correct / test_im.shape[0]))
+
+	fd_results.write('{}\t{}\t{}\t{}\t{:.3f}\t'.format(args.z, optname, args.train_size, args.num_iters, correct / test_im.shape[0]))
 
 
 def main():
 	# Training settings
 	parser = argparse.ArgumentParser(description='testing MNIST for generalization w & wo zero-init')
-	parser.add_argument('--train-size', type=int, default=128, metavar='N',
+	parser.add_argument('--train-size', type=int, default=100, metavar='N',
 							help='input data size for training (default: 128)')
-	parser.add_argument('--num-iters', type=int, default=15000, metavar='N',
+	parser.add_argument('--num-iters', type=int, default=25000, metavar='N',
 							help='number of training iterations (default: 15000)')
 	parser.add_argument('--batch-size', type=int, default=64, metavar='N',
 							help='input data size for training (default: 64)')
@@ -380,6 +399,8 @@ def main():
 							help='use autoencoder')
 	parser.add_argument('-p', action='store_true', default=False,
 							help='plot weight histograms')
+	parser.add_argument('--hidden', type=int, default=512, 
+							help='hidden layer width')
 	# parser.add_argument('--seed', type=int, default=1, metavar='S',
 	# 						help='random seed (default: 1)')
 
@@ -420,31 +441,39 @@ def main():
 		images[j,:,:] = im[0,:,:]
 		labels[j] = lab
 		
-	fd_results = open('mnist_zeroinit.txt', 'a')
+	fd_results = open(f'mnist_zeroinit_{args.hidden}.txt', 'a')
 	fd_losslog = open('../losslog.txt', 'w')
 	
 	if args.p: 
-		plot_rows = 10
+		plot_rows = 1
 		plot_cols = 3
-		figsize = (16, 24)
+		figsize = (16, 5)
 		fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 
-	for repeat in range(10): 
+	for repeat in range(10):
 			
 		if args.ae: 
-			model = NetSimpAE(init_zeros = args.z).to(device)
+			model = NetSimpAE(init_zeros=args.z).to(device)
 		else: 
-			model = NetSimp4(init_zeros = args.z).to(device)
+			model = NetSimp3(init_zeros=args.z, hidden_width=args.hidden).to(device)
+			# model = NetSimp4(init_zeros=args.z).to(device)
+			# model = NetConv(init_zeros=args.z).to(device)
 			
 		optimizer = []
 	
 		if args.adamw: 
-			optimizer.append(optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True, weight_decay=0.01))
+			optimizer.append(optim.AdamW(model.parameters(), lr=1e-3, amsgrad=True, weight_decay=0.001))
 		if args.adagrad:
-			optimizer.append( optim.Adagrad(model.parameters(), lr=0.015, weight_decay=0.01) )
+			optimizer.append( optim.Adagrad(model.parameters(), lr=2e-2, weight_decay=0.001) )
+
+		optname = ''
+		if args.adamw:
+			optname = 'adamw'
+		if args.adagrad:
+			optname = 'adagrad'
 
 		optimizer.append( psgd.LRA(model.parameters(),lr_params=0.01,\
-			lr_preconditioner=0.01, momentum=0.9,\
+			lr_preconditioner=0.02, momentum=0.9,\
 			preconditioner_update_probability=0.1, \
 			exact_hessian_vector_product=False, \
 			rank_of_approximation=10, grad_clip_max_norm=5.0) )
@@ -466,48 +495,46 @@ def main():
 			for uu in range(args.num_iters):
 				train(args, model, device, train_im, train_lab, optimizer, uu, 1, fd_losslog)
 		else: 
-			for uu in range(args.num_iters // 10 * repeat):
+			for uu in range(args.num_iters ):
 				train(args, model, device, train_im, train_lab, optimizer, uu, 2, fd_losslog)
 
 
-		test(args, model, device, test_im, test_lab, fd_results)
+		test(args, model, device, test_im, test_lab, fd_results, optname)
 		
-		w = [model.fc1.weight.detach().cpu().numpy(), \
-					model.fc2.weight.detach().cpu().numpy(), \
-					model.fc3.weight.detach().cpu().numpy()]
+# 		w = [model.fc1.weight.detach().cpu().numpy(), \
+# 					model.fc2.weight.detach().cpu().numpy(), \
+# 					model.fc3.weight.detach().cpu().numpy()]
+# 		
+# 		sparsity = np.zeros((3,))
+# 		num_nonzero = 0
+# 		for j in range(3): 
+# 			x = w[j].flatten()
+# 			nonsparse = np.count_nonzero(abs(x) > 1e-5)
+# 			num_nonzero = num_nonzero + nonsparse
+# 			sparsity[j] = int(1000 * (1 - nonsparse/x.size)) / 1000.0
+# 		print(f" sparsity:{sparsity[0]},{sparsity[1]},{sparsity[2]};tot nonzero param:{num_nonzero}")
+# 		fd_results.write(f"{sparsity[0]}\t{sparsity[1]}\t{sparsity[2]}\n")
+# 		fd_results.flush()
 		
-		sparsity = np.zeros((3,))
-		num_nonzero = 0
-		for j in range(3): 
-			x = w[j].flatten()
-			nonsparse = np.count_nonzero(abs(x) > 1e-5)
-			num_nonzero = num_nonzero + nonsparse
-			sparsity[j] = int(1000 * (1 - nonsparse/x.size)) / 1000.0
-		print(f" sparsity:{sparsity[0]},{sparsity[1]},{sparsity[2]};tot nonzero param:{num_nonzero}")
-		fd_results.write(f"{sparsity[0]}\t{sparsity[1]}\t{sparsity[2]}\n")
-		fd_results.flush()
-		
-		
-		if args.p: 
-			
+		if args.p and repeat == 9:
 			for j in range(3): 
 				x = w[j].flatten()
 				if args.z:
-					rnge = (-0.5, 0.5)
+					rnge = (-0.5, 0.5) # larger weights with zero init
 				else:
 					rnge = (-0.2, 0.2)
-				axs[repeat,j].hist(x, 400, rnge)
+				axs[j].hist(x, 400, rnge)
 				nonsparse = np.count_nonzero(x)
-				axs[repeat,j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
-				axs[repeat,j].set_yscale('log', nonpositive='clip')
+				axs[j].set_title(f'histogram weight matrix {j}; sparsity:{sparsity[j]}')
+				axs[j].set_yscale('log', nonpositive='clip')
 				# axs[0,j].yscale('log')
 				
 			# axs[1,0].plot(model.stn1.activ.detach().cpu().squeeze().numpy())
 			# axs[1,0].set_title(f'H1 unit fading memory average activity')
 			# axs[1,1].plot(model.stn2.activ.detach().cpu().squeeze().numpy())
 			# axs[1,1].set_title(f'H2 unit fading memory average activity')
-			
-	plt.show()
+			plt.savefig(f'histogram_{optname}_zeroinit_{args.z}.pdf')
+			plt.show()
 
 	fd_results.close()
 

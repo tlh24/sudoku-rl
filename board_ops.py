@@ -5,6 +5,7 @@ from type_file import Action, Axes, getActionName
 from sudoku_gen import Sudoku
 from constants import SuN,SuK,g_dtype
 import sparse_encoding
+import pdb
 
 '''
 	Sudoku board-related functions
@@ -105,8 +106,6 @@ def encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val):
 	'''
 	Encodes the current board state and encodes the given action,
 		runs the action, and then encodes the new board state.
-		Also returns a mask matrix (#nodes by #nodes) which represents parent/child relationships
-		which defines the attention mask used in the transformer heads
 
 	The board and action nodes have the same encoding- contains one hot of node type and node value
 
@@ -150,7 +149,7 @@ def encode1DBoard():
 	return benc, newbenc, coo, a2a, reward, reward_loc
 
 
-def enumerateActionList(n:int):
+def enumerateActionList():
 	action_types = []
 	action_values = []
 	# directions
@@ -165,14 +164,6 @@ def enumerateActionList(n:int):
 	action_types.append( Action.UNSET_GUESS.value )
 	action_values.append( 0 )
 
-	nactions = len(action_types)
-	if len(action_types) < n:
-		rep = n // len(action_types) + 1
-		action_types = action_types * rep
-		action_values = action_values * rep
-	if len(action_types) > n:
-		action_types = action_types[:n]
-		action_values = action_values[:n]
 	return action_types,action_values
 
 def sampleActionList(n:int):
@@ -191,65 +182,58 @@ def sampleActionList(n:int):
 	return action_types,action_values
 
 
-def enumerateBoards(puzzles, n, possible_actions=[], min_dist=1, max_dist=1):
-	'''
-	Parameters:
-	n: (int) Number of samples to generate
-	min_dist: (int) Represents the min distance travelled.
-	max_dist: (int) Represents the max distance travelled (inclusive)
-
-	Returns:
-	orig_board_enc: (tensor) Shape (N x #board nodes x 20), all the initial board encodings
-	new_board_enc: (tensor) Shape (N x #board nodes x 20), all of the resulting board encodings due to actions
-	rewards: (tensor) Shape (N,) Rewards of each episode
-	'''
+def enumerateBoards(puzzles):
 	# changing the strategy: for each board, do all possible actions.
 	# this serves as a stronger set of constraints than random enumeration.
+	action_types,action_values = enumerateActionList()
+	n_actions = len(action_types)
+	n_curspos = 3
+	n_masks = 3
+	n_puzzles = 1024
+	n = n_actions * n_masks * n_curspos * n_puzzles
+	
 	try:
-		orig_board_enc = torch.load(f'orig_board_enc_{n}.pt')
-		new_board_enc = torch.load(f'new_board_enc_{n}.pt')
-		rewards_enc = torch.load(f'rewards_enc_{n}.pt')
+		orig_board_enc = torch.load(f'orig_board_enc_{n}.pt',weights_only=True)
+		new_board_enc = torch.load(f'new_board_enc_{n}.pt',weights_only=True)
+		rewards_enc = torch.load(f'rewards_enc_{n}.pt',weights_only=True)
 		# need to get the coo, a2a, etc variables - so run one encoding.
-		n = 1
+		n_puzzles = 1
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
 		print("generating random board, action, board', reward")
 
-	# action_types,action_values = enumerateActionList(n)
-	action_types,action_values = sampleActionList(n)
-
 	sudoku = Sudoku(SuN, SuK)
 	orig_boards = []
 	new_boards = []
-	actions = []
 	rewards = torch.zeros(n, dtype=g_dtype)
-	curs_pos_b = torch.randint(SuN, (n,2),dtype=int)
+	i = 0
+	for i_p in range(n_puzzles): 
+		puzzl = puzzles[i_p, :, :].numpy()
+		for i_m in range(3): 
+			# move half the clues to guesses (on average)
+			# to force generalization over both!
+			mask = np.random.randint(0,2, (SuN,SuN)) == 1
+			guess_mat = puzzl * mask
+			puzzl_mat = puzzl * (1-mask)
+			for i_c in range(3): 
+				curs_pos = torch.randint(SuN, (2,), dtype=int)
+				# for half the boards, select only open positions.
+				if (i_c + i_m*3)%2 == 1: 
+					while puzzl[curs_pos[0], curs_pos[1]] > 0:
+						curs_pos = torch.randint(SuN, (2,), dtype=int)
+				for i_a in range(n_actions):
+					at,av = action_types[i_a], action_values[i_a]
 
-	# for half the boards, select only open positions.
-	for i in range( n // 2 ):
-		puzzl = puzzles[i, :, :]
-		while puzzl[curs_pos_b[i,0], curs_pos_b[i,1]] > 0:
-			curs_pos_b[i,:] = torch.randint(SuN, (1,2),dtype=int)
+					benc,newbenc,coo,a2a,reward,reward_loc = \
+						encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, at, av )
+					orig_boards.append(benc)
+					new_boards.append(newbenc)
+					rewards[i] = reward
+					if i % 1000 == 999:
+						print(".", end = "", flush=True)
+					i = i + 1
 
-	for i,(at,av) in enumerate(zip(action_types,action_values)):
-		puzzl = puzzles[i, :, :].numpy()
-		# move half the clues to guesses (on average)
-		# to force generalization over both!
-		mask = np.random.randint(0,2, (SuN,SuN)) == 1
-		guess_mat = puzzl * mask
-		puzzl_mat = puzzl * (1-mask)
-		curs_pos = curs_pos_b[i, :] # see above.
-
-		benc,newbenc,coo,a2a,reward,reward_loc = encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, at, av )
-		# benc,newbenc,coo,a2a,reward,reward_loc = encode1DBoard()
-		orig_boards.append(benc)
-		new_boards.append(newbenc)
-
-		rewards[i] = reward
-		if i % 1000 == 999:
-			print(".", end = "", flush=True)
-
-	if n > 1:
+	if n_puzzles > 1: 
 		orig_board_enc = torch.stack(orig_boards)
 		new_board_enc = torch.stack(new_boards)
 		rewards_enc = rewards
