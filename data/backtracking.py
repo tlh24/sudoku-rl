@@ -179,15 +179,16 @@ def dsa(arr):
 def isValidSudoku(board) -> bool:
     if isinstance(board, np.ndarray):
         board = board.tolist()
-    res = []
-    for i, row in enumerate(board):
-        for j, x in enumerate(row):
-            if x != '.':
-                res += [(i, x), (x, j), (i // 3, j // 3, x)]
-    return len(res) == len(set(res))
+    
+    for i in range(9):
+        row = board[i]
+        if len(row)!=len(set(row)): return False
+        col = [board[c][i] for c in range(9)]
+        if len(col)!=len(set(col)): return False
+        box = [board[ind//3+(i//3)*3][ind%3+(i%3)*3] for ind in range(9)]
+        if len(box)!=len(set(box)): return False
+    return True
 
-
-        
 
 
 if __name__ == "__main__":
@@ -196,7 +197,7 @@ if __name__ == "__main__":
     solution = dsa(new_board)
     end_time = time.time()
     print(f"dsa took {end_time-start_time}s")
-    
+
     print(f"Solution is valid: {isValidSudoku(solution)}")
 
 
