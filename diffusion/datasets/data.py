@@ -33,7 +33,7 @@ class LimitsNormalizer(Normalizer):
         maps [ xmin, xmax ] to [ -1, 1 ]
     '''
 
-    def normalize(self, x): #expect x in shape (_, obs_dim)
+    def normalize(self, x): #expect x in shape (_, obs_dim) or (obs_dim,)
         ## [ 0, 1 ]
         x = (x - self.mins) / (self.maxs - self.mins)
         ## [ -1, 1 ]
