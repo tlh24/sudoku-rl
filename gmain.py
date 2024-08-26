@@ -177,12 +177,16 @@ def updateMemory(memory_dict, pred_dict):
 	return 
 
 
-def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu):
+def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu, inverse_wm=False):
 	''' this trains the *world model* on random actions placed
 	on random boards '''
 
-	for batch_idx, batch_data in enumerate(train_loader):
-		old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+	for batch_indx, batch_data in enumerate(train_loader):
+		if inverse_wm: 
+			# predict the old board from the new board
+			new_board, old_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+		else: 
+			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 		
 		pred_data = {}
 		if optimizer_name != 'psgd': 
@@ -223,9 +227,13 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		uu = uu + 1
 		
 		if uu % 1000 == 999: 
-			model.save_checkpoint(f"checkpoints/racoonizer_{uu//1000}.pth")
+			if inverse_wm: 
+				fname = "racoonizer_inv"
+			else: 
+				fname = "racoonizer"
+			model.save_checkpoint(f"checkpoints/{fname}_{uu//1000}.pth")
 
-		if batch_idx % 25 == 0:
+		if batch_indx % 25 == 0:
 			updateMemory(memory_dict, pred_data)
 			pass 
 	
@@ -747,6 +755,7 @@ if __name__ == '__main__':
 	parser.add_argument('-t', action='store_true', help='train world model')
 	parser.add_argument('-q', type=int, default=0, help='train Q function from backtracking rollouts.  Argument is the number of files to use; check with `ls -lashtr rollouts/`')
 	parser.add_argument('-m', action='store_true', help='train Q function for movements')
+	parser.add_argument('--inverse_wm', action='store_true', help='train the acausal world model')
 	cmd_args = parser.parse_args()
 	
 	try: 
@@ -831,7 +840,11 @@ if __name__ == '__main__':
 				print(colored(latest_file, "green"))
 				return latest_file
 
-			model.load_checkpoint(getLatestFile("racoon*"))
+			if cmd_args.inverse_wm: 
+				fname = "racoonizer_inv*"
+			else: 
+				fname = "racoonizer*"
+			model.load_checkpoint(getLatestFile(fname))
 			print(colored("loaded model checkpoint", "blue"))
 
 			mfun.load_checkpoint(getLatestFile("mouse*"))
@@ -948,7 +961,7 @@ if __name__ == '__main__':
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
 		while uu < NUM_ITERS:
-			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
+			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu, cmd_args.inverse_wm)
 		
 		# save after training
 		model.save_checkpoint()

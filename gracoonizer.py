@@ -2,7 +2,7 @@ import math
 import numpy as np
 import torch
 from torch import nn, optim
-import graph_transformer
+import graph_transformer_bidi as graph_transformer
 import nanogpt_model
 import pdb
 from termcolor import colored
