@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 import torchlayers as tl
-import l1attn_sparse_cuda
+import l1attn_sparse_bidi_cuda
 import l1attn_cuda
 import pdb
 import matplotlib.pyplot as plt
@@ -72,8 +72,7 @@ class ResidualAttentionBlock(nn.Module):
 		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
 		v = self.wv(x)
 		v = torch.reshape(v, (batch_size, ntok, 2*self.n_head, d_head))
-		vf,vb = torch.split(v, 2, 2)
-		pdb.set_trace()
+		vf,vb = torch.split(v, self.n_head, 2)
 		
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
