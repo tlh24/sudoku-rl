@@ -189,7 +189,7 @@ def enumerateBoards(puzzles):
 	n_actions = len(action_types)
 	n_curspos = 3
 	n_masks = 3
-	n_puzzles = 1024
+	n_puzzles = 1024 # 1280 or 1024
 	n = n_actions * n_masks * n_curspos * n_puzzles
 	
 	try:

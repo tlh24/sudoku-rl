@@ -152,7 +152,7 @@ class ResidualAttentionBlock(nn.Module):
 		return b # residual sum later.
 
 	def forward(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
-		y,ap = self.attention(x,hcoo,n,layer,pas,record)
+		y = self.attention(x,hcoo,n,layer,pas,record)
 		if record is not None: 
 			record.append( y )
 		# y = self.fanout(y)
@@ -160,7 +160,7 @@ class ResidualAttentionBlock(nn.Module):
 		# y = self.gelu(y)
 		y = self.fanout(y) # allow sign inversions & mixing; no dim change
 		# y = self.gelu(y) # this destroys performance! 
-		return x + y, ap, None
+		return x + y
 		
 		
 class Transformer(nn.Module): 
@@ -170,7 +170,7 @@ class Transformer(nn.Module):
 		self.n_head = n_head
 		self.layers = layers
 		self.repeat = repeat
-		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head, init_zeros) for _ in range(layers)])
+		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head) for _ in range(layers)])
 
 	def forward(self, x:torch.Tensor, hcoo:list, n:int, record:list):
 		for i in range(self.repeat): 

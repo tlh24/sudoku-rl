@@ -204,11 +204,11 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			# psgd library internally does loss.backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
+				new_state_preds = model.forward(old_board, hcoo, uu, None)
 				reward_preds = new_state_preds[:,reward_loc, 32+26]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 								'rewards': rewards*5, 'reward_preds': reward_preds,
-								'w1':w1, 'w2':w2}
+								'w1':None, 'w2':None}
 				loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
@@ -238,7 +238,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 	with torch.no_grad():
 		for batch_data in test_loader:
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
-			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
+			new_state_preds = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 32+26]
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()
@@ -246,7 +246,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 			args["fd_losslog"].flush()
 			sum_batch_loss += loss.cpu().item()
-			if is_train and batch_idx % 25 == 0:
+			if batch_idx % 25 == 0:
 				updateMemory(self.memory_dict, pred_data)
 				pass 
 		
