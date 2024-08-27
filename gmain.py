@@ -254,9 +254,6 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 			args["fd_losslog"].flush()
 			sum_batch_loss += loss.cpu().item()
-			if batch_indx % 25 == 0:
-				updateMemory(self.memory_dict, pred_data)
-				pass 
 		
 		# add epoch loss
 		avg_batch_loss = sum_batch_loss / len(data_loader)
