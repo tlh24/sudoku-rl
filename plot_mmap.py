@@ -74,6 +74,7 @@ if __name__ == "__main__":
 		plot_cols = 9
 		figsize = (32, 12)
 	plt.ion()
+	plt.rcParams['toolbar'] = 'toolbar2'
 	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 	initialized = False
 	im = [ [0]*plot_cols for i in range(plot_rows)]

@@ -160,9 +160,11 @@ def enumerateActionList():
 	for av in range(SuN):
 		action_types.append(at)
 		action_values.append(av+1)
-	# unset guess action
-	action_types.append( Action.UNSET_GUESS.value )
-	action_values.append( 0 )
+	# # unset guess action
+	# action_types.append( Action.UNSET_GUESS.value )
+	# action_values.append( 0 )
+	# the inverse model has a hard time understanding UNSET_GUESS
+	# it's encoded in the same was as guess, only with zero as an arg.
 
 	return action_types,action_values
 
@@ -189,7 +191,7 @@ def enumerateBoards(puzzles):
 	n_actions = len(action_types)
 	n_curspos = 3
 	n_masks = 3
-	n_puzzles = 1024 # 1280 or 1024
+	n_puzzles = 1280 # 1280 or 1024
 	n = n_actions * n_masks * n_curspos * n_puzzles
 	
 	try:

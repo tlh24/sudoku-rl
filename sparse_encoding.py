@@ -418,9 +418,9 @@ def decodeNodes(indent, benc, locs):
 	board_loc,cursor_loc = locs
 	puzzle = torch.zeros((SuN, SuN), dtype = int)
 	guess_mat = torch.zeros((SuN, SuN), dtype = int)
-	xo = 26 + Axes.X_AX.value - Axes.N_AX.value
-	yo = 26 + Axes.Y_AX.value - Axes.N_AX.value
-	go = 26 + Axes.G_AX.value - Axes.N_AX.value
+	xo = Axes.X_AX.value
+	yo = Axes.Y_AX.value
+	go = Axes.G_AX.value
 	for x in range(SuN): # x = row
 		for y in range(SuN): # y = column
 			puzzle[x,y] = round(benc[board_loc[x,y], 26].item() )
@@ -430,7 +430,7 @@ def decodeNodes(indent, benc, locs):
 	
 	su = Sudoku(SuN,SuN)
 	su.printSudoku(indent, puzzle.numpy(), guess_mat.numpy(), cursor_pos)
-	can_guess = round(benc[cursor_loc, 26 + Axes.H_AX.value - Axes.N_AX.value].item())
+	can_guess = round(benc[cursor_loc, Axes.H_AX.value].item())
 	print(f" can guess:{can_guess}")
 	# print("guess_mat", guess_mat)
 	print(f"{indent}cursor_pos", cursor_pos)
