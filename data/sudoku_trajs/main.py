@@ -16,6 +16,8 @@ import time
 from collections import deque
 from typing import List 
 import copy 
+from utils import actionTupleToAction
+import logging
 
 class SudokuSolver:
     """
@@ -260,19 +262,82 @@ class TrajectorySaver:
         '''
         Given a file that contain state trajectories, prepends a sequence of states starting from empty board that leads to the
         beginning state traj
+
+        state_trajs_file: (str) path to .npy
         '''
-        pass 
+        
+        state_trajs = np.load(state_trajs_file) #(num_samples, traj_length, 9,9)
+        num_samples = state_trajs.shape[0]
+        new_trajs = [] 
+        for sample_idx in range(0, num_samples):
+            orig_traj = state_trajs[sample_idx]
+            first_state = orig_traj[0]
+            head_states = []
+            # add the digits one by one going from left->right, top->down
+            current_state = np.zeros((9,9))
+            head_states.append(current_state)
+            for i in range(0, 9):
+                for j in range(0, 9):
+                    if first_state[i][j] > 0:
+                        current_state = copy.deepcopy(current_state)
+                        current_state[i][j] = first_state[i][j]
+                        head_states.append(current_state)
+            
+            head_states = np.array(head_states[:-1])
+            
+            assert orig_traj[0].shape == head_states[0].shape 
+            new_traj = np.concatenate((head_states, orig_traj))
+            new_trajs.append(new_traj)
+        
+        new_trajs = np.array(new_trajs)
+        new_file_name = state_trajs_file.replace("no", "yes")
+        np.save(new_file_name, new_trajs)
+        
     
-    def save_action_trajs_from_state_trajs(self):
-        pass
-    
+    def save_action_trajs_from_state_trajs(self, state_trajs_file: str):
+        '''
+        Convert a trajectory of n states into a trajectory of n-1 actions (numbers in [0, 728]).
+            Note: for this to be well-defined, state_trajs_file must have "yes" head, i.e contains the states that lead to the initial puzzle  
+        '''
+        assert "yes" in state_trajs_file
+        state_trajs = np.load(state_trajs_file) #(num_samples, traj_length, 9,9)
+        num_samples = state_trajs.shape[0]
+        new_trajs = [] 
+        for i in range(0, num_samples):
+            new_traj = []
+            traj = state_trajs[i]
+            for t in range(0, len(traj)-1):
+                difference = traj[t+1]-traj[t]
+                non_zero_idxs = np.nonzero(difference)
+                try: 
+                    assert len(non_zero_idxs[0]) == 1
+                except AssertionError:
+                    logging.error(f"Difference matrix {difference} has more than one difference")
+                i,j = non_zero_idxs[0][0], non_zero_idxs[1][0]
+                digit = int(difference[i][j]) 
+                assert digit > 0 
+                action = actionTupleToAction((i,j,digit))
+                new_traj.append(action)
+
+            new_trajs.append(new_traj)
+        save_trajs = np.array(new_trajs)
+        new_file_path = state_trajs_file.replace("state", "action")
+        np.save(new_file_path, save_trajs)
+
+                
+
+
+
+
+
+  
 
 if __name__ == "__main__":
     new_board = generateInitialBoard(0.6)
     start_time = time.time()
 
     saver = TrajectorySaver()
-    saver.generate(10000)
+    saver.save_action_trajs_from_state_trajs('forward/state/10000_trajs_yes_head.npy')
 
 
 
