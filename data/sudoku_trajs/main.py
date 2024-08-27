@@ -208,19 +208,6 @@ class SudokuSolver:
         for row in self.puzzle:
             print(' '.join(str(num) if num != 0 else '.' for num in row))
 
-def isValidSudoku(board) -> bool:
-    if isinstance(board, np.ndarray):
-        board = board.tolist()
-    
-    for i in range(9):
-        row = board[i]
-        if len(row)!=len(set(row)): return False
-        col = [board[c][i] for c in range(9)]
-        if len(col)!=len(set(col)): return False
-        box = [board[ind//3+(i//3)*3][ind%3+(i%3)*3] for ind in range(9)]
-        if len(box)!=len(set(box)): return False
-    return True
-
 
 class TrajectorySaver:
     def __init__(self, is_backtracking=False, is_action=False):
