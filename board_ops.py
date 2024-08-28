@@ -40,6 +40,9 @@ def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int
 	sudoku.setMat(puzzl_mat + guess_mat) # so that checkIfSafe works properly.
 	if clue == 0 and curr == 0:
 		if not sudoku.checkOpen(curs_pos[0], curs_pos[1]):
+			print(" ")
+			sudoku.printSudoku("", puzzl_mat, guess_mat, curs_pos)
+			pdb.set_trace() # should not happen!
 			reward = -1
 
 	if action == Action.SET_GUESS.value:
@@ -188,7 +191,7 @@ def enumerateBoards(puzzles):
 	# changing the strategy: for each board, do all possible actions.
 	# this serves as a stronger set of constraints than random enumeration.
 	action_types,action_values = enumerateActionList()
-	n_actions = len(action_types)
+	n_actions = len(action_types) # 13
 	n_curspos = 3
 	n_masks = 3
 	n_puzzles = 1280 # 1280 or 1024
@@ -215,6 +218,7 @@ def enumerateBoards(puzzles):
 			# move half the clues to guesses (on average)
 			# to force generalization over both!
 			mask = np.random.randint(0,2, (SuN,SuN)) == 1
+			# mask = np.zeros((SuN,SuN))
 			guess_mat = puzzl * mask
 			puzzl_mat = puzzl * (1-mask)
 			for i_c in range(3): 
@@ -224,6 +228,10 @@ def enumerateBoards(puzzles):
 					while puzzl[curs_pos[0], curs_pos[1]] > 0:
 						curs_pos = torch.randint(SuN, (2,), dtype=int)
 				for i_a in range(n_actions):
+					mask = np.random.randint(0,2, (SuN,SuN)) == 1
+					# mask = np.zeros((SuN,SuN))
+					guess_mat = puzzl * mask
+					puzzl_mat = puzzl * (1-mask)
 					at,av = action_types[i_a], action_values[i_a]
 
 					benc,newbenc,coo,a2a,reward,reward_loc = \

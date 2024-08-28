@@ -148,7 +148,8 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	elif optimizer_name == 'sgd':
 		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.01,lr_preconditioner=0.02, momentum=0.9,\
+		optimizer = psgd.LRA(model.parameters(),\
+			lr_params=0.01,lr_preconditioner=0.02, momentum=0.9,\
 			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
 	return optimizer 
 
@@ -256,7 +257,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			sum_batch_loss += loss.cpu().item()
 		
 		# add epoch loss
-		avg_batch_loss = sum_batch_loss / len(data_loader)
+		avg_batch_loss = sum_batch_loss / len(test_loader)
 		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
 		self.fd_loss_log.flush()
 		return
@@ -399,7 +400,7 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	width = world_dim
 	board = torch.zeros((bs, token_cnt, world_dim))
 	for j in range(bs): 
-		board[j,:,:] = action_nodes.board_enc
+		board[j,:,:32] = action_nodes[j].board_enc
 	board = np.round(board * 4.0) / 4.0
 	board = board.cuda()
 		
@@ -425,17 +426,17 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 		new_boards[:, i, 0:s, :] = aenc.cuda() # action is the first token
 
 	new_boards = new_boards.reshape(bs * nact, ntok, width)
-	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
-	# mfun_pred,_,_ = mfun.forward(boards_pred,None,0,None)
-	qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
+	boards_pred = model.forward(new_boards,hcoo,0,None)
+	# mfun_pred = mfun.forward(boards_pred,None,0,None)
+	# qfun_pred = qfun.forward(boards_pred,None,0,None)
 
 	new_boards = new_boards.reshape(bs, nact, ntok, width)
 	boards_pred = boards_pred.reshape(bs, nact, ntok, width)
 
 	# mfun_pred = mfun_pred.detach().reshape(bs, nact, ntok, width)
 	# mfun_pred = mfun_pred[:,:,reward_loc, 32+26].clone().squeeze() 
-	qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
-	qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
+	# qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
+	# qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
 	reward_pred = boards_pred[:, :,reward_loc, 32+26].clone().squeeze()
 	# copy over the beginning structure - needed!
 	# this will have to be changed for longer-term memory TODO
@@ -475,7 +476,9 @@ def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time
 	def recurse(an): 
 		if len(an.kids) > 0: 
 			for ann in an.kids: 
-				reurse(ann)
+				# don't expand dead-ends.
+				if ann.reward > -2.5:
+					recurse(ann)
 		else: 
 			leaves.append(an)
 			
@@ -485,12 +488,27 @@ def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time
 	# break up into batches. 
 	n_leaves = len(leaves)
 	print(f'expandActionNodesAll: working on a batch of {n_leaves}')
-	for i in range(0, len(leaves), 128): 
-		j = min(i + 128, len(leaves))
-		expandActionNodes(leaves[i:j], model, qfun, hcoo, reward_loc, locs, time)
+	with torch.no_grad():
+		for i in range(0, len(leaves), 16):
+			j = min(i + 16, len(leaves))
+			expandActionNodes(leaves[i:j], model, qfun, hcoo, reward_loc, locs, time)
 	return action_nodes
 		
-def expandActionNodesDepth(action_nodes, model, qfun, hcoo, reward_loc, locs, time, depth):
+def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
+	bs = 96
+	pi = np.random.randint(0, puzzles.shape[0], (bs,))
+	action_nodes = []
+	puzzl_mat = np.zeros((bs,SuN,SuN))
+	guess_mat = np.zeros((bs,SuN,SuN))
+	for k in range(bs):
+		puzzl_mat[k,:,:] = puzzles[pi[k],:,:].numpy()
+		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+		board = torch.zeros(bs,token_cnt,world_dim)
+		nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(\
+			puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], 0, 0, 0.0) # action will be replaced.
+		board[k,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
+		action_nodes.append( anode.ANode(8,0,0.0,board[k,:,:32],0) )
+
 	for i in range(depth): 
 		action_nodes = expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time)
 	return action_nodes
@@ -698,7 +716,7 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	try: 
-		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
+		puzzles = torch.load(f'puzzles_{SuN}_50000.pt',weights_only=True)
 	except Exception as error:
 		print(colored(f"could not load model checkpoint {error}", "red"))
 		print("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing")
@@ -796,7 +814,7 @@ if __name__ == '__main__':
 			print(colored(f"could not load model checkpoint {error}", "red"))
 
 	if cmd_args.e: 
-		anode_list = evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, 319)
+		anode_list = expandActionNodesDepth(puzzles, model, qfun, hcoo, 0, 5)
 				
 	if cmd_args.m:
 		# 4*1024 samples - 256 different boards, each w 4 curs pos, 4 directions
