@@ -184,7 +184,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 
 	for batch_indx, batch_data in enumerate(train_loader):
 		if inverse_wm: 
-			# predict the old board from the new board
+			# transpose: predict the old board from the new board
 			new_board, old_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 		else: 
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
@@ -241,12 +241,17 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 	return uu
 	
 	
-def validate(args, model, test_loader, optimzer_name, hcoo, uu):
+def validate(args, model, test_loader, optimzer_name, hcoo, uu, inverse_wm=False):
 	model.eval()
 	sum_batch_loss = 0.0
 	with torch.no_grad():
 		for batch_indx, batch_data in enumerate(test_loader):
-			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+			if inverse_wm:
+				# transpose: predict the old board from the new board
+				new_board, old_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+			else:
+				old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+
 			new_state_preds = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 32+26]
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
@@ -256,10 +261,6 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			args["fd_losslog"].flush()
 			sum_batch_loss += loss.cpu().item()
 		
-		# add epoch loss
-		avg_batch_loss = sum_batch_loss / len(test_loader)
-		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
-		self.fd_loss_log.flush()
 		return
 			
 			
@@ -921,4 +922,4 @@ if __name__ == '__main__':
 			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu, cmd_args.inverse_wm)
  
 		# print("validation")
-		validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
+		validate(args, model, test_dataloader, optimizer_name, hcoo, uu, cmd_args.inverse_wm)
