@@ -21,13 +21,7 @@ import utils
 from model import SEDD
 from model.ema import ExponentialMovingAverage
 
-
 torch.backends.cudnn.benchmark = True
-
-cfg = {
-    'work_dir': "sedd/"
-}
-
 
 def _run(cfg):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

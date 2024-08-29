@@ -1,33 +1,26 @@
 """Training and evaluation"""
-
-import hydra
+import yaml 
 import os
 import numpy as np
 import run_train
 import utils
-import torch.multiprocessing as mp
-from hydra.core.hydra_config import HydraConfig
-from hydra.types import RunMode
-from omegaconf import OmegaConf, open_dict
+from datetime import datetime
 
-
-@hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg):
     ngpus = cfg.ngpus
 	# Run the training pipeline
     port = int(np.random.randint(10000, 20000))
     logger = utils.get_logger(os.path.join(work_dir, "logs"))
 
-    hydra_cfg = HydraConfig.get()
-    if hydra_cfg.mode != RunMode.RUN:
-        logger.info(f"Run id: {hydra_cfg.job.id}")
-
-    try:
-        mp.set_start_method("forkserver")
-        mp.spawn(run_train.run_multiprocess, args=(ngpus, cfg, port), nprocs=ngpus, join=True)
-    except Exception as e:
-        logger.critical(e, exc_info=True)
-
+    run_train._run(cfg)
+    
 
 if __name__ == "__main__":
-    main()
+    with open('configs/normal_config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+        now = datetime.now()
+
+        # add working directory 
+        work_dir = os.path.join('experiments', now.strftime("%m-%d-%Y-%H:%M"))
+        config['work_dir'] = work_dir
+        main(config)
