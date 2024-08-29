@@ -356,11 +356,14 @@ def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, h
 				# initializing from the bare board does not work well..
 			else:
 				hcoo2 = hcoo
-			qfun_boards = qfun.forward(model,hcoo2,0,None)
-			reward_preds = qfun_boards[:,reward_loc, 20:24]
-			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
-								'rewards': reward[:,0], 'reward_preds': reward_preds[:,0],
-								'w1':None, 'w2':None}
+			qfun_boards = qfun.forward(boards,hcoo2,0,None)
+			reward_preds = qfun_boards[:,reward_loc, 20:24] 
+			# FIXME model_boards
+			pred_data = {'old_board':boards, 'new_board':boards, \
+					'new_state_preds':qfun_boards,
+					'rewards': reward[:,0], \
+					'reward_preds': reward_preds[:,0],
+					'w1':None, 'w2':None}
 			loss = torch.sum((reward - reward_preds)**2) + \
 				sum([torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in qfun.parameters()])
 			return loss
@@ -444,6 +447,8 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	
 	# save the one-step reward predictions. 
 	for j in range(bs): 
+		if len(reward_pred.shape) < 2: 
+			pdb.set_trace()
 		action_nodes[j].setRewardPred(reward_pred[j,:] )
 
 	mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
