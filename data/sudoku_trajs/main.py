@@ -225,9 +225,9 @@ class TrajectorySaver:
                 self.save_folder = os.path.join('forward/state')
 
     def generate(self, num_trajs: int, percent_filled:float=0.75):
-        #TODO: start with state. Just save the backtraking trajs + the list of is_backtracking
-        # Then also go and save the forward trajs (this is what we'll train on)
-        save_path = os.path.join(self.save_folder, f'{num_trajs}_trajs_no_head.npy')
+        #Saves trajecotories of states, where start from initial puzzle and go to end solution
+
+        save_path = os.path.join(self.save_folder, f'{num_trajs}_trajs_{percent_filled}_filled_no_head.npy')
         new_board = generateInitialBoard(percent_filled)
         solver = SudokuSolver(new_board)
         solver.solve()
@@ -320,11 +320,9 @@ class TrajectorySaver:
   
 
 if __name__ == "__main__":
-    new_board = generateInitialBoard(0.6)
-    start_time = time.time()
-
     saver = TrajectorySaver()
-    saver.save_action_trajs_from_state_trajs('forward/state/10000_trajs_yes_head.npy')
+    saver.generate(1000, 0.22)
+    #saver.save_action_trajs_from_state_trajs('forward/state/10000_trajs_yes_head.npy')
 
 
 

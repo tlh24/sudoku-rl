@@ -1,4 +1,6 @@
 ## Training the score entropy discrete diffusion model
+### Logistics
+-[] Add a virtual env for sedd 
 
 ### Build the training dataset
 - [X] Generate sudoku trajectories (including the masks)
@@ -7,5 +9,7 @@
 - [X] Figure out how to encode the actions  
 
 ## Train the model
-- [] Encode actions or add an encoding layer
-- [] Figure out what cfg should be 
+- [X] Encode actions or add an encoding layer
+- [X] Figure out what cfg should be 
+
+

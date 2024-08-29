@@ -1,6 +1,6 @@
 # General settings
 ngpus: 1
-tokens: 50257
+tokens: 729 #encode trajs as series of digit placement actions
 
 # Training settings
 training:
@@ -17,9 +17,8 @@ training:
 
 # Data settings
 data:
-  train: openwebtext
-  valid: wikitext103
-  cache_dir: data
+  train: data/sudoku_trajs/            #TODO: add the location to train
+  valid: data/sudoku_trajs/
 
 # Graph settings
 graph:
