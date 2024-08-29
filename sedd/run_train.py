@@ -3,7 +3,7 @@ import os
 import os.path
 import sys 
 from pathlib import Path
-sys.path.append(Path(__file__).resole().parent.parent)
+sys.path.append(Path(__file__).resolve().parent.parent)
 from itertools import chain
 
 import numpy as np
@@ -23,7 +23,6 @@ from model.ema import ExponentialMovingAverage
 
 
 torch.backends.cudnn.benchmark = True
-# torch.autograd.set_detect_anomaly(True)
 
 cfg = {
     'work_dir': "sedd/"
@@ -163,3 +162,8 @@ def _run(cfg):
         else:
             raise ValueError("Model step has not chnaged")
 
+
+if __name__ == "__main__":
+    # training step
+    
+    pass 
