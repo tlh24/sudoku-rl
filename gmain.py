@@ -325,7 +325,7 @@ def main_(args):
 	program_duration = end_time - start_time
 	print(f"Program duration: {program_duration} sec")
 	
-def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs, name):
+def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, hcoo, reward_loc, locs, name):
 	n_roll = rollouts_board.shape[0]
 	n_tok = rollouts_board.shape[1]
 	width = rollouts_board.shape[2]
@@ -335,32 +335,20 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 	for uu in range(nn): 
 		indx = torch.randint(0,n_roll,(batch_size,))
 		boards = rollouts_board[indx,:,:].squeeze().float()
-		reward = rollouts_reward[indx].squeeze()
-		actions = rollouts_action[indx,:].squeeze() # not used! 
-		# already encoded in the board! 
+		reward = rollouts_reward[indx,:4].squeeze()
 		
-		# expand boards
+		# expand boards to 64 wide
 		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width, device=boards.device)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
 		boards = torch.round(boards * 4.0) / 4.0
-		
-		# sparse_encoding.decodeNodes("", boards[0,:,:].squeeze().float(), locs)
-		# do we even need to encode the action? 
-		# it should not have changed!  
-		# for j in range(batch_size): 
-		# 	at = actions[j,0]
-		# 	av = actions[j,1]
-		# 	aenc = sparse_encoding.encodeActionNodes(at, av)
-		# 	s = aenc.shape[0]
-		# 	print(torch.sum((boards[j,0:s,:] - aenc)**2).item())
 			
 		boards = boards.cuda()
 		reward = reward.cuda()
-		with torch.no_grad():
-			model_boards,_,_ = model.forward(boards,hcoo,0,None)
-			# plt.plot((model_boards[:,reward_loc, 32+26] - reward).cpu().numpy())
-			# pdb.set_trace()
+		# with torch.no_grad():
+		# 	model_boards = model.forward(boards,hcoo,0,None)
+		# 	# plt.plot((model_boards[:,reward_loc, 32+26] - reward).cpu().numpy())
+		# 	# pdb.set_trace()
 		def closure(): 
 			nonlocal pred_data
 			if name == 'mouseizer' or name == 'quailizer':
@@ -368,12 +356,11 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 				# initializing from the bare board does not work well..
 			else:
 				hcoo2 = hcoo
-			qfun_boards,_,_ = qfun.forward(model_boards,hcoo2,0,None)
-			# qfun_boards,_,_ = qfun.forward(boards,hcoo2,0,None)
-			reward_preds = qfun_boards[:,reward_loc, 32+26]
-			# pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
-			# 					'rewards': reward, 'reward_preds': reward_preds,
-			# 					'w1':None, 'w2':None}
+			qfun_boards = qfun.forward(model,hcoo2,0,None)
+			reward_preds = qfun_boards[:,reward_loc, 20:24]
+			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
+								'rewards': reward[:,0], 'reward_preds': reward_preds[:,0],
+								'w1':None, 'w2':None}
 			loss = torch.sum((reward - reward_preds)**2) + \
 				sum([torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in qfun.parameters()])
 			return loss
@@ -384,8 +371,8 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 		args["fd_losslog"].flush()
 		if uu % 10 == 9:
 			print(lloss)
-		# if uu % 25 == 0:
-		# 	updateMemory(memory_dict, pred_data)
+		if uu % 25 == 0:
+			updateMemory(memory_dict, pred_data)
 			
 		if uu % 1000 == 999: 
 			qfun.save_checkpoint(f"checkpoints/{name}_{uu//1000}.pth")
@@ -401,7 +388,7 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	width = world_dim
 	board = torch.zeros((bs, token_cnt, world_dim))
 	for j in range(bs): 
-		board[j,:,:32] = action_nodes[j].board_enc
+		board[j,:,:32] = torch.tensor(action_nodes[j].board_enc)
 	board = np.round(board * 4.0) / 4.0
 	board = board.cuda()
 		
@@ -457,7 +444,7 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	
 	# save the one-step reward predictions. 
 	for j in range(bs): 
-		action_nodes[j].setRewardPred(reward_pred[j,:])
+		action_nodes[j].setRewardPred(reward_pred[j,:] )
 
 	mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
 		# reward-weighted; if you can guess, generally do that.
@@ -466,8 +453,8 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	action_node_new = []
 	for j in range(bs):
 		for i,(at,av) in enumerate(zip(action_types,action_values)):
-			an = anode.ANode(at, av, reward_pred[j,i], \
-				boards_pred[j,i,:,:32].squeeze(), time)
+			an = anode.ANode(at, av, reward_pred[j,i].item(), \
+				boards_pred[j,i,:,:32], time)
 			action_nodes[j].addKid(an)
 		
 	return action_nodes
@@ -477,11 +464,11 @@ def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time
 	def recurse(an): 
 		if len(an.kids) > 0: 
 			for ann in an.kids: 
-				# don't expand dead-ends.
-				if ann.reward > -2.5:
-					recurse(ann)
+				recurse(ann)
 		else: 
-			leaves.append(an)
+			# don't expand dead-ends or successes.
+			if an.reward > -2.5 and an.reward < 2.5:
+				leaves.append(an)
 			
 	for an in action_nodes: 
 		recurse(an)
@@ -490,13 +477,13 @@ def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time
 	n_leaves = len(leaves)
 	print(f'expandActionNodesAll: working on a batch of {n_leaves}')
 	with torch.no_grad():
-		for i in range(0, len(leaves), 16):
-			j = min(i + 16, len(leaves))
+		for i in range(0, len(leaves), 32):
+			j = min(i + 32, len(leaves))
 			expandActionNodes(leaves[i:j], model, qfun, hcoo, reward_loc, locs, time)
 	return action_nodes
 		
 def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
-	bs = 96
+	bs = 256
 	pi = np.random.randint(0, puzzles.shape[0], (bs,))
 	action_nodes = []
 	puzzl_mat = np.zeros((bs,SuN,SuN))
@@ -512,6 +499,7 @@ def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
 
 	for i in range(depth): 
 		action_nodes = expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time)
+	
 	return action_nodes
 	
 	
@@ -730,6 +718,7 @@ if __name__ == '__main__':
 	# use export CUDA_VISIBLE_DEVICES=1
 	# to switch to another GPU
 	torch.set_float32_matmul_precision('high')
+	torch.backends.cuda.matmul.allow_tf32 = True
 	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device}
 	
 	# get our train and test dataloaders
@@ -818,23 +807,34 @@ if __name__ == '__main__':
 		anode_list = expandActionNodesDepth(puzzles, model, qfun, hcoo, 0, 5)
 				
 	if cmd_args.m:
-		# 4*1024 samples - 256 different boards, each w 4 curs pos, 4 directions
-		bs = 64
-		nn = 4 * 4 * 4
-		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs, nn)
+		# train a (movement) policy
+		anode_list = expandActionNodesDepth(puzzles, model, qfun, hcoo, 0, 5)
+		
+		# train a basic policy function: input is the state, output is 
+		# advantage of that action over others. 
+		for node in anode_list: 
+			node.integrateReward()
+			
+		anode.outputGexf(anode_list[0])
+			
+		anode_flat = []
+		for node in anode_list: 
+			anode_flat = node.flattenNoLeaves(anode_flat)
+		nn = len(anode_flat)
+		rollouts_board = torch.zeros(nn,token_cnt,32)
+		rollouts_reward = torch.zeros(nn,13)
+		for i,node in enumerate(anode_flat): 
+			rollouts_board[i,:,:] = torch.tensor(node.board_enc)
+			rollouts_reward[i,:] = torch.tensor(node.horizon_reward)
 
 		optimizer = getOptimizer(optimizer_name, mfun)
 
 		# get the locations of the reward node.
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
 
-		rollouts_board = rollouts_board.reshape(nn*bs,token_cnt,32)
-		rollouts_action = rollouts_action.reshape(nn*bs,2)
-		rollouts_reward = rollouts_reward.reshape(nn*bs)
-
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 300000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
+		trainPolicy(rollouts_board, rollouts_reward, 300000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
 		# note: no hcoo; only all-to-all attention
 
 	if cmd_args.q > 0:
