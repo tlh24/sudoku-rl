@@ -20,8 +20,10 @@ import noise_lib
 import utils
 from model import SEDD
 from model.ema import ExponentialMovingAverage
-
+from utils import action_seq_to_board
 torch.backends.cudnn.benchmark = True
+
+from data.sudoku_trajs.utils import isValidSudoku
 
 def _run(cfg):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -77,10 +79,6 @@ def _run(cfg):
     state = utils.restore_checkpoint(checkpoint_meta_dir, state, device)
     initial_step = int(state['step'])
 
-    
-    # load in tokenizer
-    tokenizer = GPT2TokenizerFast.from_pretrained('gpt2') #TODO: add own tokenizer
-
     # Build data iterators
     train_ds, eval_ds = data.get_dataloaders(cfg)
     train_iter = iter(train_ds)
@@ -102,12 +100,7 @@ def _run(cfg):
 
     while state['step'] < num_train_steps + 1:
         step = state['step']
-
-
-        if cfg.data.train != "text8":
-            batch = next(train_iter)['input_ids'].to(device)
-        else:
-            batch = next(train_iter).to(device)
+        batch = next(train_iter).to(device)
         loss = train_step_fn(state, batch)
 
         # flag to see if there was movement ie a full batch got computed
@@ -121,10 +114,7 @@ def _run(cfg):
 
             # evaluation 
             if step % cfg.training.eval_freq == 0:
-                if cfg.data.valid != "text8":
-                    eval_batch = next(eval_iter)['input_ids'].to(device)
-                else:
-                    eval_batch = next(train_iter).to(device)
+                eval_batch = next(train_iter).to(device)
                 eval_loss = eval_step_fn(state, eval_batch)
                 logger.info(f"step: {step}, evaluation_loss: {eval_loss.item():.5e}")
             # Sampling and saving
@@ -143,21 +133,31 @@ def _run(cfg):
                     ema.copy_to(score_model.parameters())
                     sample = sampling_fn(score_model)
                     ema.restore(score_model.parameters())
-
-                    sentences = tokenizer.batch_decode(sample)#TODO: add own tokenizer decoding 
                     
+                    output_boards = []
+                    for i in range(sample):
+                        seq = sample[i]
+                        assert seq.shape == (81,) or seq.shape == (1,81)
+                        output_boards.append(action_seq_to_board(seq))
+
+                    valid_results = [] 
                     file_name = os.path.join(this_sample_dir, "sample.txt")
                     with open(file_name, 'w') as file:
-                        for sentence in sentences:
-                            file.write(sentence + "\n")
+                        for board in output_boards:
+                            for row in board:
+                                row_str = ' '.join(map(str, row))
+                            file.write(row_str + "\n")
+                        
+                            is_valid = isValidSudoku(board)
+                            valid_results.append(is_valid)
+                            file.write(f"Is valid: {is_valid}\n")
                             file.write("============================================================================================\n")
 
-                    #TODO: add eval step
+                        #TODO: add eval step
+                        acc = len(filter(lambda x: x, valid_results))/len(valid_results)
+                        file.write(f"Overall accuracy: {len(filter(lambda x: x, valid_results))}/{len(valid_results)} = {acc:.2f}")
+        
+                    print(f"Overall accuracy: {len(filter(lambda x: x, valid_results))}/{len(valid_results)} = {acc:.2f}")
         else:
-            raise ValueError("Model step has not chnaged")
+            raise ValueError("Model step has not changed")
 
-
-if __name__ == "__main__":
-    # training step
-    
-    pass 
