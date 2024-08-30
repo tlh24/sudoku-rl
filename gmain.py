@@ -325,7 +325,7 @@ def main_(args):
 	program_duration = end_time - start_time
 	print(f"Program duration: {program_duration} sec")
 	
-def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, hcoo, reward_loc, locs, name):
+def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, hcoo, hcoo_m, reward_loc, locs, name):
 	n_roll = rollouts_board.shape[0]
 	n_tok = rollouts_board.shape[1]
 	width = rollouts_board.shape[2]
@@ -351,20 +351,19 @@ def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, h
 		# 	# pdb.set_trace()
 		def closure(): 
 			nonlocal pred_data
-			if name == 'mouseizer' or name == 'quailizer':
-				hcoo2 = None # None works ok with movements.
-				# initializing from the bare board does not work well..
-			else:
-				hcoo2 = hcoo
-			qfun_boards = qfun.forward(boards,hcoo2,0,None)
-			reward_preds = qfun_boards[:,reward_loc, 20:24] 
+			qfun_boards = qfun.forward(boards,hcoo_m,0,None)
+			with torch.no_grad(): 
+				new_boards = boards.detach().clone()
+				# new_boards[:,0:3, 20:24] = torch.tile(reward.unsqueeze(1),(1,3,1)) # action, cursor, reward.
+				new_boards[:,0, 20:24] = reward # action, cursor, reward.
+			reward_preds = qfun_boards[:,0, 32+20:32+24] 
 			# FIXME model_boards
-			pred_data = {'old_board':boards, 'new_board':boards, \
+			pred_data = {'old_board':boards, 'new_board':new_boards, \
 					'new_state_preds':qfun_boards,
 					'rewards': reward[:,0], \
 					'reward_preds': reward_preds[:,0],
 					'w1':None, 'w2':None}
-			loss = torch.sum((reward - reward_preds)**2) + \
+			loss = torch.sum((qfun_boards[:,:,33:64] - new_boards[:,:,1:32])**2) + \
 				sum([torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in qfun.parameters()])
 			return loss
 		
@@ -488,7 +487,7 @@ def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time
 	return action_nodes
 		
 def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
-	bs = 256
+	bs = 8192
 	pi = np.random.randint(0, puzzles.shape[0], (bs,))
 	action_nodes = []
 	puzzl_mat = np.zeros((bs,SuN,SuN))
@@ -741,7 +740,7 @@ if __name__ == '__main__':
 	# and self attention (intra-token attention ops) -- either this or add a second MLP layer. 
 	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
 	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
-	# add global attention
+	# add top-level attention
 	all2all = torch.Tensor(a2a); 
 	
 	kids2parents = kids2parents.cuda()
@@ -750,6 +749,8 @@ if __name__ == '__main__':
 	all2all = all2all.cuda()
 	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
 		(self2self, dst_mxlen_s2s), all2all]
+	hcoo_m = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		(self2self, dst_mxlen_s2s), all2all, None]
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
@@ -760,7 +761,7 @@ if __name__ == '__main__':
 	
 	# movement predictor
 	# mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=8, n_layers=8, repeat=2, mode=0).to(device)
-	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4, repeat=1, mode=0).to(device)
+	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=10, repeat=1, mode=0).to(device)
 	# works ok - does not converge but gets reasonable loss c.f. larger model.
 	# this is an all-to-all transformer; see line 492
 	mfun.printParamCount()
@@ -813,14 +814,15 @@ if __name__ == '__main__':
 				
 	if cmd_args.m:
 		# train a (movement) policy
-		anode_list = expandActionNodesDepth(puzzles, model, qfun, hcoo, 0, 5)
+		anode_list = expandActionNodesDepth(puzzles, model, qfun, hcoo, 0, 2)
 		
 		# train a basic policy function: input is the state, output is 
 		# advantage of that action over others. 
 		for node in anode_list: 
 			node.integrateReward()
 			
-		anode.outputGexf(anode_list[0])
+		for i in range(10): 
+			anode.outputGexf(anode_list[i], f"anode_{i}.gexf")
 			
 		anode_flat = []
 		for node in anode_list: 
@@ -839,8 +841,7 @@ if __name__ == '__main__':
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainPolicy(rollouts_board, rollouts_reward, 300000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
-		# note: no hcoo; only all-to-all attention
+		trainPolicy(rollouts_board, rollouts_reward, 300000, memory_dict, model, mfun, hcoo, hcoo_m, reward_loc, locs, "mouseizer")
 
 	if cmd_args.q > 0:
 		# Enables the matplotlib toolbar & thereby inspection

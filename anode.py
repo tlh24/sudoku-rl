@@ -9,12 +9,13 @@ class ANode:
 		assert(isinstance(reward, float))
 		self.reward = reward
 		# board_enc and reward are the *result* of applying the action.
-		self.board_enc = board_enc.squeeze().cpu().numpy()
+		self.board_enc = board_enc.squeeze().cpu().numpy().astype('float16')
 		self.parent = None
 		self.reward_pred = torch.zeros(13)
 		self.index = index
 		self.valid = True
 		self.horizon_reward = torch.zeros(13) # looking forward
+		self.integral_reward = 0.0 # same as above, but local / not in parent
 
 	def setParent(self, node):
 		self.parent = node
@@ -27,7 +28,7 @@ class ANode:
 		return self.parent
 
 	def setRewardPred(self, reward_pred):
-		self.reward_pred = reward_pred.squeeze().cpu().numpy()
+		self.reward_pred = reward_pred.squeeze().cpu().numpy().astype('float16')
 
 	def updateReward(self, new_reward):
 		# also propagates reward to the parent node
@@ -52,9 +53,10 @@ class ANode:
 				r = k.integrateReward()
 				self.horizon_reward[j] = r
 				rw = max(rw, r)
-			return rw + self.reward
+			self.integral_reward = rw + self.reward
 		else: 
-			return self.reward
+			self.integral_reward = self.reward
+		return self.integral_reward
 			
 	def flattenNoLeaves(self, node_list): 
 		if len(self.kids) > 0: 
@@ -103,15 +105,18 @@ class ANode:
 	
 	def printGexfNode(self, fil): 
 		# this implementation is simpler, since it's a DAG (tree)
+		def quantize(f): 
+			return round(f*4)/4
 		print(f'<node id="{self.index}">',file=fil)
 		print(f'<attvalues>',file=fil)
 		print(f'<attvalue for="0" value="{self.action_type}" />',file=fil)
 		print(f'<attvalue for="1" value="{self.action_value}" />',file=fil)
-		print(f'<attvalue for="2" value="{self.reward}" />',file=fil)
+		print(f'<attvalue for="2" value="{quantize(self.reward)}" />',file=fil)
+		print(f'<attvalue for="3" value="{quantize(self.integral_reward)}" />',file=fil)
 		s = ""
 		for i in range(13): 
-			s = s + " " + str(round(self.horizon_reward[i].item()*4)/4)
-		print(f'<attvalue for="3" value="{s}" />',file=fil)
+			s = s + " " + str(quantize(self.horizon_reward[i].item()))
+		print(f'<attvalue for="4" value="{s}" />',file=fil)
 		print('</attvalues>\n</node>',file=fil)
 		for k in self.kids: 
 			k.printGexfNode(fil)
@@ -123,7 +128,7 @@ class ANode:
 			k.printGexfEdge(fil)
 		
 
-def outputGexf(node): 
+def outputGexf(node, fname): 
 	header = '''<?xml version="1.0" encoding="UTF-8"?>
 <gexf xmlns="http://gexf.net/1.3" version="1.3">
 <graph mode="static" defaultedgetype="directed" idtype="string">
@@ -131,10 +136,11 @@ def outputGexf(node):
 <attribute id="0" title="action_type" type="string"/>
 <attribute id="1" title="action_value" type="string"/>
 <attribute id="2" title="reward" type="float"/>
-<attribute id="3" title="horizon_reward" type="string"/>
+<attribute id="3" title="integral_reward" type="float"/>
+<attribute id="4" title="horizon_reward" type="string"/>
 </attributes>
 <nodes> '''
-	fil = open('anode.gexf', 'w')
+	fil = open(fname, 'w')
 	print(header, file=fil)
 	node.setIndexRoot()
 	node.printGexfNode(fil)

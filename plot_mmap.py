@@ -176,7 +176,7 @@ if __name__ == "__main__":
 		fig.canvas.draw()
 		fig.canvas.flush_events()
 		print(f"tock {maxerr} {sumerr}")
-		if maxerr > 1.0:
+		if maxerr > 1.0 and False:
 			time.sleep(60.0)
 		else:
 			time.sleep(4.0)
