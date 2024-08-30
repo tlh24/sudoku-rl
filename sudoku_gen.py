@@ -205,9 +205,10 @@ class Sudoku:
 		print(f"{indent}Valid:", self.checkIfValid(), end=" ")
 
 
-def generateInitialBoard(percent_filled=0.75):
+def generateInitialBoard(percent_filled=0.4, exact_num_filled=False):
 	'''
 	Generates 9x9 sudoku boards and their solutions. Adaped from https://github.com/Kyubyong/sudoku
+	Note: Getting exact fails for less than 30ish cells given
 	'''
 	def construct_puzzle_solution():
 		# Loop until we're able to fill all 81 cells with numbers, while
@@ -238,15 +239,31 @@ def generateInitialBoard(percent_filled=0.75):
 				pass
 
 
-	def run(num_given_cells, iter=1):
+	def run(num_given_cells, iter=1, match_num_given=True):
 		'''
 		Attempts to create a puzzle with num_given_cells, but if it can't returns puzzle
 			as close to that and larger in set of iter puzzles generated
+
+		If match_num_given is true, then only returns a puzzle that has exactly num_given_cell digits
 		'''
 		all_results = {}
 	#     print "Constructing a sudoku puzzle."
 	#     print "* creating the solution..."
 		a_puzzle_solution = construct_puzzle_solution()
+
+		if match_num_given:
+			num_times = 0
+			while True: 
+				print(f"Num times {num_times}")
+				puzzle = copy.deepcopy(a_puzzle_solution)
+				(result, number_of_cells) = pluck(puzzle, num_given_cells)
+				print(f'Number of cells {number_of_cells} vs number given {num_given_cells}')
+				if number_of_cells == num_given_cells:
+					all_results[num_given_cells] = [result]
+					break 
+				num_times += 1
+
+			return all_results, a_puzzle_solution
 		
 	#     print "* constructing a puzzle..."
 		for i in range(iter):
@@ -265,7 +282,10 @@ def generateInitialBoard(percent_filled=0.75):
 	def pluck(puzzle, n=0):
 		"""
 		Answers the question: can the cell (i,j) in the puzzle "puz" contain the number
-		in cell (ii,jj)? """
+		in cell (ii,jj)? 
+		
+		Returns: puzzle and the number of given cells in the puzzle
+		"""
 		def canBeA(puz, i, j, ii, jj):
 			v = puz[ii][jj]
 			if puz[i][j] == v: return True
@@ -323,7 +343,7 @@ def generateInitialBoard(percent_filled=0.75):
 
 	num_given_cells = int(81*percent_filled)
 	
-	all_results, solution = run(num_given_cells, iter=10)
+	all_results, solution = run(num_given_cells, iter=10, match_num_given=exact_num_filled)
 	quiz = best(all_results)
 	return quiz
 		
