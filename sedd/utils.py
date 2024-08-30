@@ -1,7 +1,7 @@
 import numpy as np 
 import sys
 from pathlib import Path 
-sys.append(Path(__file__).resolve().parent.parent)
+sys.path.append(Path(__file__).resolve().parent.parent)
 from data.sudoku_trajs.utils import actionToActionTuple
 
 def action_seq_to_board(action_seq: np.ndarray):
