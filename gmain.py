@@ -345,19 +345,18 @@ def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, h
 			
 		boards = boards.cuda()
 		reward = reward.cuda()
-		# with torch.no_grad():
-		# 	model_boards = model.forward(boards,hcoo,0,None)
-		# 	# plt.plot((model_boards[:,reward_loc, 32+26] - reward).cpu().numpy())
-		# 	# pdb.set_trace()
+		with torch.no_grad():
+			model_boards = model.forward(boards,hcoo,0,None)
+			# plt.plot((model_boards[:,reward_loc, 32+26] - reward).cpu().numpy())
+			# pdb.set_trace()
 		def closure(): 
 			nonlocal pred_data
-			qfun_boards = qfun.forward(boards,hcoo_m,0,None)
+			qfun_boards = qfun.forward(model_boards,hcoo_m,0,None)
 			with torch.no_grad(): 
 				new_boards = boards.detach().clone()
 				# new_boards[:,0:3, 20:24] = torch.tile(reward.unsqueeze(1),(1,3,1)) # action, cursor, reward.
 				new_boards[:,0, 20:24] = reward # action, cursor, reward.
 			reward_preds = qfun_boards[:,0, 32+20:32+24] 
-			# FIXME model_boards
 			pred_data = {'old_board':boards, 'new_board':new_boards, \
 					'new_state_preds':qfun_boards,
 					'rewards': reward[:,0], \
@@ -761,7 +760,7 @@ if __name__ == '__main__':
 	
 	# movement predictor
 	# mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=8, n_layers=8, repeat=2, mode=0).to(device)
-	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=10, repeat=1, mode=0).to(device)
+	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=10, repeat=3, mode=0).to(device)
 	# works ok - does not converge but gets reasonable loss c.f. larger model.
 	# this is an all-to-all transformer; see line 492
 	mfun.printParamCount()
