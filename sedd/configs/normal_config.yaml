@@ -17,8 +17,8 @@ training:
 
 # Data settings
 data:
-  train: data/sudoku_trajs/            #TODO: add the location to train
-  valid: data/sudoku_trajs/
+  train: /home/justin/Desktop/Code/sudoku-rl/data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
+  valid: /home/justin/Desktop/Code/sudoku-rl/data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
 
 # Graph settings
 graph:
@@ -51,7 +51,7 @@ optim:
   lr: 0.0003
   beta1: 0.9
   beta2: 0.999
-  eps: 1e-8
+  eps: 1.0e-8
   warmup: 2500
   grad_clip: 1
 

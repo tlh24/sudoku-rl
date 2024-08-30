@@ -37,18 +37,19 @@ def get_dataset(dataset_path: str):
 
 
 def get_dataloaders(config):
-    if config.training.batch_size % (config.ngpus * config.training.accum) != 0:
-            raise ValueError(f"Train Batch Size {config.training.batch_size} is not divisible by {config.ngpus} gpus with accumulation {config.training.accum}.")
-    if config.eval.batch_size % (config.ngpus * config.training.accum) != 0:
-        raise ValueError(f"Eval Batch Size for {config.eval.batch_size} is not divisible by {config.ngpus} gpus with accumulation {config.training.accum}.")
+    if config['training']['batch_size'] % (config['ngpus'] * config['training']['accum']) != 0:
+            raise ValueError(f"Train Batch Size {config['training']['batch_size']} is not divisible by {config['ngpus']} gpus with accumulation {config['training']['accum']}.")
+    if config['eval']['batch_size'] % (config['ngpus'] * config['training']['accum']) != 0:
+        raise ValueError(f"Eval Batch Size for {config['eval']['batch_size']} is not divisible by {config['ngpus']} gpus with accumulation {config['training']['accum']}.")
 
+    train_set = get_dataset(config['data']['train'])
+    valid_set = get_dataset(config['data']['valid'])
 
-    train_set = get_dataset(config.data.train)
-    valid_set = get_dataset(config.data.valid)
+    breakpoint()
 
     train_loader = cycle_loader(DataLoader(
         train_set,
-        batch_size=config.training.batch_size // (config.ngpus * config.training.accum),
+        batch_size=config['training']['batch_size'] // (config['ngpus'] * config['training']['accum']),
         num_workers=4,
         pin_memory=True,
         shuffle=True,
@@ -56,7 +57,7 @@ def get_dataloaders(config):
     ))
     valid_loader = cycle_loader(DataLoader(
         valid_set,
-        batch_size=config.eval.batch_size // (config.ngpus * config.training.accum),
+        batch_size=config['training']['batch_size'] // (config['ngpus'] * config['training']['accum']),
         num_workers=4,
         pin_memory=True,
         shuffle=True

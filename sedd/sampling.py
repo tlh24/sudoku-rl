@@ -110,9 +110,9 @@ def get_sampling_fn(config, graph, noise, batch_dims, eps, device):
     sampling_fn = get_pc_sampler(graph=graph,
                                  noise=noise,
                                  batch_dims=batch_dims,
-                                 predictor=config.sampling.predictor,
-                                 steps=config.sampling.steps,
-                                 denoise=config.sampling.noise_removal,
+                                 predictor=config['sampling']['predictor'],
+                                 steps=config['sampling']['steps'],
+                                 denoise=config['sampling']['noise_removal'],
                                  eps=eps,
                                  device=device)
     

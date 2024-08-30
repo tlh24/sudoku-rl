@@ -4,12 +4,17 @@ import os
 import numpy as np
 import run_train
 from datetime import datetime
+import sys
+import os 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 def main(cfg):
     run_train._run(cfg)
     
 if __name__ == "__main__":
-    with open('configs/normal_config.yaml', 'r') as file:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(script_dir, 'configs/normal_config.yaml')
+    with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
         now = datetime.now()
 
