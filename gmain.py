@@ -77,11 +77,11 @@ class SudokuDataset(Dataset):
 		return sample
 
 
-def getDataLoaders(puzzles, num_samples, num_validate):
+def getDataLoaders(puzzles):
 	'''
 	Returns a pytorch train and test dataloader for gracoonizer position prediction
 	'''
-	data_dict, coo, a2a, reward_loc = getDataDict(puzzles, num_samples, num_validate)
+	data_dict, coo, a2a = getDataDict(puzzles)
 	train_dataset = SudokuDataset(data_dict['train_orig_board'],
 											data_dict['train_new_board'], 
 											data_dict['train_rewards'])
@@ -93,15 +93,18 @@ def getDataLoaders(puzzles, num_samples, num_validate):
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-	return train_dataloader, test_dataloader, coo, a2a, reward_loc
+	return train_dataloader, test_dataloader, coo, a2a
 
 
-def getDataDict(puzzles, num_samples, num_validate):
+def getDataDict(puzzles):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board, new_board, coo, a2a, rewards, reward_loc = board_ops.enumerateBoards(puzzles)
-	print(orig_board.shape, new_board.shape, rewards.shape)
+	orig_board, new_board, coo, a2a, rewards = \
+				board_ops.enumerateBoards(puzzles)
+	num_samples = orig_board.shape[0]
+	num_validate = num_samples // 10
+	print("getDataDict:",orig_board.shape, new_board.shape, rewards.shape)
 	train_orig_board, test_orig_board = trainValSplit(orig_board, num_validate)
 	train_new_board, test_new_board = trainValSplit(new_board, num_validate)
 	train_rewards, test_rewards = trainValSplit(rewards, num_validate)
@@ -114,7 +117,7 @@ def getDataDict(puzzles, num_samples, num_validate):
 		'test_new_board': test_new_board,
 		'test_rewards': test_rewards
 	}
-	return dataDict, coo, a2a, reward_loc
+	return dataDict, coo, a2a
 
 def getMemoryDict():
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
@@ -150,7 +153,7 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner=0.02, momentum=0.9,\
-			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
+			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=2.0)
 	return optimizer 
 
 
@@ -178,7 +181,7 @@ def updateMemory(memory_dict, pred_dict):
 	return 
 
 
-def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu, inverse_wm=False):
+def train(args, memory_dict, model, train_loader, optimizer, hcoo, uu, inverse_wm=False):
 	''' this trains the *world model* on random actions placed
 	on random boards '''
 
@@ -194,7 +197,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			optimizer.zero_grad()
 			new_state_preds,w1,w2 = \
 				model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 32+26]
+			reward_preds = new_state_preds[:,0, 32+Axes.R_AX.value]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
@@ -210,7 +213,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			def closure():
 				nonlocal pred_data
 				new_state_preds = model.forward(old_board, hcoo, uu, None)
-				reward_preds = new_state_preds[:,reward_loc, 32+26]
+				reward_preds = new_state_preds[:,0, 32+Axes.R_AX.value]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 								'rewards': rewards*5, 'reward_preds': reward_preds,
 								'w1':None, 'w2':None}
@@ -253,7 +256,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu, inverse_wm=False
 				old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 
 			new_state_preds = model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 32+26]
+			reward_preds = new_state_preds[:,0, 32+Axes.R_AX.value]
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()
 			print(f'v{lloss}')
@@ -263,100 +266,52 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu, inverse_wm=False
 		
 		return
 			
-			
-## graph-baseline
-
-def main_(args):
-	start_time = time.time() 
-
-	# seed for reproducibility
-	set_seed(42)	
-
-	device = torch.device('cuda:0')
-	optimizer_name = "adam" # or psgd
-	torch.set_float32_matmul_precision('high')
-
-	if args.gracoonizer:
-		puzzles = torch.load('puzzles_500000.pt',weights_only=True)
-		
-		# get our train and test dataloaders
-		train_dataloader, test_dataloader = getDataLoaders(puzzles, args.n_train + args.n_test, args.n_test)
-		
-		# allocate memory
-		memory_dict = getMemoryDict()
-		
-		# define model 
-		model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1)
-		model.printParamCount()
-		try: 
-			#model.load_checkpoint()
-			#print("loaded model checkpoint")
-			pass 
-		except : 
-			print("could not load model checkpoint")
-
-		criterion = nn.MSELoss()
-
-		trainer = Trainer(model, train_dataloader, test_dataloader, device, optimizer_name, criterion,args, memory_dict)
 	
-	else:
-		# get our train and test dataloaders
-		train_dataloader, test_dataloader = getBaselineDataloaders(args)
-
-		# define model 
-		mconf = GPTConfig(vocab_size=10, block_size=81, n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd, 
-        num_classes=9, causal_mask=False, losses=args.loss, n_recur=args.n_recur, all_layers=args.all_layers,
-        hyper=args.hyper)
-		
-		model = GPT(mconf)
-
-		trainer = RecurrentBaselineTrainer(model, train_dataloader, test_dataloader, device, optimizer_name,args)
-
-	# training 
-	trainer.train()
-
-	# save after training
-	#trainer.saveCheckpoint()
-
-	# validation
-	print("validation")
-	trainer.validate()
-	end_time = time.time()
-	program_duration = end_time - start_time
-	print(f"Program duration: {program_duration} sec")
-	
-def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, hcoo, hcoo_m, reward_loc, locs, name):
+def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, hcoo, hcoo_m):
+	pdb.set_trace()
 	n_roll = rollouts_board.shape[0]
 	n_tok = rollouts_board.shape[1]
 	width = rollouts_board.shape[2]
 	pred_data = {}
-	rollouts_board = rollouts_board.cuda()
-	rollouts_reward = rollouts_reward.cuda()
+	# need to expand the boards -- four action tokens rather than one. 
+	puzzl_mat = np.zeros((9,9))
+	guess_mat = np.zeros((9,9))
+	curs_pos = np.zeros((2,),dtype=int)
+	action_list = [(Action.UP.value,0),(Action.RIGHT.value,0),\
+		(Action.DOWN.value,0),(Action.LEFT.value,0)]
+	benc,_,coo,a2a,_ = board_ops.encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action_list)
+	act_enc = benc[0:4,:].unsqueeze(0).expand(batch_size,4,width)
+	
+	# changed the number of tokens, so need a new coordinate vec
+	hcoo,hcoo_m = expandCoordinateVector(coo,a2a)
+	
 	for uu in range(nn): 
 		indx = torch.randint(0,n_roll,(batch_size,))
 		boards = rollouts_board[indx,:,:].squeeze().float()
 		reward = rollouts_reward[indx,:4].squeeze()
 		
+		# replace the action at zero token with 4 action tokens above
+		boards = torch.cat((act_enc, boards[:,1:,:]), dim=1)
+		
 		# expand boards to 64 wide
-		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width, device=boards.device)), dim=2)
+		boards = torch.cat((boards, torch.zeros(batch_size, n_tok+3, width, device=boards.device)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
 		boards = torch.round(boards * 4.0) / 4.0
 			
 		boards = boards.cuda()
 		reward = reward.cuda()
-		with torch.no_grad():
-			model_boards = model.forward(boards,hcoo,0,None)
-			# plt.plot((model_boards[:,reward_loc, 32+26] - reward).cpu().numpy())
-			# pdb.set_trace()
+		# with torch.no_grad():
+		# 	model_boards = model.forward(boards,hcoo,0,None)
+		# 	# plt.plot((model_boards[:,0, 32+26] - reward).cpu().numpy())
+		# 	# pdb.set_trace()
 		def closure(): 
 			nonlocal pred_data
-			qfun_boards = qfun.forward(model_boards,hcoo_m,0,None)
+			qfun_boards = qfun.forward(boards,hcoo_m,0,None)
 			with torch.no_grad(): 
 				new_boards = boards.detach().clone()
-				# new_boards[:,0:3, 20:24] = torch.tile(reward.unsqueeze(1),(1,3,1)) # action, cursor, reward.
-				new_boards[:,0, 20:24] = reward # action, cursor, reward.
-			reward_preds = qfun_boards[:,0, 32+20:32+24] 
+				new_boards[:,0:4,Axes.R_AX.value] = reward 
+			reward_preds = qfun_boards[:,0:4, 32+Axes.R_AX.value] 
 			pred_data = {'old_board':boards, 'new_board':new_boards, \
 					'new_state_preds':qfun_boards,
 					'rewards': reward[:,0], \
@@ -379,7 +334,7 @@ def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, h
 			qfun.save_checkpoint(f"checkpoints/{name}_{uu//1000}.pth")
 		
 	
-def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
+def expandActionNodes(action_nodes, model, qfun, hcoo, locs, time):
 	''' evaluate all the possible actions for a list of action_nodes
 		by running the forward world model
 		thereby predicting reward per action '''
@@ -422,11 +377,7 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	new_boards = new_boards.reshape(bs, nact, ntok, width)
 	boards_pred = boards_pred.reshape(bs, nact, ntok, width)
 
-	# mfun_pred = mfun_pred.detach().reshape(bs, nact, ntok, width)
-	# mfun_pred = mfun_pred[:,:,reward_loc, 32+26].clone().squeeze() 
-	# qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
-	# qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
-	reward_pred = boards_pred[:, :,reward_loc, 32+26].clone().squeeze()
+	reward_pred = boards_pred[:,:,0,Axes.R_AX.value].clone().squeeze()
 	# copy over the beginning structure - needed!
 	# this will have to be changed for longer-term memory TODO
 	boards_pred[:,:,:,1:32] = boards_pred[:,:,:,33:]
@@ -441,7 +392,7 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	# 	plt.show()
 	# 	pdb.set_trace()
 
-	boards_pred[:,:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
+	boards_pred[:,:,0,Axes.R_AX.value] = 0 # it's a resnet - reset the reward.
 	
 	# save the one-step reward predictions. 
 	for j in range(bs): 
@@ -462,7 +413,7 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 		
 	return action_nodes
 	
-def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
+def expandActionNodesAll(action_nodes, model, qfun, hcoo, locs, time):
 	leaves = [] # should be a reference to 
 	def recurse(an): 
 		if len(an.kids) > 0: 
@@ -482,7 +433,7 @@ def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time
 	with torch.no_grad():
 		for i in range(0, len(leaves), 32):
 			j = min(i + 32, len(leaves))
-			expandActionNodes(leaves[i:j], model, qfun, hcoo, reward_loc, locs, time)
+			expandActionNodes(leaves[i:j], model, qfun, hcoo, locs, time)
 	return action_nodes
 		
 def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
@@ -495,13 +446,13 @@ def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
 		puzzl_mat[k,:,:] = puzzles[pi[k],:,:].numpy()
 		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
 		board = torch.zeros(bs,token_cnt,world_dim)
-		nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(\
-			puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], 0, 0, 0.0) # action will be replaced.
+		nodes,locs = sparse_encoding.sudokuToNodes(\
+			puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], [(0, 0)], [0.0]) # action will be replaced.
 		board[k,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
 		action_nodes.append( anode.ANode(8,0,0.0,board[k,:,:32],0) )
 
 	for i in range(depth): 
-		action_nodes = expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time)
+		action_nodes = expandActionNodesAll(action_nodes, model, qfun, hcoo, locs, time)
 	
 	return action_nodes
 	
@@ -519,7 +470,7 @@ def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
 		board = torch.zeros(bs,token_cnt,world_dim)
 		for k in range(bs):
-			nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], 0, 0, 0.0) # action will be replaced.
+			nodes,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], [(0, 0)], [0.0]) # action will be replaced.
 			board[k,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
 		k = 0
 		print(f"-- initial state {k}--")
@@ -543,7 +494,7 @@ def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 		
 		for time in range(1,duration): 
 			with torch.no_grad(): 
-				board_new, action_node_new, reward_pred, contradiction, is_done = evaluateActions(model, mfun, qfun, board, hcoo, 0, reward_loc,locs, time, sum_contradiction, action_nodes)
+				board_new, action_node_new, reward_pred, contradiction, is_done = evaluateActions(model, mfun, qfun, board, hcoo, 0,locs, time, sum_contradiction, action_nodes)
 				sum_contradiction = sum_contradiction + contradiction.cpu()
 			board = board_new
 			# root_nodes[0].print("")
@@ -672,7 +623,7 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 					reward = reward * (~hit_edge)
 
 					for k in range(bs):
-						nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
+						nodes,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], [(move[k], 0)], [0])
 						board,_,_ = sparse_encoding.encodeNodes(nodes)
 						boards[n,k,:,:] = board[:,:32]
 					actions[n,:,0] = torch.tensor(move)
@@ -695,6 +646,31 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		torch.save(rewards, 'rollouts/move_rewards.pt')
 
 	return boards,actions,rewards
+	
+def expandCoordinateVector(coo,a2a):
+	# first half of heads are kids to parents
+	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
+	# swap dst and src
+	coo_ = torch.zeros_like(coo) # type int32: indexes
+	coo_[:,0] = coo[:,1]
+	coo_[:,1] = coo[:,0]
+	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
+	# and self attention (intra-token attention ops) -- either this or add a second MLP layer. 
+	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
+	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
+	# add top-level attention
+	all2all = torch.Tensor(a2a); 
+	
+	kids2parents = kids2parents.cuda()
+	parents2kids = parents2kids.cuda()
+	self2self = self2self.cuda()	
+	all2all = all2all.cuda()
+	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		(self2self, dst_mxlen_s2s), all2all]
+	hcoo_m = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		(self2self, dst_mxlen_s2s), all2all, None]
+	
+	return hcoo, hcoo_m
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
@@ -725,31 +701,9 @@ if __name__ == '__main__':
 	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device}
 	
 	# get our train and test dataloaders
-	train_dataloader, test_dataloader, coo, a2a, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
-	# print(reward_loc)
-	# print(coo)
-	
-	# first half of heads are kids to parents
-	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
-	# swap dst and src
-	coo_ = torch.zeros_like(coo) # type int32: indexes
-	coo_[:,0] = coo[:,1]
-	coo_[:,1] = coo[:,0]
-	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
-	# and self attention (intra-token attention ops) -- either this or add a second MLP layer. 
-	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
-	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
-	# add top-level attention
-	all2all = torch.Tensor(a2a); 
-	
-	kids2parents = kids2parents.cuda()
-	parents2kids = parents2kids.cuda()
-	self2self = self2self.cuda()	
-	all2all = all2all.cuda()
-	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
-		(self2self, dst_mxlen_s2s), all2all]
-	hcoo_m = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
-		(self2self, dst_mxlen_s2s), all2all, None]
+	train_dataloader, test_dataloader, coo, a2a = getDataLoaders(puzzles)
+
+	hcoo,hcoo_m = expandCoordinateVector(coo,a2a)
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
@@ -835,12 +789,9 @@ if __name__ == '__main__':
 
 		optimizer = getOptimizer(optimizer_name, mfun)
 
-		# get the locations of the reward node.
-		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
-
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainPolicy(rollouts_board, rollouts_reward, 300000, memory_dict, model, mfun, hcoo, hcoo_m, reward_loc, locs, "mouseizer")
+		trainPolicy(rollouts_board, rollouts_reward, 300000, memory_dict, model, mfun, hcoo, hcoo_m, locs, "mouseizer")
 
 	if cmd_args.q > 0:
 		# Enables the matplotlib toolbar & thereby inspection
@@ -912,11 +863,11 @@ if __name__ == '__main__':
 		optimizer = getOptimizer(optimizer_name, qfun)
 
 		# get the locations of the board nodes.
-		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
+		_,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),[(0,0)],[0.0])
 
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_parent_board, rollouts_reward, rollouts_action, 1300000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
+		trainQfun(rollouts_parent_board, rollouts_reward, rollouts_action, 1300000, memory_dict, model, qfun, hcoo, locs, "quailizer")
 		
 	
 	uu = 0
@@ -924,7 +875,7 @@ if __name__ == '__main__':
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
 		while uu < NUM_ITERS:
-			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu, cmd_args.inverse_wm)
+			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, uu, cmd_args.inverse_wm)
  
 		# print("validation")
 		validate(args, model, test_dataloader, optimizer_name, hcoo, uu, cmd_args.inverse_wm)

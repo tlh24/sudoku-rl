@@ -4,7 +4,8 @@ n_heads = 8
 world_dim = 64 #
 xfrmr_dim = 64 # default: 128
 reward_dim = 1 # immediate and infinite-horizon
-token_cnt = 114 # 114 # run graph_encoding to determine this.
+token_cnt = 81 + 9*3 + 3 + 1 + 1 
+# 81 cells, 9 r/c/box sets, 3 sets of sets, 1 cursor, 1 putative actions
 g_zeroinit = False
 g_l1atten = True
 g_globalatten = False

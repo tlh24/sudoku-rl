@@ -15,7 +15,8 @@ class Types(int, Enum): # Node types are categorical one-hot encoded.
 # this encoding could be one-hot, integer, or both:
 # need to experiment! 
 class Axes(int, Enum): 
-	N_AX = 26 # generic value, including clue & reward
+	N_AX = 25 # generic value, including clue, set type; one-hot encoded
+	R_AX = 26 # reward axis
 	X_AX = 27
 	Y_AX = 28
 	B_AX = 29 # block

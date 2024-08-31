@@ -60,7 +60,8 @@ class ANode:
 			
 	def flattenNoLeaves(self, node_list): 
 		if len(self.kids) > 0: 
-			node_list.append(self)
+			if self.action_type == 8: # no root nodes
+				node_list.append(self)
 			for k in self.kids: 
 				node_list = k.flattenNoLeaves(node_list)
 		return node_list

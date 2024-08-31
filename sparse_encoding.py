@@ -9,19 +9,18 @@ from constants import *
 from type_file import Types, Axes, Action, getActionName
 import pdb
 
+
 # encode the board as a graph that can be passed to sparse attention.
 # keep a list of nodes and edges
 
 class Node:
-	def __init__(self, typ, val):
+	def __init__(self, typ):
 		self.typ = typ
-		# Payload. -1 for null, also holds Axes values.
-		self.value = float(val)
 		self.loc = -1 # for edges
 		self.refcnt = 0
 		self.kids = []
 		self.parents = []
-		self.axval = np.zeros(6)
+		self.axval = np.zeros(7)
 
 	def addChild(self, node):
 		# kid is type `Node
@@ -34,7 +33,7 @@ class Node:
 	def print(self, indent):
 		if self.refcnt < 1:
 			self.refcnt = self.refcnt + 1
-			print(indent, self.typ.name, self.value)
+			print(indent, self.typ.name, self.axval[0])
 			indent2 = indent + "  "
 			for k in self.kids:
 				k.print(indent2)
@@ -42,42 +41,7 @@ class Node:
 	def printGexf(self, fil):
 		if self.refcnt < 1:
 			self.refcnt = self.refcnt + 1
-
-
-# encode the board as a graph that can be passed to sparse attention.
-# keep a list of nodes and edges
-
-class Node:
-	def __init__(self, typ, val):
-		self.typ = typ
-		# Payload. -1 for null, also holds Axes values.
-		self.value = float(val)
-		self.loc = -1 # for edges
-		self.refcnt = 0
-		self.kids = []
-		self.parents = []
-		self.axval = np.zeros(6)
-
-	def addChild(self, node):
-		# kid is type `Node
-		self.kids.append(node)
-		node.parents.append(self)
-
-	def setAxVal(self, ax, val):
-		self.axval[ax.value - Axes.N_AX.value] = val
-
-	def print(self, indent):
-		if self.refcnt < 1:
-			self.refcnt = self.refcnt + 1
-			print(indent, self.typ.name, self.value)
-			indent2 = indent + "  "
-			for k in self.kids:
-				k.print(indent2)
-
-	def printGexf(self, fil):
-		if self.refcnt < 1:
-			self.refcnt = self.refcnt + 1
-			print(f'<node id="{self.loc}" label="{self.typ} val:{self.value}">',file=fil)
+			print(f'<node id="{self.loc}" label="{self.typ} val:{self.axval[0]}">',file=fil)
 			print('</node>',file=fil)
 			for k in self.kids: 
 				k.printGexf(fil)
@@ -118,11 +82,12 @@ class Node:
 				a2a_set.discard(k.loc)
 				edges,a2a_set = k.gatherEdges(edges,a2a_set)
 		return edges,a2a_set
-		
-def sudokuActionNodes(action_type, action_value): 
+
+
+def sudokuActionNodes(action_type, action_value, reward): 
 	
 	def makeAction(ax,v):
-		na = Node(Types.MOVE_ACTION, 0)
+		na = Node(Types.MOVE_ACTION)
 		na.setAxVal( ax, v )
 		return na
 		
@@ -139,30 +104,33 @@ def sudokuActionNodes(action_type, action_value):
 			na = makeAction(Axes.X_AX, 1)
 		
 		case Action.SET_GUESS.value: 
-			na = Node(Types.GUESS_ACTION, action_value)
-			# na.setAxVal( Axes.N_AX, action_value ) FIXME! turn this on
-			# na.addChild( Node(Types.GUESS, action_value) ) # dummy.
+			na = Node(Types.GUESS_ACTION)
+			na.setAxVal( Axes.N_AX, action_value )
 		case Action.UNSET_GUESS.value:
-			na = Node(Types.GUESS_ACTION, 0)
+			na = Node(Types.GUESS_ACTION)
 			na.setAxVal( Axes.N_AX, 0 )
-			# na.addChild( Node(Types.GUESS, -2) ) # dummy.
-			
-		case Action.SET_NOTE.value: 
-			na = Node(Types.NOTE_ACTION, action_value)
-		case Action.UNSET_NOTE.value:
-			na = Node(Types.NOTE_ACTION, 0)
 			
 		case _ : 
 			print(action_type)
 			assert(False)
+			
+	na.setAxVal( Axes.R_AX, reward )
 	return na
 		
-def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
+def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_list, reward_list): 
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
 	
+	for i,(action_typ,action_val) in enumerate(action_list): 
+		if reward_list is None: 
+			reward = 0.0
+		else:
+			reward = reward_list[i]
+		na = sudokuActionNodes(action_typ, action_val, reward)
+		nodes.append(na) # put at beginning for better visibility
+	
 	# make the cursor
-	ncursor = Node(Types.CURSOR, 0)
+	ncursor = Node(Types.CURSOR)
 	ncursor.setAxVal( Axes.X_AX, curs_pos[0] - posOffset )
 	ncursor.setAxVal( Axes.Y_AX, curs_pos[1] - posOffset )
 	bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
@@ -174,11 +142,6 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 		ncursor.setAxVal( Axes.H_AX, 0.0 )
 	nodes.append(ncursor)
 	
-	# reward token (used for reward prediction)
-	nreward = Node(Types.REWARD, reward*5)
-	nreward.setAxVal( Axes.N_AX, reward*5 )
-	nodes.append(nreward)
-	
 	full_board = True
 	board_nodes = [[] for _ in range(SuN)]
 	if full_board: 
@@ -186,7 +149,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 			for y in range(SuN): # y = column
 				b = (x // SuH)*SuH + (y // SuH)
 				v = puzzl_mat[x,y]
-				nb = Node(Types.BOX, v)
+				nb = Node(Types.BOX)
 				nb.setAxVal( Axes.N_AX, v )
 				g = guess_mat[x,y]
 				nb.setAxVal( Axes.G_AX, g )
@@ -205,14 +168,12 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 				
 				board_nodes[x].append(nb)
 		
-		# make the sets
-		# nboard = Node(Types.SET, 2) # node of the whole board
-		
-		xsets = Node(Types.SET2, 1.25)
-		nodes.append(xsets)
-		# nboard.addChild(xsets)
+		xsets = Node(Types.SET2)
+		xsets.setAxVal( Axes.N_AX, 2)
+		nodes.append(xsets) # top-level
 		for x in range(SuN): 
-			nb = Node(Types.SET, 0.25)
+			nb = Node(Types.SET)
+			nb.setAxVal( Axes.N_AX, 1)
 			nb.setAxVal( Axes.X_AX, x - posOffset )
 			highlight = 0
 			if x == curs_pos[0] :
@@ -222,11 +183,12 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 				nb.addChild( board_nodes[x][y] )
 			xsets.addChild(nb)
 		
-		ysets = Node(Types.SET2, 1.5)
+		ysets = Node(Types.SET2)
+		ysets.setAxVal( Axes.N_AX, 4)
 		nodes.append(ysets)
-		# nboard.addChild(ysets)
 		for y in range(SuN): 
-			nb = Node(Types.SET, 0.5)
+			nb = Node(Types.SET)
+			nb.setAxVal( Axes.N_AX, 3)
 			nb.setAxVal( Axes.Y_AX, y - posOffset )
 			highlight = 0
 			if y == curs_pos[1] :
@@ -236,11 +198,12 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 				nb.addChild( board_nodes[x][y] )
 			ysets.addChild(nb)
 			
-		bsets = Node(Types.SET2, 1.75)
+		bsets = Node(Types.SET2)
+		bsets.setAxVal( Axes.N_AX, 6)
 		nodes.append(bsets)
-		# nboard.addChild(bsets)
 		for b in range(SuN): 
-			nb = Node(Types.SET, 0.75)
+			nb = Node(Types.SET)
+			nb.setAxVal( Axes.N_AX, 5)
 			nb.setAxVal( Axes.B_AX, b - posOffset )
 			highlight = 0
 			bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
@@ -253,20 +216,6 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 					if b == bb: 
 						nb.addChild( board_nodes[x][y] )
 			bsets.addChild(nb)
-		
-		# nodes.append(nboard)
-	
-	na = sudokuActionNodes(action_type, action_value)
-	
-	# do we need these relations?
-	# they are basically independent tokens, whose relation to the each other must  to be learned..
-	# if full_board:
-	# 	na.addChild(nboard) # should this be the other way around?
-	# 	nreward.addChild(nboard)
-	# na.addChild(ncursor)
-	# na.addChild(nreward) # action obviously affects reward
-	# ncursor.addChild(nreward)
-	nodes.insert(0,na) # put at beginning for better visibility
 	
 	# set the node indexes.
 	# some nodes are in the top-level list; others are just children.
@@ -275,7 +224,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	assert(i == token_cnt)
+	assert(i <= token_cnt)
 	
 	board_loc = torch.zeros((SuN,SuN),dtype=int)
 	if full_board:
@@ -284,7 +233,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 				board_loc[x,y] = board_nodes[x][y].loc
 	cursor_loc = ncursor.loc
 	
-	return nodes, nreward.loc, (board_loc,cursor_loc)
+	return nodes, (board_loc,cursor_loc)
 	
 def sudoku1DToNodes(puzzle, guess_mat, curs_pos, action_type:int, action_value:int, reward:float):
 	# really boring 1D sudoku!  
@@ -388,12 +337,12 @@ def encodeNodes(nodes):
 		# ii = 31
 		# if n.typ.value >= Axes.N_AX.value and n.typ.value <= Axes.G_AX.value:
 		# 	ii = (20 - n.typ.value) + 31
-		benc[i, 26:32] = n.axval
+		benc[i, Axes.N_AX.value:32] = n.axval
 		# add in categorical encoding of value
 		ntv = n.typ.value
 		if ntv == Types.BOX.value or ntv == Types.GUESS_ACTION.value:
-			if n.value >= 0.6 and n.value <= 9.4:
-				vi = round(n.value)
+			if n.axval[0] >= 0.6 and n.axval[0] <= 9.4:
+				vi = round(n.axval[0])
 				benc[i,10+vi] = 1.0
 		# encode the guess in the same way - just different vector encoding.
 		# should be OK from a game dynamics perspective; illegal guesses aren't added.
@@ -423,7 +372,7 @@ def decodeNodes(indent, benc, locs):
 	go = Axes.G_AX.value
 	for x in range(SuN): # x = row
 		for y in range(SuN): # y = column
-			puzzle[x,y] = round(benc[board_loc[x,y], 26].item() )
+			puzzle[x,y] = round(benc[board_loc[x,y], Axes.N_AX.value].item() )
 			guess_mat[x,y] = round(benc[board_loc[x,y], go].item() )
 	cursor_pos = [round(benc[cursor_loc, xo].item() + posOffset), \
 		round(benc[cursor_loc, yo].item() + posOffset ) ]
@@ -488,7 +437,9 @@ if __name__ == "__main__":
 	puzzle = np.reshape(puzzle,(SuN,SuN))
 	curs_pos = [0,0]
 	guess_mat = np.zeros((SuN,SuN))
-	nodes, reward_loc, locs = sudokuToNodes(puzzle, guess_mat, curs_pos, Action.LEFT.value, 0, 0.0)
+	action_list = [(Action.LEFT.value, 0),(Action.DOWN.value, 0)]
+	reward_list = [0.0,1.0]
+	nodes, locs = sudokuToNodes(puzzle, guess_mat, curs_pos, action_list, reward_list)
 	
 	for n in nodes: 
 		n.resetRefcnt()
