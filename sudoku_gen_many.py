@@ -5,7 +5,6 @@ Saves the tensor of maps as a torch file named puzzles_{N}.pt
 import math
 import torch
 import numpy as np
-from constants import sudoku_width
 from sudoku_gen import Sudoku
 import matplotlib.pyplot as plt
 from multiprocessing import Pool
@@ -22,9 +21,9 @@ def generatePuzzles(N=500000,S=9):
 	x = torch.zeros(N, S, S)
 
 	def makePuzzle(j): # argument is ignored.
-		if S == 9: 
+		if S == 9:
 			k = np.random.randint(20) + 25 # how many positions to blank.
-		if S == 4: 
+		if S == 4:
 			k = np.random.randint(4) + 5
 		sudoku = Sudoku(S, k)
 		sudoku.fillValues()
@@ -218,7 +217,8 @@ def convertToTorch(np_satnet_file):
 	torch.save(sols_tens, sol_filename)
 
 if __name__ == "__main__":
-	generateSATNetPuzzles(10000000, 0.75)
+	generatePuzzles()
+	# generateSATNetPuzzles(10000000, 0.75)
 	#vizSatNetFile("satnet_both_0.9_filled_10000.npz")
 	#convertToTorch("satnet_both_0.75_filled_10000.npz")
 

@@ -229,7 +229,7 @@ class TrajectorySaver:
         # Generation doesn't work for percent less than 0.4 
 
         save_path = os.path.join(self.save_folder, f'{num_trajs}_trajs_{percent_filled}_filled_no_head.npy')
-        new_board = generateInitialBoard(percent_filled, True)
+        new_board = generateInitialBoard(percent_filled)
         solver = SudokuSolver(new_board)
         solver.solve()
         example_traj = solver.get_forward_trajectory()

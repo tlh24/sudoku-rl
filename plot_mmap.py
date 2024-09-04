@@ -74,6 +74,7 @@ if __name__ == "__main__":
 		plot_cols = 9
 		figsize = (32, 12)
 	plt.ion()
+	plt.rcParams['toolbar'] = 'toolbar2'
 	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 	initialized = False
 	im = [ [0]*plot_cols for i in range(plot_rows)]
@@ -121,8 +122,10 @@ if __name__ == "__main__":
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
 			if u % 2 == 0 or True: 
-				err = torch.sum(torch.abs((boardp[:,:,33:] - new_board[:,:,1:32])), [1,2])
+				err = torch.sum((boardp[:,:,33:] - new_board[:,:,1:32])**2, [1,2])
 				i = torch.argmax(err).item()
+				maxerr = err[i]
+				sumerr = torch.sum(err)
 			else: 
 				i = 0
 			
@@ -131,7 +134,7 @@ if __name__ == "__main__":
 			plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
 			if lines is not None: 
 				lines.pop(0).remove()
-			lines = axs[0,0].plot([0,cl-1],[guess,guess], 'g', alpha=0.4)
+			lines = axs[0,0].plot([0,4,0,0,cl-1],[6,6,6,guess,guess], 'g', alpha=0.4)
 			plot_tensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
 			plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
 			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
@@ -172,8 +175,11 @@ if __name__ == "__main__":
 		fig.tight_layout()
 		fig.canvas.draw()
 		fig.canvas.flush_events()
-		time.sleep(5.0)
-		print("tock")
+		print(f"tock {maxerr} {sumerr}")
+		if maxerr > 1.0 and False:
+			time.sleep(60.0)
+		else:
+			time.sleep(4.0)
 		initialized=True
 		u = u + 1
 		

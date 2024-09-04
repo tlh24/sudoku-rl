@@ -10,7 +10,7 @@ import sys
 import numpy as np 
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.absolute()))
-print(sys.path)
+# print(sys.path)
 from sudoku_gen import generateInitialBoard 
 import time 
 from collections import deque
@@ -184,7 +184,7 @@ class SudokuSolver:
         """
         Print the trajectory of board states.
         """
-        print(len(self.trajectory))
+        print("Length of trajectory:", len(self.trajectory))
         for i, (action, state) in enumerate(self.trajectory):
             print(f"Step {i}: {action}")
             self._print_state(state)
@@ -231,7 +231,7 @@ if __name__ == "__main__":
         print("Sudoku solved:")
         solver.print_puzzle()
         print("\nTrajectory of board states:")
-        #solver.print_trajectory()
+        solver.print_trajectory()
     else:
         print("No solution exists")
     end_time = time.time()

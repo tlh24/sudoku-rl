@@ -81,7 +81,7 @@ def getDataLoaders(puzzles, num_samples, num_validate):
 	'''
 	Returns a pytorch train and test dataloader for gracoonizer position prediction
 	'''
-	data_dict, coo, a2a, reward_loc = getDataDict(puzzles, num_samples, num_validate)
+	data_dict, coo, a2a, reward_loc = getDataDict(puzzles)
 	train_dataset = SudokuDataset(data_dict['train_orig_board'],
 											data_dict['train_new_board'], 
 											data_dict['train_rewards'])
@@ -96,11 +96,14 @@ def getDataLoaders(puzzles, num_samples, num_validate):
 	return train_dataloader, test_dataloader, coo, a2a, reward_loc
 
 
-def getDataDict(puzzles, num_samples, num_validate):
+def getDataDict(puzzles):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board, new_board, coo, a2a, rewards, reward_loc = board_ops.enumerateBoards(puzzles)
+	orig_board, new_board, coo, a2a, rewards, reward_loc = \
+			board_ops.enumerateBoards(puzzles)
+	num_samples = orig_board.shape[0]
+	num_validate = num_samples // 10
 	print(orig_board.shape, new_board.shape, rewards.shape)
 	train_orig_board, test_orig_board = trainValSplit(orig_board, num_validate)
 	train_new_board, test_new_board = trainValSplit(new_board, num_validate)
@@ -148,8 +151,10 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	elif optimizer_name == 'sgd':
 		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
-		optimizer = psgd.LRA(model.parameters(),lr_params=0.03,lr_preconditioner=0.01, momentum=0.9,\
-			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
+		optimizer = psgd.LRA(model.parameters(),\
+			lr_params=0.01,lr_preconditioner=0.02, momentum=0.9,\
+			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=6.0)
+		# grad clipping at 2 seems to slow things a bit
 	return optimizer 
 
 
@@ -177,19 +182,23 @@ def updateMemory(memory_dict, pred_dict):
 	return 
 
 
-def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu):
+def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu, inverse_wm=False):
 	''' this trains the *world model* on random actions placed
 	on random boards '''
 
-	for batch_idx, batch_data in enumerate(train_loader):
-		old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+	for batch_indx, batch_data in enumerate(train_loader):
+		if inverse_wm: 
+			# transpose: predict the old board from the new board
+			new_board, old_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+		else: 
+			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 		
 		pred_data = {}
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()
 			new_state_preds,w1,w2 = \
 				model.forward(old_board, hcoo, uu, None)
-			reward_preds = new_state_preds[:,reward_loc, 32+26]
+			reward_preds = new_state_preds[:,reward_loc, 32+Axes.R_AX.value]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
 							'w1':w1, 'w2':w2}
@@ -204,11 +213,11 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			# psgd library internally does loss.backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
-				reward_preds = new_state_preds[:,reward_loc, 32+26]
+				new_state_preds = model.forward(old_board, hcoo, uu, None)
+				reward_preds = new_state_preds[:,reward_loc, 32+Axes.R_AX.value]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 								'rewards': rewards*5, 'reward_preds': reward_preds,
-								'w1':w1, 'w2':w2}
+								'w1':None, 'w2':None}
 				loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2) + \
 					sum( \
 					[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
@@ -223,22 +232,31 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		uu = uu + 1
 		
 		if uu % 1000 == 999: 
-			model.save_checkpoint(f"checkpoints/racoonizer_{uu//1000}.pth")
+			if inverse_wm: 
+				fname = "racoonizer_inv"
+			else: 
+				fname = "racoonizer"
+			model.save_checkpoint(f"checkpoints/{fname}_{uu//1000}.pth")
 
-		if batch_idx % 25 == 0:
+		if batch_indx % 25 == 0:
 			updateMemory(memory_dict, pred_data)
 			pass 
 	
 	return uu
 	
 	
-def validate(args, model, test_loader, optimzer_name, hcoo, uu):
+def validate(args, model, test_loader, optimzer_name, hcoo, uu, inverse_wm=False):
 	model.eval()
 	sum_batch_loss = 0.0
 	with torch.no_grad():
-		for batch_data in test_loader:
-			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
-			new_state_preds,w1,w2 = model.forward(old_board, hcoo, uu, None)
+		for batch_indx, batch_data in enumerate(test_loader):
+			if inverse_wm:
+				# transpose: predict the old board from the new board
+				new_board, old_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+			else:
+				old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+
+			new_state_preds = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 32+26]
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()
@@ -246,158 +264,11 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu):
 			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 			args["fd_losslog"].flush()
 			sum_batch_loss += loss.cpu().item()
-			if is_train and batch_idx % 25 == 0:
-				updateMemory(self.memory_dict, pred_data)
-				pass 
 		
-		# add epoch loss
-		avg_batch_loss = sum_batch_loss / len(data_loader)
-		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
-		self.fd_loss_log.flush()
-		return 
-
-	def train(self):
-		self.model.train()
-		for epoch_num in tqdm(range(0, self.args.epochs)):
-			self.forwardLoop(epoch_num, True, self.train_dl)
-
-	def validate(self):
-		self.model.eval()
-		with torch.no_grad():
-			self.forwardLoop(self.args.epochs, False, self.test_dl)
-		
-# class RecurrentBaselineTrainer(Trainer):
-# 	'''
-# 	Used for the recurrent transformer baseline. 
-# 	'''
-# 	def __init__(self, model, train_dl, test_dl, device, optimizer_name, args, loss_log_path='losslog.txt'):
-# 		super().__init__(model, train_dl, test_dl, device, optimizer_name, None, args, None, loss_log_path)
-# 	
-# 	def forwardLoop(self, epoch, is_train, data_loader):
-# 		sum_batch_loss = 0.0
-# 
-# 		for batch_idx, (x,y) in enumerate(data_loader):
-# 			x = x.to(self.device)
-# 			y = y.to(self.device)
-# 
-# 			# forward the model
-# 			with torch.set_grad_enabled(is_train):
-# 				logits, loss, atts = self.model(x,y)
-# 				loss = loss.mean()
-# 				sum_batch_loss += loss.item()
-# 
-# 			if is_train:
-# 				self.model.zero_grad()
-# 				loss.backward()
-# 				torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-# 				self.optimizer.step()
-# 		
-# 			sum_batch_loss += loss.cpu().item()
-# 		
-# 		# add epoch loss to file
-# 		avg_batch_loss = sum_batch_loss / len(data_loader)
-# 		self.fd_loss_log.write(f'{epoch}\t{avg_batch_loss}\n')
-# 		self.fd_loss_log.flush()
-# 		return 
+		return
 			
-			
-## graph-baseline
-
-def main_(args):
-	start_time = time.time() 
-
-	# seed for reproducibility
-	set_seed(42)	
-
-	device = torch.device('cuda:0')
-	optimizer_name = "adam" # or psgd
-	torch.set_float32_matmul_precision('high')
-
-	if args.gracoonizer:
-		puzzles = torch.load('puzzles_500000.pt',weights_only=True)
-		
-		# get our train and test dataloaders
-		train_dataloader, test_dataloader = getDataLoaders(puzzles, args.n_train + args.n_test, args.n_test)
-		
-		# allocate memory
-		memory_dict = getMemoryDict()
-		
-		# define model 
-		model = Gracoonizer(xfrmr_dim = 20, world_dim = 20, reward_dim = 1)
-		model.printParamCount()
-		try: 
-			#model.load_checkpoint()
-			#print("loaded model checkpoint")
-			pass 
-		except : 
-			print("could not load model checkpoint")
-
-		criterion = nn.MSELoss()
-
-		trainer = Trainer(model, train_dataloader, test_dataloader, device, optimizer_name, criterion,args, memory_dict)
 	
-	else:
-		# get our train and test dataloaders
-		train_dataloader, test_dataloader = getBaselineDataloaders(args)
-
-		# define model 
-		mconf = GPTConfig(vocab_size=10, block_size=81, n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd, 
-        num_classes=9, causal_mask=False, losses=args.loss, n_recur=args.n_recur, all_layers=args.all_layers,
-        hyper=args.hyper)
-		
-		model = GPT(mconf)
-
-		trainer = RecurrentBaselineTrainer(model, train_dataloader, test_dataloader, device, optimizer_name,args)
-
-	# training 
-	trainer.train()
-
-	# save after training
-	#trainer.saveCheckpoint()
-
-	# validation
-	print("validation")
-	trainer.validate()
-	end_time = time.time()
-	program_duration = end_time - start_time
-	print(f"Program duration: {program_duration} sec")
-
-	
-## graph-baseline 
-
-# if __name__ == '__main__':
-# 	parser = argparse.ArgumentParser()
-# 	# Training
-# 	parser.add_argument('--epochs', type=int, default=200)
-# 	parser.add_argument('--eval_interval', type=int, default=1, help='Compute eval for how many epochs')
-# 	parser.add_argument('--batch_size', type=int, default=128)
-# 	parser.add_argument('--lr', type=float, default=6e-4)
-# 	parser.add_argument('--lr_decay', default=False, action='store_true')
-# 
-# 	# Model and loss
-# 	parser.add_argument('--n_layer', type=int, default=1, help='Number of sequential self-attention blocks.')
-# 	parser.add_argument('--n_recur', type=int, default=32, help='Number of recurrency of all self-attention blocks.')
-# 	parser.add_argument('--n_head', type=int, default=4, help='Number of heads in each self-attention block.')
-# 	parser.add_argument('--n_embd', type=int, default=128, help='Vector embedding size.')
-# 	parser.add_argument('--loss', default=[], nargs='+', help='specify regularizers in \{c1, att_c1\}')
-# 	parser.add_argument('--all_layers', default=False, action='store_true', help='apply losses to all self-attention layers')    
-# 	parser.add_argument('--hyper', default=[1, 0.1], nargs='+', type=float, help='Hyper parameters: Weights of [L_sudoku, L_attention]')
-# 
-# 	# Data
-# 	parser.add_argument('--n_train', type=int, default=10000, help='The number of data for training')
-# 	parser.add_argument('--n_test', type=int, default=2000, help='The number of data for testing')
-# 
-# 	# Other
-# 	parser.add_argument('--seed', type=int, default=0, help='Random seed for reproductivity.')
-# 	parser.add_argument('--gpu', type=int, default=-1, help='gpu index; -1 means using all GPUs or using CPU if no GPU is available')
-# 	parser.add_argument("--gracoonizer", action=argparse.BooleanOptionalAction, default=True)
-# 	args = parser.parse_args()
-# 
-# 	main(args)
-
-## main
-	
-def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict, model, qfun, hcoo, reward_loc, locs, name):
+def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, hcoo, hcoo_m, reward_loc, locs, name):
 	n_roll = rollouts_board.shape[0]
 	n_tok = rollouts_board.shape[1]
 	width = rollouts_board.shape[2]
@@ -405,45 +276,34 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 	for uu in range(nn): 
 		indx = torch.randint(0,n_roll,(batch_size,))
 		boards = rollouts_board[indx,:,:].squeeze().float()
-		reward = rollouts_reward[indx].squeeze()
-		actions = rollouts_action[indx,:].squeeze() # not used! 
-		# already encoded in the board! 
+		reward = rollouts_reward[indx,:4].squeeze()
 		
-		# expand boards
-		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width)), dim=2)
+		# expand boards to 64 wide
+		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width, device=boards.device)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
 		boards = torch.round(boards * 4.0) / 4.0
-		
-		# sparse_encoding.decodeNodes("", boards[0,:,:].squeeze().float(), locs)
-		# do we even need to encode the action? 
-		# it should not have changed!  
-		# for j in range(batch_size): 
-		# 	at = actions[j,0]
-		# 	av = actions[j,1]
-		# 	aenc = sparse_encoding.encodeActionNodes(at, av)
-		# 	s = aenc.shape[0]
-		# 	print(torch.sum((boards[j,0:s,:] - aenc)**2).item())
 			
 		boards = boards.cuda()
 		reward = reward.cuda()
 		with torch.no_grad():
-			model_boards,_,_ = model.forward(boards,hcoo,0,None)
+			model_boards = model.forward(boards,hcoo,0,None)
 			# plt.plot((model_boards[:,reward_loc, 32+26] - reward).cpu().numpy())
 			# pdb.set_trace()
 		def closure(): 
 			nonlocal pred_data
-			if name == 'mouseizer' or name == 'quailizer':
-				hcoo2 = None # None works ok with movements.
-				# initializing from the bare board does not work well..
-			else:
-				hcoo2 = hcoo
-			qfun_boards,_,_ = qfun.forward(model_boards,hcoo2,0,None)
-			reward_preds = qfun_boards[:,reward_loc, 32+26]
-			pred_data = {'old_board':boards, 'new_board':model_boards, 'new_state_preds':qfun_boards,
-								'rewards': reward, 'reward_preds': reward_preds,
-								'w1':None, 'w2':None}
-			loss = torch.sum((reward - reward_preds)**2) + \
+			qfun_boards = qfun.forward(model_boards,hcoo_m,0,None)
+			with torch.no_grad(): 
+				new_boards = boards.detach().clone()
+				# new_boards[:,0:3, 20:24] = torch.tile(reward.unsqueeze(1),(1,3,1)) # action, cursor, reward.
+				new_boards[:,0, 20:24] = reward # action, cursor, reward.
+			reward_preds = qfun_boards[:,0, 32+20:32+24] 
+			pred_data = {'old_board':boards, 'new_board':new_boards, \
+					'new_state_preds':qfun_boards,
+					'rewards': reward[:,0], \
+					'reward_preds': reward_preds[:,0],
+					'w1':None, 'w2':None}
+			loss = torch.sum((qfun_boards[:,:,33:64] - new_boards[:,:,1:32])**2) + \
 				sum([torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in qfun.parameters()])
 			return loss
 		
@@ -460,23 +320,25 @@ def trainQfun(rollouts_board, rollouts_reward, rollouts_action, nn, memory_dict,
 			qfun.save_checkpoint(f"checkpoints/{name}_{uu//1000}.pth")
 		
 	
-def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, time, sum_contradiction, action_nodes):
-	''' evaluate all the possible actions for a current board
+def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
+	''' evaluate all the possible actions for a list of action_nodes
 		by running the forward world model
 		thereby predicting reward per action '''
 	# first clean up the boards
+	bs = len(action_nodes)
+	ntok = token_cnt
+	width = world_dim
+	board = torch.zeros((bs, token_cnt, world_dim))
+	for j in range(bs): 
+		board[j,:,:32] = torch.tensor(action_nodes[j].board_enc)
 	board = np.round(board * 4.0) / 4.0
-	board = torch.tensor(board).cuda()
-	bs = board.shape[0]
-	ntok = board.shape[1]
-	width = board.shape[2]
+	board = board.cuda()
 		
 	action_types,action_values = board_ops.enumerateActionList()
-		# inculdes 'unguess' action - presently unnecessary
 	nact = len(action_types)
 	
 	# check if we could guess here = cursor loc has no clue or guess
-	# (the model predicts the can_guess flag)
+	# (the model predicts the can_guess flag @ 26+4)
 	board_loc,cursor_loc = locs
 	can_guess = torch.clip(board[:,cursor_loc,26+4].clone().squeeze(),0,1)
 	# puzzle is solved if all board_locs have either a clue or guess
@@ -489,19 +351,20 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 	new_boards = board.repeat(1, nact, 1, 1 )
 	for i,(at,av) in enumerate(zip(action_types,action_values)):
 		aenc = sparse_encoding.encodeActionNodes(at, av) # only need one eval!
-		s = aenc.shape[0] # should be 1
-		new_boards[:, i, 0:s, :] = aenc.cuda()
+		s = aenc.shape[0] 
+		# assert(s == 1)
+		new_boards[:, i, 0:s, :] = aenc.cuda() # action is the first token
 
 	new_boards = new_boards.reshape(bs * nact, ntok, width)
-	boards_pred,_,_ = model.forward(new_boards,hcoo,0,None)
-	mfun_pred,_,_ = mfun.forward(boards_pred,None,0,None)
-	# qfun_pred,_,_ = qfun.forward(boards_pred,None,0,None)
+	boards_pred = model.forward(new_boards,hcoo,0,None)
+	# mfun_pred = mfun.forward(boards_pred,None,0,None)
+	# qfun_pred = qfun.forward(boards_pred,None,0,None)
 
 	new_boards = new_boards.reshape(bs, nact, ntok, width)
 	boards_pred = boards_pred.reshape(bs, nact, ntok, width)
 
-	mfun_pred = mfun_pred.detach().reshape(bs, nact, ntok, width)
-	mfun_pred = mfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
+	# mfun_pred = mfun_pred.detach().reshape(bs, nact, ntok, width)
+	# mfun_pred = mfun_pred[:,:,reward_loc, 32+26].clone().squeeze() 
 	# qfun_pred = qfun_pred.detach().reshape(bs, nact, ntok, width)
 	# qfun_pred = qfun_pred[:,:,reward_loc, 32+26].clone().squeeze()
 	reward_pred = boards_pred[:, :,reward_loc, 32+26].clone().squeeze()
@@ -519,68 +382,70 @@ def evaluateActions(model, mfun, qfun, board, hcoo, depth, reward_loc, locs, tim
 	# 	plt.show()
 	# 	pdb.set_trace()
 
-	boards_pred[:,:,reward_loc, 26] = 0 # it's a resnet - reset the reward.
+	boards_pred[:,:,reward_loc, Axes.R_AX.value] = 0 # it's a resnet - reset the reward.
 	
 	# save the one-step reward predictions. 
 	for j in range(bs): 
-		action_nodes[j].setRewardPred(reward_pred[j,:])
+		if len(reward_pred.shape) < 2: 
+			pdb.set_trace()
+		action_nodes[j].setRewardPred(reward_pred[j,:] )
 
 	mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
 		# reward-weighted; if you can guess, generally do that.
 	valid_guesses = reward_pred[:,4:13] > 0
-	mask[:,0:4] = mfun_pred[:,0:4] * 2
-	# mask[:,4:] = mask[:,4:] + qfun_pred[:,4:] # add before sm -> multiply
-	mask = F.softmax(mask, 1)
-	# mask = mask / torch.sum(mask, 1).unsqueeze(1).expand(-1,14)
-	indx = torch.multinomial(mask, 1).squeeze()
-
-	lin = torch.arange(0,bs)
-	boards_pred_taken = boards_pred[lin,indx,:,:].detach().squeeze().cpu().numpy()
-	contradiction = can_guess * \
-		(1-torch.clip(torch.sum(reward_pred[:,4:13] > 0, 1), 0, 1))
-	# detect a contradiction when the square is empty = can_guess is True,
-	# but no actions expected to result in reward.
-	# would be nice if this was learned, not hand-coded..
-	
-	reward_pred_taken = reward_pred[lin,indx]
-	reward_np = reward_pred_taken
 	
 	action_node_new = []
-	indent = " " # * depth
 	for j in range(bs):
-		at_t = action_types[indx[j]]
-		av_t = action_values[indx[j]]
-		an_taken = anode.ANode(at_t, av_t, reward_pred_taken[j], boards_pred_taken[j,:,:32].squeeze(), time)
-		action_nodes[j].addKid(an_taken)
-		action_node_new.append(an_taken) # return value of new nodes.
-		if indx[j] >= 4 and indx[j] < 13: # was a guess (!contradiction)
-			valid_guesses[j,indx[j]-4] = False # remove this option
-			for m in range(9): 
-				if valid_guesses[j,m]: 
-					# store the node & its board encoding,
-					#   for later backtracking
-					# offset 4 is to skip the move actions.
-					at = action_types[m+4]
-					av = action_values[m+4]
-					an = anode.ANode(at, av, reward_pred[j,m+4], boards_pred[j,m+4,:,:32].cpu().numpy().squeeze(), time)
-					action_nodes[j].addKid(an)
-		if j == 0: 
-			print(f"{time} action {getActionName(at_t)} {av_t} reward {reward_pred_taken[0].item()}")
-			if contradiction[0] > 0.5:
-				color = "red"
-			else:
-				color = "black"
-			print(colored(f"contradiction {contradiction[0].item()}", color), end=" ")
-			print(f"sum_contra {sum_contradiction[0].item()}", end=" ")
-			if is_done[0]:
-				color = "green"
-			else:
-				color = "black"
-			print(colored(f"is_done {is_done[0]}", color))
-			sparse_encoding.decodeNodes(indent, boards_pred_taken[0,:,:], locs)
+		for i,(at,av) in enumerate(zip(action_types,action_values)):
+			an = anode.ANode(at, av, reward_pred[j,i].item(), \
+				boards_pred[j,i,:,:32], time)
+			action_nodes[j].addKid(an)
 		
-	return boards_pred_taken, action_node_new, reward_pred, contradiction, is_done
+	return action_nodes
+	
+def expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
+	leaves = [] # should be a reference to 
+	def recurse(an): 
+		if len(an.kids) > 0: 
+			for ann in an.kids: 
+				recurse(ann)
+		else: 
+			# don't expand dead-ends or successes.
+			if an.reward > -2.5 and an.reward < 2.5:
+				leaves.append(an)
+			
+	for an in action_nodes: 
+		recurse(an)
+		
+	# break up into batches. 
+	n_leaves = len(leaves)
+	print(f'expandActionNodesAll: working on a batch of {n_leaves}')
+	with torch.no_grad():
+		for i in range(0, len(leaves), 32):
+			j = min(i + 32, len(leaves))
+			expandActionNodes(leaves[i:j], model, qfun, hcoo, reward_loc, locs, time)
+	return action_nodes
+		
+def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
+	bs = 8192
+	pi = np.random.randint(0, puzzles.shape[0], (bs,))
+	action_nodes = []
+	puzzl_mat = np.zeros((bs,SuN,SuN))
+	guess_mat = np.zeros((bs,SuN,SuN))
+	for k in range(bs):
+		puzzl_mat[k,:,:] = puzzles[pi[k],:,:].numpy()
+		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+		board = torch.zeros(bs,token_cnt,world_dim)
+		nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(\
+			puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], 0, 0, 0.0) # action will be replaced.
+		board[k,:,:],_,_ = sparse_encoding.encodeNodes(nodes)
+		action_nodes.append( anode.ANode(8,0,0.0,board[k,:,:32],0) )
 
+	for i in range(depth): 
+		action_nodes = expandActionNodesAll(action_nodes, model, qfun, hcoo, reward_loc, locs, time)
+	
+	return action_nodes
+	
 	
 def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 	bs = 96
@@ -685,7 +550,6 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		print(colored(f"could not load precomputed data {error}", "red"))
 
 	if nn > 0:
-		pi = np.random.randint(0, puzzles.shape[0], (nn,bs))
 		boards = torch.zeros(nn,bs,token_cnt,32)
 		actions = torch.zeros(nn,bs,2)
 		rewards = torch.zeros(nn,bs)
@@ -696,11 +560,13 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 			c = r // 2
 			for i in range(r):
 				for j in range(r):
+					# filters are a bunch of r-sized diamonds.  
 					if abs(i-c) + abs(j-c) <= r//2:
 						filt[0,0,i,j] = 1.0
 			filts.append(filt)
 
-		for n in range(nn):
+		n = 0
+		for i_p in range(nn // 16):
 			# make the movements hard: only a few empties.
 			num_empty = np.random.randint(1,8, (bs,))
 			# these puzzles are degenerate, but that's ok
@@ -710,11 +576,8 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 				indx = np.random.randint(0,9, (ne,2))
 				lin = np.arange(0,ne)
 				puzzl_mat[k,indx[lin,0],indx[lin,1]] = 0
-			# puzzl_mat = np.zeros((bs,SuN,SuN))
-			# for k in range(bs):
-			# 	puzzl_mat[k,:,:] = puzzles[pi[n,k],:,:].numpy()
-			guess_mat = np.zeros((bs,SuN,SuN)) # should not matter..
-			curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+			guess_mat = np.zeros((bs,SuN,SuN)) 
+			# due to the 1-hot represenation, guess / puzzle are equivalent. 
 			empty = torch.tensor(puzzl_mat[:,:,:] == 0, dtype=torch.float32)
 			value_mat = torch.zeros(puzzl_mat.shape, dtype=torch.float32)
 			value_mat = value_mat + 1.0 * empty
@@ -728,38 +591,76 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 			# plt.imshow(value[0,:,:].squeeze().numpy())
 			# plt.colorbar()
 			# plt.show()
-			# select a move, calculate value. cursor pos is [x,y]
-			# x is hence row or up/down
-			move = np.random.randint(0,4,(bs,))
-			xnoty = move % 2 == 0
-			direct = (move // 2) * 2 - 1
-			direct = direct * (xnoty*2-1)
-			new_curs = torch.zeros_like(curs_pos)
-			new_curs[:,0] = curs_pos[:,0] + xnoty * direct
-			new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
-			hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
-				(new_curs[:,1] < 0) + (new_curs[:,1] > 8)
-			new_curs = torch.clip(new_curs, 0, 8)
-			lin = torch.arange(0,bs)
-			orig_val = value[lin,curs_pos[:,0],curs_pos[:,1]]
-			new_val = value[lin,new_curs[:,0],new_curs[:,1]]
-			reward = new_val - orig_val
-			reward = reward * (~hit_edge)
+			for i_c in range(4):
+				curs_pos = torch.randint(SuN, (bs,2),dtype=int)
+				for i_m in range(4): 
+					# select a move, calculate value. cursor pos is [x,y]
+					# x is hence row or up/down
+					move = np.ones(bs) * i_m # up right down left
+					xnoty = move % 2 == 0
+					direct = (move // 2) * 2 - 1
+					direct = direct * (xnoty*2-1) # y axis is inverted
+					new_curs = torch.zeros_like(curs_pos)
+					new_curs[:,0] = curs_pos[:,0] + xnoty * direct
+					new_curs[:,1] = curs_pos[:,1] + (1-xnoty) * direct
+					hit_edge = (new_curs[:,0] < 0) + (new_curs[:,0] > 8) + \
+						(new_curs[:,1] < 0) + (new_curs[:,1] > 8)
+					new_curs = torch.clip(new_curs, 0, 8)
+					lin = torch.arange(0,bs)
+					orig_val = value[lin,curs_pos[:,0],curs_pos[:,1]]
+					new_val = value[lin,new_curs[:,0],new_curs[:,1]]
+					reward = new_val - orig_val
+					reward = reward * (~hit_edge)
 
-			for k in range(bs):
-				nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
-				board,_,_ = sparse_encoding.encodeNodes(nodes)
-				boards[n,k,:,:] = board[:,:32]
-			actions[n,:,0] = torch.tensor(move)
-			rewards[n,:] = reward
-			if n % 5 == 4:
-				print(".", end = "", flush=True)
+					for k in range(bs):
+						nodes,reward_loc,locs = sparse_encoding.sudokuToNodes(puzzl_mat[k,:,:], guess_mat[k,:,:], curs_pos[k,:], move[k], 0, 0)
+						board,_,_ = sparse_encoding.encodeNodes(nodes)
+						boards[n,k,:,:] = board[:,:32]
+					actions[n,:,0] = torch.tensor(move)
+					rewards[n,:] = reward
+					if n % 5 == 4:
+						print(".", end = "", flush=True)
+					n = n + 1
+				
+				plt.rcParams['toolbar'] = 'toolbar2'
+				fig,axs = plt.subplots(3,2,figsize=(30,20))
+				for k in range(4): 
+					axs[k//2,k%2].imshow(boards[n-4+k,0,:,:].T.cpu().numpy())
+					if k >= 2: 
+						dif = boards[n-4+k,0,:,:] - boards[n-4+k-2,0,:,:]
+						axs[k//2+1,k%2].imshow(dif.T.cpu().numpy())
+				plt.show()
 
 		torch.save(boards, 'rollouts/move_boards.pt')
 		torch.save(actions, 'rollouts/move_actions.pt')
 		torch.save(rewards, 'rollouts/move_rewards.pt')
 
 	return boards,actions,rewards
+
+def expandCoordinateVector(coo,a2a):
+	# first half of heads are kids to parents
+	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
+	# swap dst and src
+	coo_ = torch.zeros_like(coo) # type int32: indexes
+	coo_[:,0] = coo[:,1]
+	coo_[:,1] = coo[:,0]
+	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
+	# and self attention (intra-token attention ops) -- either this or add a second MLP layer.
+	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
+	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
+	# add top-level attention
+	all2all = torch.Tensor(a2a);
+
+	kids2parents = kids2parents.cuda()
+	parents2kids = parents2kids.cuda()
+	self2self = self2self.cuda()
+	all2all = all2all.cuda()
+	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		(self2self, dst_mxlen_s2s), all2all]
+	hcoo_m = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		(self2self, dst_mxlen_s2s), all2all, None]
+
+	return hcoo, hcoo_m
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
@@ -769,10 +670,11 @@ if __name__ == '__main__':
 	parser.add_argument('-t', action='store_true', help='train world model')
 	parser.add_argument('-q', type=int, default=0, help='train Q function from backtracking rollouts.  Argument is the number of files to use; check with `ls -lashtr rollouts/`')
 	parser.add_argument('-m', action='store_true', help='train Q function for movements')
+	parser.add_argument('--inverse_wm', action='store_true', help='train the acausal world model')
 	cmd_args = parser.parse_args()
 	
 	try: 
-		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
+		puzzles = torch.load(f'puzzles_{SuN}_50000.pt',weights_only=True)
 	except Exception as error:
 		print(colored(f"could not load model checkpoint {error}", "red"))
 		print("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing")
@@ -785,43 +687,24 @@ if __name__ == '__main__':
 	# use export CUDA_VISIBLE_DEVICES=1
 	# to switch to another GPU
 	torch.set_float32_matmul_precision('high')
+	torch.backends.cuda.matmul.allow_tf32 = True
 	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device}
 	
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader, coo, a2a, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
-	# print(reward_loc)
-	# print(coo)
-	
-	# first half of heads are kids to parents
-	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
-	# swap dst and src
-	coo_ = torch.zeros_like(coo) # type int32: indexes
-	coo_[:,0] = coo[:,1]
-	coo_[:,1] = coo[:,0]
-	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
-	# and self attention (intra-token attention ops) -- either this or add a second MLP layer. 
-	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
-	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
-	# add global attention
-	all2all = torch.Tensor(a2a); 
-	
-	kids2parents = kids2parents.cuda()
-	parents2kids = parents2kids.cuda()
-	self2self = self2self.cuda()	
-	all2all = all2all.cuda()
-	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
-		(self2self, dst_mxlen_s2s), all2all]
+
+	hcoo,hcoo_m = expandCoordinateVector(coo,a2a)
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=3, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
 	model.printParamCount()
 	
 	# movement predictor
 	# mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=8, n_layers=8, repeat=2, mode=0).to(device)
-	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=4, repeat=1, mode=0).to(device)
+	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=10, repeat=3, mode=0).to(device)
 	# works ok - does not converge but gets reasonable loss c.f. larger model.
 	# this is an all-to-all transformer; see line 492
 	mfun.printParamCount()
@@ -853,7 +736,11 @@ if __name__ == '__main__':
 				print(colored(latest_file, "green"))
 				return latest_file
 
-			model.load_checkpoint(getLatestFile("racoon*"))
+			if cmd_args.inverse_wm: 
+				fname = "racoonizer_inv*"
+			else: 
+				fname = "racoonizer*"
+			model.load_checkpoint(getLatestFile(fname))
 			print(colored("loaded model checkpoint", "blue"))
 
 			mfun.load_checkpoint(getLatestFile("mouse*"))
@@ -866,26 +753,38 @@ if __name__ == '__main__':
 			print(colored(f"could not load model checkpoint {error}", "red"))
 
 	if cmd_args.e: 
-		anode_list = evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, 319)
+		anode_list = expandActionNodesDepth(puzzles, model, qfun, hcoo, 0, 5)
 				
 	if cmd_args.m:
-		bs = 96
-		nn = 1500
-		rollouts_board,rollouts_action,rollouts_reward = moveValueDataset(puzzles, hcoo, bs,nn)
+		# train a (movement) policy
+		anode_list = expandActionNodesDepth(puzzles, model, qfun, hcoo, 0, 2)
+		
+		# train a basic policy function: input is the state, output is 
+		# advantage of that action over others. 
+		for node in anode_list: 
+			node.integrateReward()
+			
+		for i in range(10): 
+			anode.outputGexf(anode_list[i], f"anode_{i}.gexf")
+			
+		anode_flat = []
+		for node in anode_list: 
+			anode_flat = node.flattenNoLeaves(anode_flat)
+		nn = len(anode_flat)
+		rollouts_board = torch.zeros(nn,token_cnt,32)
+		rollouts_reward = torch.zeros(nn,13)
+		for i,node in enumerate(anode_flat): 
+			rollouts_board[i,:,:] = torch.tensor(node.board_enc)
+			rollouts_reward[i,:] = torch.tensor(node.horizon_reward)
 
 		optimizer = getOptimizer(optimizer_name, mfun)
 
 		# get the locations of the reward node.
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
 
-		rollouts_board = rollouts_board.reshape(nn*bs,token_cnt,32)
-		rollouts_action = rollouts_action.reshape(nn*bs,2)
-		rollouts_reward = rollouts_reward.reshape(nn*bs)
-
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
-		trainQfun(rollouts_board, rollouts_reward, rollouts_action, 300000, memory_dict, model, mfun, hcoo, reward_loc, locs, "mouseizer")
-		# note: no hcoo; only all-to-all attention
+		trainPolicy(rollouts_board, rollouts_reward, 300000, memory_dict, model, mfun, hcoo, hcoo_m, reward_loc, locs, "mouseizer")
 
 	if cmd_args.q > 0:
 		# Enables the matplotlib toolbar & thereby inspection
@@ -962,17 +861,13 @@ if __name__ == '__main__':
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
 		trainQfun(rollouts_parent_board, rollouts_reward, rollouts_action, 1300000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
-		
-	
-	uu = 0
+
 	if cmd_args.t:
+		uu = 0
 		fd_losslog = open('losslog.txt', 'w')
 		args['fd_losslog'] = fd_losslog
 		while uu < NUM_ITERS:
-			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu)
-		
-		# save after training
-		model.save_checkpoint()
+			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu, cmd_args.inverse_wm)
  
 		# print("validation")
-		validate(args, model, test_dataloader, optimizer_name, hcoo, uu)
+		validate(args, model, test_dataloader, optimizer_name, hcoo, uu, cmd_args.inverse_wm)
