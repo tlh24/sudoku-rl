@@ -185,14 +185,14 @@ class Sudoku:
 			for j in range(self.N):
 				k = i // self.SRN + j // self.SRN
 				color = "black" if k % 2 == 0 else "red"
-				p = math.floor(puzzl_mat[i,j])
+				p = int(puzzl_mat[i,j])
 				if guess_mat is not None:
-					if np.round(guess_mat[i,j]) > 0:
-						p = guess_mat[i,j]
+					if np.floor(guess_mat[i,j]) > 0:
+						p = int(guess_mat[i,j])
 						color = "blue" if k % 2 == 0 else "magenta"
 				bgcol = None
 				if curs_pos is not None: 
-					if curs_pos[0] == i and curs_pos[1] == j: 
+					if int(curs_pos[0]) == i and int(curs_pos[1]) == j:
 						bgcol = "on_light_yellow"
 				if bgcol is not None: 
 					print(colored(p, color, bgcol), end=" ")

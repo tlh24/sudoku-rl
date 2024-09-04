@@ -11,7 +11,6 @@ import pdb
 	Sudoku board-related functions
 '''
 
-
 def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int):
 	# run the action, update the world, return the reward.
 	# act = b % 4
@@ -40,6 +39,9 @@ def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int
 	sudoku.setMat(puzzl_mat + guess_mat) # so that checkIfSafe works properly.
 	if clue == 0 and curr == 0:
 		if not sudoku.checkOpen(curs_pos[0], curs_pos[1]):
+			print(" ")
+			sudoku.printSudoku("", puzzl_mat, guess_mat, curs_pos)
+			pdb.set_trace() # should not happen!
 			reward = -1
 
 	if action == Action.SET_GUESS.value:
@@ -60,46 +62,6 @@ def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int
 		print(f'runAction @ {curs_pos[0]},{curs_pos[1]}: {action}:{action_val}')
 
 	return reward
-
-def oneHotEncodeBoard(sudoku, curs_pos, action: int, action_val: int, enc_dim: int = 20):
-	'''
-	** Deprecated **
-	Note: Assume that action is a movement action and that we have 2 dimensional sudoku
-
-	Encode the current pos as a euclidean vector [x,y],
-		encode the action (movement) displacement as a euclidean vector [dx,dy],
-		runs the action, encodes the new board state.
-	Mask is hardcoded to match the graph mask generated from one bnode and one actnode
-	'''
-	# ensure two-dim sudoku
-	if curs_pos.size(0) != 2:
-		raise ValueError(f"Must have 2d sudoku board")
-
-	# ensure that action is movement action
-	if action not in [Action.DOWN.value, Action.UP.value, Action.LEFT.value, Action.RIGHT.value]:
-		raise ValueError(f"The action must be a movement action but received: {action}")
-
-	if action in [Action.DOWN.value, Action.UP.value]:
-		action_enc = np.array([0, action_val], dtype=np.float32).reshape(1,-1)
-	else:
-		action_enc = np.array([action_val, 0], dtype=np.float32).reshape(1,-1)
-
-	curs_enc = curs_pos.numpy().astype(np.float32).reshape(1,-1)
-
-	# right pad with zeros to encoding dimension
-	action_enc = np.pad(action_enc, ((0,0), (0, enc_dim-action_enc.shape[1])))
-	curs_enc = np.pad(curs_enc, ((0,0), (0, enc_dim - curs_enc.shape[1])))
-	assert(enc_dim == action_enc.shape[1] == curs_enc.shape[1])
-
-	# hard code mask to match the mask created by one board node, one action node
-	mask = np.full((2,2), 8.0, dtype=np.float32)
-	np.fill_diagonal(mask, 1.0)
-
-	reward = runAction(sudoku, None, curs_pos, action, action_val)
-
-	new_curs_enc = curs_enc + action_enc
-
-	return curs_enc, action_enc, new_curs_enc, mask, reward
 
 
 def encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val):
@@ -124,31 +86,6 @@ def encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val):
 
 	return benc, newbenc, coo, a2a, reward, reward_loc
 
-def encode1DBoard():
-	# simple 1-D version of sudoku.
-	puzzle = np.arange(1, 10)
-	mask = np.random.randint(0,3,9)
-	puzzle = puzzle * (mask > 0)
-	curs_pos = np.random.randint(0,9)
-	action = 4
-	action_val = np.random.randint(0,9)
-	guess_mat = np.zeros((9,))
-
-	nodes, reward_loc,_ = sparse_encoding.sudoku1DToNodes(puzzle, guess_mat, curs_pos, action, action_val, 0.0)
-	benc,coo,a2a = sparse_encoding.encodeNodes(nodes)
-
-	# run the action.
-	reward = -1
-	if puzzle[action_val-1] == 0 and puzzle[curs_pos] == 0:
-		guess_mat[curs_pos] = action_val
-		reward = 1
-
-	nodes, reward_loc,_ = sparse_encoding.sudoku1DToNodes(puzzle, guess_mat, curs_pos, action, action_val, reward) # action_val doesn't matter
-	newbenc,coo,a2a = sparse_encoding.encodeNodes(nodes)
-
-	return benc, newbenc, coo, a2a, reward, reward_loc
-
-
 def enumerateActionList():
 	action_types = []
 	action_values = []
@@ -160,24 +97,11 @@ def enumerateActionList():
 	for av in range(SuN):
 		action_types.append(at)
 		action_values.append(av+1)
-	# unset guess action
-	action_types.append( Action.UNSET_GUESS.value )
-	action_values.append( 0 )
-
-	return action_types,action_values
-
-def sampleActionList(n:int):
-	# this is slow but whatever, only needs to run once
-	action_types = []
-	action_values = []
-	possible_actions = [ 0,1,2,3,4,4,4,4,4,5,5 ] # FIXME
-	for i in range(n):
-		action = possible_actions[np.random.randint(len(possible_actions))]
-		actval = 0
-		if action == Action.SET_GUESS.value:
-			actval = np.random.randint(1,10)
-		action_types.append(action)
-		action_values.append(actval)
+	# # unset guess action
+	# action_types.append( Action.UNSET_GUESS.value )
+	# action_values.append( 0 )
+	# the inverse model has a hard time understanding UNSET_GUESS
+	# it's encoded in the same was as guess, only with zero as an arg.
 
 	return action_types,action_values
 
@@ -186,10 +110,10 @@ def enumerateBoards(puzzles):
 	# changing the strategy: for each board, do all possible actions.
 	# this serves as a stronger set of constraints than random enumeration.
 	action_types,action_values = enumerateActionList()
-	n_actions = len(action_types)
+	n_actions = len(action_types) # 13
 	n_curspos = 3
 	n_masks = 3
-	n_puzzles = 1024
+	n_puzzles = 1280 # 1280 or 1024
 	n = n_actions * n_masks * n_curspos * n_puzzles
 	
 	try:
@@ -213,6 +137,7 @@ def enumerateBoards(puzzles):
 			# move half the clues to guesses (on average)
 			# to force generalization over both!
 			mask = np.random.randint(0,2, (SuN,SuN)) == 1
+			# mask = np.zeros((SuN,SuN))
 			guess_mat = puzzl * mask
 			puzzl_mat = puzzl * (1-mask)
 			for i_c in range(3): 
@@ -222,6 +147,10 @@ def enumerateBoards(puzzles):
 					while puzzl[curs_pos[0], curs_pos[1]] > 0:
 						curs_pos = torch.randint(SuN, (2,), dtype=int)
 				for i_a in range(n_actions):
+					mask = np.random.randint(0,2, (SuN,SuN)) == 1
+					# mask = np.zeros((SuN,SuN))
+					guess_mat = puzzl * mask
+					puzzl_mat = puzzl * (1-mask)
 					at,av = action_types[i_a], action_values[i_a]
 
 					benc,newbenc,coo,a2a,reward,reward_loc = \
