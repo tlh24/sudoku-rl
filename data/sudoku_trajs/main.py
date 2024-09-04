@@ -223,11 +223,12 @@ class TrajectorySaver:
                 self.save_folder = os.path.join('forward/action')
             else: 
                 self.save_folder = os.path.join('forward/state')
+        if not os.path.exists(self.save_folder):
+            os.makedirs(self.save_folder)
 
     def generate(self, num_trajs: int, percent_filled:float=0.5):
         #Saves trajecotories of states, where start from initial puzzle and go to end solution
         # Generation doesn't work for percent less than 0.4 
-
         save_path = os.path.join(self.save_folder, f'{num_trajs}_trajs_{percent_filled}_filled_no_head.npy')
         new_board = generateInitialBoard(percent_filled)
         solver = SudokuSolver(new_board)
@@ -319,6 +320,9 @@ class TrajectorySaver:
   
 
 if __name__ == "__main__":
+    #NOTE: For relatives path to work, must execute this in sudoku-rl/data/sudoku_trajs 
+    assert 'data/sudoku_trajs' in os.getcwd()
+
     saver = TrajectorySaver()
     saver.generate(10000, 0.45)
     saver.insert_begin_states('forward/state/10000_trajs_0.45_filled_no_head.npy')
