@@ -15,12 +15,13 @@ class Types(int, Enum): # Node types are categorical one-hot encoded.
 # this encoding could be one-hot, integer, or both:
 # need to experiment! 
 class Axes(int, Enum): 
-	N_AX = 26 # generic value, including clue & reward
+	N_AX = 25 # generic value, including clue
+	R_AX = 26
 	X_AX = 27
 	Y_AX = 28
 	B_AX = 29 # block
 	H_AX = 30 # highlight (where the cursor is)
-	G_AX = 31 # same as the Guess action, fwiw
+	G_AX = 31 # cell guess
 
 # this is not encoded in the board, just for the python code! 
 class Action(Enum):

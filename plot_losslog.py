@@ -23,6 +23,7 @@ fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
 parser = argparse.ArgumentParser(description="Plot a txt file of losses")
 parser.add_argument('-f', type=str, default="./losslog.txt", help='which file to read')
+parser.add_argument('-f2', type=str, default="", help='comparison file')
 cmd_args = parser.parse_args()
 
 def slidingWindowR2(x, y, window_size, stride):
@@ -45,53 +46,29 @@ def isFileEmpty(file_path):
 
 while True: 
 	fname = cmd_args.f
+	fname2 = cmd_args.f2
 	with open(fname, 'r') as x:
 		data = list(csv.reader(x, delimiter="\t"))
 	data = np.array(data)
 	data = data.astype(float)
-	
-	if len(data.shape) > 1 and data.shape[0] > 1: 
-		ax.cla()
-		ax.plot(data[:,0], np.log(data[:, 1]), 'b')
-		ax.set(xlabel='iteration / batch #')
-		ax.set_title('log loss')
-		
-		# ax[1].cla()
-		# ax[1].plot(data[:,0], np.log(data[:, 2]), 'b')
-		# ax[1].set(xlabel='iteration / batch #')
-		# ax[1].set_title('slow log loss')
-		
-		# with open("rewardlog.txt", 'r') as x:
-		# 	data = list(csv.reader(x, delimiter="\t"))
-		# data = np.array(data)
-		# data = data.astype(float)
+	if fname2 != "":
+		with open(fname2, 'r') as x:
+			data2 = list(csv.reader(x, delimiter="\t"))
+		data2 = np.array(data2)
+		data2 = data2.astype(float)
+	else:
+		data2 = np.zeros((1,))
 
-# 		ax[0,1].cla()
-# 		r2 = slidingWindowR2(data[:,0], data[:,1], 100, 10)
-# 		ax[0,1].plot(r2)
-# 		ax[0,1].set(xlabel='time')
-# 		ax[0,1].set_title('r^2 of actual vs predicted')
-# 		ax[0,1].tick_params(bottom=True, top=True, left=True, right=True)
-# 		ax[0,1].set_ylim(-0.1, 1.1)
-# 		
-# 		ax[1,1].cla()
-# 		ax[1,1].scatter(data[:,0], data[:, 1], c=range(data.shape[0]), cmap='viridis', s=100)
-# 		ax[1,1].set(xlabel='actual reward')
-# 		ax[1,1].set(ylabel='predicted reward')
-# 		ax[1,1].set_title('reward')
-# 		
-# 		try: 
-# 			ax[1,0].cla()
-# 			y = np.load('prio.npy')
-# 			ax[1,0].plot(y[1,:], 'b')
-# 			ax[1,0].plot(y[2,:], 'r')
-# 			ax[1,0].plot(y[0,:]/100, 'k')
-# 			ax[1,0].set_title('sorted priority replay loss')
-# 		except:
-# 			print('prio.npy not loaded')
+	ax.cla()
+	if len(data.shape) > 1 and data.shape[0] > 1:
+		ax.plot(data[:,0], np.log(data[:, 1]), 'b')
+	if len(data2.shape) > 1 and data2.shape[0] > 1:
+		ax.plot(data2[:,0], np.log(data2[:, 1]), 'k', alpha=0.5)
+	ax.set(xlabel='iteration / batch #')
+	ax.set_title('log loss')
 
 	fig.tight_layout()
 	fig.canvas.draw()
 	fig.canvas.flush_events()
-	time.sleep(1)
+	time.sleep(2)
 	print("tock")
