@@ -205,10 +205,9 @@ class Sudoku:
 		print(f"{indent}Valid:", self.checkIfValid(), end=" ")
 
 
-def generateInitialBoard(percent_filled=0.4, exact_num_filled=False):
+def generateInitialBoard(percent_filled=0.75):
 	'''
 	Generates 9x9 sudoku boards and their solutions. Adaped from https://github.com/Kyubyong/sudoku
-	Note: Getting exact fails for less than 30ish cells given
 	'''
 	def construct_puzzle_solution():
 		# Loop until we're able to fill all 81 cells with numbers, while
@@ -239,31 +238,16 @@ def generateInitialBoard(percent_filled=0.4, exact_num_filled=False):
 				pass
 
 
-	def run(num_given_cells, iter=1, match_num_given=True):
+	def run(num_given_cells, iter=1):
 		'''
-		Attempts to create a puzzle with num_given_cells, but if it can't returns puzzle
-			as close to that and larger in set of iter puzzles generated
-
-		If match_num_given is true, then only returns a puzzle that has exactly num_given_cell digits
+		Attempts to create a puzzle with num_given_cells,
+		but if it can't returns puzzle
+		as close to that and larger in set of iter puzzles generated
 		'''
 		all_results = {}
 	#     print "Constructing a sudoku puzzle."
 	#     print "* creating the solution..."
 		a_puzzle_solution = construct_puzzle_solution()
-
-		if match_num_given:
-			num_times = 0
-			while True: 
-				print(f"Num times {num_times}")
-				puzzle = copy.deepcopy(a_puzzle_solution)
-				(result, number_of_cells) = pluck(puzzle, num_given_cells)
-				print(f'Number of cells {number_of_cells} vs number given {num_given_cells}')
-				if number_of_cells == num_given_cells:
-					all_results[num_given_cells] = [result]
-					break 
-				num_times += 1
-
-			return all_results, a_puzzle_solution
 		
 	#     print "* constructing a puzzle..."
 		for i in range(iter):
@@ -279,13 +263,10 @@ def generateInitialBoard(percent_filled=0.4, exact_num_filled=False):
 		# the one with the fewest "givens".
 		return set_of_puzzles[min(set_of_puzzles.keys())][0]
 
-	def pluck(puzzle, n=0):
+	def pluck(puzzle, num_given_cells):
 		"""
 		Answers the question: can the cell (i,j) in the puzzle "puz" contain the number
-		in cell (ii,jj)? 
-		
-		Returns: puzzle and the number of given cells in the puzzle
-		"""
+		in cell (ii,jj)? """
 		def canBeA(puz, i, j, ii, jj):
 			v = puz[ii][jj]
 			if puz[i][j] == v: return True
@@ -306,7 +287,7 @@ def generateInitialBoard(percent_filled=0.4, exact_num_filled=False):
 		but not before checking that the cell can still be deduced from the remaining cells. """
 		cells     = set(range(81))
 		cellsleft = cells.copy()
-		while len(cells) > n and len(cellsleft):
+		while len(cells) > num_given_cells and len(cellsleft):
 			cell = random.choice(list(cellsleft)) # choose a cell from ones we haven't tried
 			cellsleft.discard(cell) # record that we are trying this cell
 			# row, col and square record whether another cell in those groups could also take
@@ -343,7 +324,7 @@ def generateInitialBoard(percent_filled=0.4, exact_num_filled=False):
 
 	num_given_cells = int(81*percent_filled)
 	
-	all_results, solution = run(num_given_cells, iter=10, match_num_given=exact_num_filled)
+	all_results, solution = run(num_given_cells, iter=10)
 	quiz = best(all_results)
 	return quiz
 		

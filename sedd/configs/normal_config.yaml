@@ -17,8 +17,8 @@ training:
 
 # Data settings
 data:
-  train: /home/justin/Desktop/Code/sudoku-rl/data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
-  valid: /home/justin/Desktop/Code/sudoku-rl/data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
+  train: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
+  valid: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
 
 # Graph settings
 graph:
