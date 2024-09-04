@@ -250,6 +250,7 @@ class TrajectorySaver:
         '''
         Given a file that contain state trajectories, prepends a sequence of states starting from empty board that leads to the
         beginning state traj
+        Saves new traj file with head 
 
         state_trajs_file: (str) path to .npy
         '''
@@ -312,9 +313,6 @@ class TrajectorySaver:
         new_file_path = state_trajs_file.replace("state", "action")
         np.save(new_file_path, save_trajs)
 
-                
-
-
 
 
 
@@ -322,9 +320,9 @@ class TrajectorySaver:
 
 if __name__ == "__main__":
     saver = TrajectorySaver()
-    saver.generate(1000, 0.45)
-    #saver.save_action_trajs_from_state_trajs('forward/state/10000_trajs_yes_head.npy')
-
+    saver.generate(10000, 0.45)
+    saver.insert_begin_states('forward/state/10000_trajs_0.45_filled_no_head.npy')
+    saver.save_action_trajs_from_state_trajs('forward/state/10000_trajs_0.45_filled_yes_head.npy')
 
 
 
