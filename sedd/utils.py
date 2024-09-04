@@ -3,6 +3,9 @@ import sys
 import os 
 import torch
 import logging
+import re 
+import matplotlib.pyplot as plt 
+
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'sudoku_trajs'))
 
 def makedirs(dirname):
@@ -46,7 +49,7 @@ def restore_checkpoint(ckpt_dir, state, device):
     else:
         loaded_state = torch.load(ckpt_dir, map_location=device)
         state['optimizer'].load_state_dict(loaded_state['optimizer'])
-        state['model'].module.load_state_dict(loaded_state['model'], strict=False)
+        state['model'].load_state_dict(loaded_state['model'], strict=False)
         state['ema'].load_state_dict(loaded_state['ema'])
         state['step'] = loaded_state['step']
         return state
@@ -55,7 +58,7 @@ def restore_checkpoint(ckpt_dir, state, device):
 def save_checkpoint(ckpt_dir, state):
     saved_state = {
         'optimizer': state['optimizer'].state_dict(),
-        'model': state['model'].module.state_dict(),
+        'model': state['model'].state_dict(),
         'ema': state['ema'].state_dict(),
         'step': state['step']
     }
@@ -109,3 +112,50 @@ def isValidSudoku(board) -> bool:
         box = [board[ind//3+(i//3)*3][ind%3+(i%3)*3] for ind in range(9)]
         if len(box)!=len(set(box)): return False
     return True
+
+def action_traj_idxs_unique(action_seq: np.ndarray) -> bool:
+    set_indices = set()
+    for i in range(action_seq.shape[0]):
+        i_idx, j_idx, digit = actionToActionTuple(action_seq[i])
+        set_indices.add((i_idx, j_idx))
+    
+    is_unique = len(list(set_indices)) == action_seq.shape[0]
+    if not is_unique:
+        print(f"Non-unique sequence of action indices: only {len(list(set_indices))} unique out of {action_seq.shape[0]}")
+    
+    return is_unique 
+
+
+def save_loss_graph(logger_file):
+    '''
+    Saves loss graph of the training loss and evaluation loss over timesteps in the same folder as logger_file
+    '''
+    save_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "loss_graph.png")
+    
+    with open(logger_file, 'r') as f:
+        content = f.read()
+
+
+    training_loss_pattern = r"training_loss: (\d+\.\d+e\+\d+)"
+    evaluation_loss_pattern = r"evaluation_loss: (\d+\.\d+e\+\d+)"
+
+    evaluation_losses = [float(x) for x in re.findall(evaluation_loss_pattern, content)]
+    training_losses = [float(x) for x in re.findall(training_loss_pattern, content)][:len(evaluation_losses)*2]
+    
+
+    #TODO: change to extract timestep from log 
+    time_steps = np.arange(0, 50*(len(training_losses)), 50)
+    eval_time_steps = np.arange(0, 50*(len(training_losses)), 100)
+    breakpoint()
+
+    plt.plot(time_steps, training_losses, 'b-', label='Training Loss')
+    plt.plot(eval_time_steps, evaluation_losses, 'g-', label='Evaluation Loss')
+    plt.legend()
+
+    plt.xlabel("Timestep")
+    plt.ylabel("Score loss")
+    plt.savefig(save_file_path)
+
+
+if __name__ == "__main__":
+    save_loss_graph('experiments/09-03-2024-17:05/logs')

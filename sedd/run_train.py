@@ -20,7 +20,7 @@ import noise_lib
 import utils
 from model import SEDD
 from model.ema import ExponentialMovingAverage
-from utils import action_seq_to_board
+from utils import action_seq_to_board, action_traj_idxs_unique
 torch.backends.cudnn.benchmark = True
 
 from utils import isValidSudoku
@@ -81,7 +81,6 @@ def _run(cfg):
 
     # Build data iterators
     train_ds, eval_ds = data.get_dataloaders(cfg)
-    breakpoint()
 
     train_iter = iter(train_ds)
     eval_iter = iter(eval_ds)
@@ -104,12 +103,11 @@ def _run(cfg):
         step = state['step']
         batch = next(train_iter).to(device)
         loss = train_step_fn(state, batch)
-
         # flag to see if there was movement ie a full batch got computed
         if step != state['step']:
             # logging
             if step % cfg['training']['log_freq'] == 0:
-                logger.info(f"step: {step}, training_loss: {loss.item()}:.5e")
+                logger.info(f"step: {step}, training_loss: {loss.item():.5e}")
             # checkpointing 
             if step % cfg['training']['snapshot_freq_for_preemption'] == 0:
                 utils.save_checkpoint(checkpoint_meta_dir, state)
@@ -135,10 +133,10 @@ def _run(cfg):
                     ema.copy_to(score_model.parameters())
                     sample = sampling_fn(score_model)
                     ema.restore(score_model.parameters())
-                    
                     output_boards = []
-                    for i in range(sample):
+                    for i in range(len(sample)):
                         seq = sample[i]
+                        #action_traj_idxs_unique(seq.cpu().numpy())
                         assert seq.shape == (81,) or seq.shape == (1,81)
                         output_boards.append(action_seq_to_board(seq))
 
@@ -147,8 +145,9 @@ def _run(cfg):
                     with open(file_name, 'w') as file:
                         for board in output_boards:
                             for row in board:
+                                row = [int(num) for num in row]
                                 row_str = ' '.join(map(str, row))
-                            file.write(row_str + "\n")
+                                file.write(row_str + "\n")
                         
                             is_valid = isValidSudoku(board)
                             valid_results.append(is_valid)
@@ -156,10 +155,11 @@ def _run(cfg):
                             file.write("============================================================================================\n")
 
                         #TODO: add eval step
-                        acc = len(filter(lambda x: x, valid_results))/len(valid_results)
-                        file.write(f"Overall accuracy: {len(filter(lambda x: x, valid_results))}/{len(valid_results)} = {acc:.2f}")
-        
-                    print(f"Overall accuracy: {len(filter(lambda x: x, valid_results))}/{len(valid_results)} = {acc:.2f}")
+                        correct_vals = [x for x in valid_results if x]
+                        acc = len(correct_vals)/len(valid_results)
+                        file.write(f"Overall accuracy: {len(correct_vals)}/{len(valid_results)} = {acc:.2f}")
+
+                    print(f"Overall accuracy: {len(correct_vals)}/{len(valid_results)} = {acc:.2f}")
         else:
             raise ValueError("Model step has not changed")
 

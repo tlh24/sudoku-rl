@@ -224,7 +224,7 @@ class DDitFinalLayer(nn.Module):
         return x
 
 
-class SEDD(nn.Module, PyTorchModelHubMixin):
+class SEDD(nn.Module):
     def __init__(self, config):
         super().__init__()
 

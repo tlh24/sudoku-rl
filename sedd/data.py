@@ -1,6 +1,5 @@
 import numpy as np
 from pathlib import Path
-from datasets import Dataset
 import sys 
 sys.path.append(Path(__file__).resolve().parent.parent) #add root dir path
 
@@ -28,7 +27,7 @@ def get_dataset(dataset_path: str):
         def __len__(self):
             return len(self.data)
         
-        def __get__item(self, idx):
+        def __getitem__(self, idx):
             return self.data[idx]
     
     sequences_arr = np.load(dataset_path) #(num_samples, seq_len)
@@ -44,8 +43,6 @@ def get_dataloaders(config):
 
     train_set = get_dataset(config['data']['train'])
     valid_set = get_dataset(config['data']['valid'])
-
-    breakpoint()
 
     train_loader = cycle_loader(DataLoader(
         train_set,

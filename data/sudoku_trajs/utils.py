@@ -82,6 +82,22 @@ def check_if_solved(trajs: np.ndarray):
         if is_valid == False: return False
      
     return True 
+
+
+def action_traj_idxs_unique(action_seq: np.ndarray) -> bool:
+    '''
+    Check if an action directoy makes a unique cell placement 
+    '''
+    set_indices = set()
+    for i in range(action_seq.shape[0]):
+        i_idx, j_idx, digit = actionToActionTuple(action_seq[i])
+        set_indices.add((i_idx, j_idx))
+    
+    is_unique = len(list(set_indices)) == action_seq.shape[0]
+    if not is_unique:
+        print(f"Non-unique sequence of action indices: only {len(list(set_indices))} unique out of {action_seq.shape[0]}")
+    
+    return is_unique      
             
 
 
