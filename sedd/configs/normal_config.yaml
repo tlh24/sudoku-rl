@@ -1,11 +1,11 @@
 # General settings
 ngpus: 1
-#tokens: 729 #encode trajs as series of digit placement actions
-tokens: 50257
+tokens: 9 #encode trajs as series of numbers [0-8] (note that these are 0-indexed, so correspond to 1-9)
+#tokens: 50257
 
 # Training settings
 training:
-  batch_size: 16
+  batch_size: 128
   accum: 1
   n_iters: 1300001
   snapshot_freq: 10000 #50000
@@ -18,12 +18,14 @@ training:
 
 # Data settings
 data:
-  #is_hugging: false 
-  is_hugging: true
-  train: wikitext2
+  #is_hugging: true
+  #train: wikitext2
+  #valid: wikitext2
+  is_hugging: false 
   #train: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
   #valid: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
-  valid: wikitext2
+  train: larger_satnet
+  valid: larger_satnet
   cache_dir: data 
 
 # Graph settings
@@ -46,9 +48,9 @@ sampling:
 
 # Evaluation settings
 eval:
-  batch_size: 8
+  batch_size: 128
   perplexity: true
-  perplexity_batch_size: 8
+  perplexity_batch_size: 128
 
 # Optimization settings
 optim:
@@ -67,10 +69,10 @@ model:
   type: ddit
   hidden_size: 768
   cond_dim: 128
-  #length: 81
-  length: 1024
-  n_blocks: 12
-  n_heads: 12
+  length: 81
+  #length: 1024
+  n_blocks: 4 #12
+  n_heads: 4 #12
   scale_by_sigma: true
   dropout: 0.1
 
