@@ -5,14 +5,12 @@ import matplotlib.pyplot as plt
 import time
 import os
 import argparse
+import sys
 # import sklearn
-
-# remove menubar buttons
-# plt.rcParams['toolbar'] = 'None'
 
 plot_rows = 1
 plot_cols = 1
-figsize = (7 	, 4)
+figsize = (7 , 4)
 plt.ion()
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 initialized = False
@@ -21,10 +19,10 @@ current_directory = os.getcwd()
 base_dir = os.path.basename(current_directory)
 fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
-parser = argparse.ArgumentParser(description="Plot a txt file of losses")
-parser.add_argument('-f', type=str, default="./losslog.txt", help='which file to read')
-parser.add_argument('-f2', type=str, default="", help='comparison file')
-cmd_args = parser.parse_args()
+# parser = argparse.ArgumentParser(description="Plot a txt file of losses")
+# parser.add_argument('-f', type=str, default="./losslog.txt", help='which file to read')
+# parser.add_argument('-f2', type=str, default="", help='comparison file')
+# cmd_args = parser.parse_args()
 
 def slidingWindowR2(x, y, window_size, stride):
 	n = len(x)
@@ -44,31 +42,74 @@ def isFileEmpty(file_path):
     return os.path.exists(file_path) and os.path.getsize(file_path) == 0
 
 
-while True: 
-	fname = cmd_args.f
-	fname2 = cmd_args.f2
-	with open(fname, 'r') as x:
-		data = list(csv.reader(x, delimiter="\t"))
-	data = np.array(data)
-	data = data.astype(float)
-	if fname2 != "":
-		with open(fname2, 'r') as x:
-			data2 = list(csv.reader(x, delimiter="\t"))
-		data2 = np.array(data2)
-		data2 = data2.astype(float)
-	else:
-		data2 = np.zeros((1,))
+# while True:
+# 	fname = cmd_args.f
+# 	fname2 = cmd_args.f2
+# 	with open(fname, 'r') as x:
+# 		data = list(csv.reader(x, delimiter="\t"))
+# 	data = np.array(data)
+# 	data = data.astype(float)
+# 	if fname2 != "":
+# 		with open(fname2, 'r') as x:
+# 			data2 = list(csv.reader(x, delimiter="\t"))
+# 		data2 = np.array(data2)
+# 		data2 = data2.astype(float)
+# 	else:
+# 		data2 = np.zeros((1,))
+#
+# 	ax.cla()
+# 	if len(data.shape) > 1 and data.shape[0] > 1:
+# 		ax.plot(data[:,0], np.log(data[:, 1]), 'b')
+# 	if len(data2.shape) > 1 and data2.shape[0] > 1:
+# 		ax.plot(data2[:,0], np.log(data2[:, 1]), 'k', alpha=0.5)
+# 	ax.set(xlabel='iteration / batch #')
+# 	ax.set_title('log loss')
+#
+# 	fig.tight_layout()
+# 	fig.canvas.draw()
+# 	fig.canvas.flush_events()
+# 	time.sleep(2)
+# 	print("tock")
 
+
+# Check if there are at least two arguments (besides the script name)
+if len(sys.argv) < 2:
+    file_names = ["losslog.txt"]
+else:
+	file_names = sys.argv[1:]  # Skip the script name
+
+# Define colors for plotting, use default if not enough colors are provided
+colors = ['b', 'k', 'r', 'g', 'm', 'c']  # Extendable list of colors
+color_cycle = colors * (len(file_names) // len(colors) + 1)  # Repeat colors if N > len(colors)
+
+while True:
 	ax.cla()
-	if len(data.shape) > 1 and data.shape[0] > 1:
-		ax.plot(data[:,0], np.log(data[:, 1]), 'b')
-	if len(data2.shape) > 1 and data2.shape[0] > 1:
-		ax.plot(data2[:,0], np.log(data2[:, 1]), 'k', alpha=0.5)
-	ax.set(xlabel='iteration / batch #')
-	ax.set_title('log loss')
+	# Loop through each file and plot
+	for i, fname in enumerate(file_names):
+		try:
+			with open(fname, 'r') as x:
+					data = list(csv.reader(x, delimiter="\t"))
+			data = np.array(data)
+			data = data.astype(float)
 
+			# Plot the data in log scale for the second column
+			if len(data.shape) > 1 and data.shape[0] > 1:
+					ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.5, label=f"{fname} ({color_cycle[i]})")
+
+		except FileNotFoundError:
+			print(f"File {fname} not found. Skipping...")
+			continue
+
+	# Add labels, title, and legend
+	ax.set(xlabel='iteration / batch #', ylabel='log loss')
+	ax.set_title('Log Loss Comparison')
+	ax.legend()
+
+	# Tight layout and draw
 	fig.tight_layout()
 	fig.canvas.draw()
 	fig.canvas.flush_events()
+
+	# Wait for 2 seconds before next update
 	time.sleep(2)
 	print("tock")

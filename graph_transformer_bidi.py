@@ -57,7 +57,8 @@ class ResidualAttentionBlock(nn.Module):
 		self.l1a_f = l1attn_cuda.L1Attn()
 		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
 		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
-		self.gelu = QuickGELU()
+		# self.gelu = QuickGELU()
+		self.gelu = nn.ReLU()
 		# self.fanin = nn.Linear(d_model * 3, d_model)
 		
 	def attention(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):

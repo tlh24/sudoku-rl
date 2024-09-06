@@ -196,19 +196,18 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		pred_data = {}
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()
-			new_state_preds,w1,w2 = \
+			new_state_preds = \
 				model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 32+Axes.R_AX.value]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
-							'w1':w1, 'w2':w2}
+							'w1':None, 'w2':None}
 			# new_state_preds dimensions bs,t,w 
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			# adam is unstable -- attempt to stabilize?
 			torch.nn.utils.clip_grad_norm_(model.parameters(), 0.8)
 			loss.backward()
 			optimizer.step() 
-			print(loss.detach().cpu().item())
 		else: 
 			# psgd library internally does loss.backwards and zero grad
 			def closure():
@@ -296,8 +295,8 @@ def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, h
 			with torch.no_grad(): 
 				new_boards = boards.detach().clone()
 				# new_boards[:,0:3, 20:24] = torch.tile(reward.unsqueeze(1),(1,3,1)) # action, cursor, reward.
-				new_boards[:,0, 20:24] = reward # action, cursor, reward.
-			reward_preds = qfun_boards[:,0, 32+20:32+24] 
+				new_boards[:,reward_loc, 20:24] = reward # action, cursor, reward.
+			reward_preds = qfun_boards[:,reward_loc, 32+20:32+24]
 			pred_data = {'old_board':boards, 'new_board':new_boards, \
 					'new_state_preds':qfun_boards,
 					'rewards': reward[:,0], \
@@ -350,7 +349,7 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 	board = board.unsqueeze(1)
 	new_boards = board.repeat(1, nact, 1, 1 )
 	for i,(at,av) in enumerate(zip(action_types,action_values)):
-		aenc = sparse_encoding.encodeActionNodes(at, av) # only need one eval!
+		aenc = sparse_encoding.encodeActionNodes(at, av) # this is wasteful - only need one eval!
 		s = aenc.shape[0] 
 		# assert(s == 1)
 		new_boards[:, i, 0:s, :] = aenc.cuda() # action is the first token
@@ -390,9 +389,15 @@ def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):
 			pdb.set_trace()
 		action_nodes[j].setRewardPred(reward_pred[j,:] )
 
-	mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
-		# reward-weighted; if you can guess, generally do that.
-	valid_guesses = reward_pred[:,4:13] > 0
+	err = torch.sum((reward_pred > 3) * (reward_pred < 4.4))
+	if err > 0:
+		print(f'sanity check failed: {err} of the rewards are wrong. ')
+		print(reward_pred * (reward_pred > 3) * (reward_pred < 4.5))
+		print(torch.sum((reward_pred > 3) * (reward_pred < 4.5)))
+		pdb.set_trace()
+	# mask = reward_pred.clone() # torch.clip(reward_pred + 0.8, 0.0, 10.0)
+	# 	# reward-weighted; if you can guess, generally do that.
+	# valid_guesses = reward_pred[:,4:13] > 0
 	
 	action_node_new = []
 	for j in range(bs):
@@ -432,6 +437,7 @@ def expandActionNodesDepth(puzzles, model, qfun, hcoo, time, depth):
 	action_nodes = []
 	puzzl_mat = np.zeros((bs,SuN,SuN))
 	guess_mat = np.zeros((bs,SuN,SuN))
+	print(f"expandActionNodesDepth: making a batch of {bs} rollouts")
 	for k in range(bs):
 		puzzl_mat[k,:,:] = puzzles[pi[k],:,:].numpy()
 		curs_pos = torch.randint(SuN, (bs,2),dtype=int)
@@ -676,7 +682,7 @@ if __name__ == '__main__':
 	try: 
 		puzzles = torch.load(f'puzzles_{SuN}_50000.pt',weights_only=True)
 	except Exception as error:
-		print(colored(f"could not load model checkpoint {error}", "red"))
+		print(colored(f"could not load puzzles {error}", "red"))
 		print("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing")
 	
 	NUM_TRAIN = 64 * 1800
@@ -699,14 +705,13 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=3, mode=0).to(device)
 	model.printParamCount()
 	
 	# movement predictor
 	# mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=8, n_layers=8, repeat=2, mode=0).to(device)
 	mfun = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=4, n_layers=10, repeat=3, mode=0).to(device)
 	# works ok - does not converge but gets reasonable loss c.f. larger model.
-	# this is an all-to-all transformer; see line 492
 	mfun.printParamCount()
 
 	# qfun predictor
@@ -740,13 +745,13 @@ if __name__ == '__main__':
 				fname = "racoonizer_inv*"
 			else: 
 				fname = "racoonizer*"
-			model.load_checkpoint(getLatestFile(fname))
+			model.loadCheckpoint(getLatestFile(fname))
 			print(colored("loaded model checkpoint", "blue"))
 
-			mfun.load_checkpoint(getLatestFile("mouse*"))
+			mfun.loadCheckpoint(getLatestFile("mouse*"))
 			print(colored("loaded mfun checkpoint", "blue"))
 
-			qfun.load_checkpoint(getLatestFile("quail*"))
+			qfun.loadCheckpoint(getLatestFile("quail*"))
 			print(colored("loaded qfun checkpoint", "blue"))
 			time.sleep(1)
 		except Exception as error:
@@ -764,8 +769,7 @@ if __name__ == '__main__':
 		for node in anode_list: 
 			node.integrateReward()
 			
-		for i in range(10): 
-			anode.outputGexf(anode_list[i], f"anode_{i}.gexf")
+		anode.outputGexf(anode_list[:12], f"anode.gexf")
 			
 		anode_flat = []
 		for node in anode_list: 
