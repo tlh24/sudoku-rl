@@ -149,7 +149,7 @@ class Gracoonizer(nn.Module):
 				plt.show()
 		return action
 		
-	def load_checkpoint(self, path:str=None):
+	def loadCheckpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
 		self.load_state_dict(torch.load(path,weights_only=True))
