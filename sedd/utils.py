@@ -5,6 +5,7 @@ import torch
 import logging
 import re 
 import matplotlib.pyplot as plt 
+from omegaconf import OmegaConf
 
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'sudoku_trajs'))
 
@@ -185,6 +186,11 @@ def save_loss_graph(logger_file):
     plt.xlabel("Timestep")
     plt.ylabel("Score loss")
     plt.savefig(save_file_path)
+
+def load_config_from_run(load_dir='./'):
+    cfg_path = os.path.join(load_dir, "configs/normal_config.yaml")
+    cfg = OmegaConf.load(cfg_path)
+    return cfg
 
 
 if __name__ == "__main__":
