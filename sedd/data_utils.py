@@ -9,8 +9,11 @@ from datasets import load_dataset
 home_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(home_dir)
 from data.satnet_sudoku_data import Sudoku_SATNet
+from torch.utils.data import TensorDataset
 import torch 
 import pickle 
+import pandas as pd 
+import csv 
 
 
 
@@ -57,6 +60,8 @@ def cycle_loader(dataloader, sampler=None):
         for data in dataloader:
             yield data
 
+
+
 class LargerSatNet:
     '''
     Returns solved puzzles as a 1d array. Each element in the array is digit in [0-8], corresponding to
@@ -69,11 +74,48 @@ class LargerSatNet:
         return len(self.data)
 
     def __getitem__(self, idx):
-        item = self.data[idx].flatten() - 1 #subtract 1 so we are zero indexed. 
+        item = self.data[idx].flatten() - 1 #subtract 1 so we are zero indexed, i.e elemenets in [0,8] 
         item = item.astype(int)
         return item
+
+def read_rrn_csv(file_path):
+    '''
+    Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81) with empty cells and solutions
+    is (num_puzzles, 81) with no empty cells. Each sequence has values in [0,8] for filled digits and empty cells -100
+    '''
+    print("Reading %s..." % file_path)
+    with open(file_path) as f:
+        initial_puzzles, solutions = [], [] 
+        reader = csv.reader(f, delimiter=',')
+        for q,a in reader:
+            # convert to satnet format where empty cells have -100 and values in [0,8]
+            initial_board_digits = list(q)
+            initial_board_digits = [int(digit_char)-1 if digit_char != "0" else -100 for digit_char in initial_board_digits]
+            initial_puzzles.append(initial_board_digits)
+            
+            solution_digits = list(map(int, list(a)))
+            # convert to zero index
+            solution_digits = [digit-1 for digit in solution_digits]
+            solutions.append(solution_digits)
+        
+        return np.stack(initial_puzzles), np.stack(solutions)
+
+class TensDataset:
+    def __init__(self, tensor: torch.Tensor):
+        # tensor is shape (num_samples, 81)
+        self.tensor = tensor
+
+    def __len__(self):
+        return self.tensor.shape[0]
     
-def get_dataset(dataset_path: str, mode, cache_dir=None, block_size=1024, num_proc=8):
+    def __getitem__(self, idx):
+        return self.tensor[idx] 
+
+        
+        
+
+    
+def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, cache_dir=None, block_size=1024, num_proc=8):
     '''
     Loads numpy dataset and returns a pytorch dataset
     dataset_path: (str) Should be filepath of numpy file that is of shape [num_samples, sample_length]
@@ -149,6 +191,25 @@ def get_dataset(dataset_path: str, mode, cache_dir=None, block_size=1024, num_pr
             return val_dataset
         else:
             return test_dataset    
+    elif dataset_path == 'rrn':
+        if mode == "train":
+            boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'train.csv'))
+        elif mode == "validation":
+            boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'valid.csv'))
+        elif mode == "test":
+            boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'test.csv'))
+        else:
+            raise ValueError()
+
+        boards_tens = torch.from_numpy(boards)
+        solutions_tens = torch.from_numpy(solutions)
+        if with_initial_puzzles:
+            board_ds = TensDataset(boards_tens)
+            solution_ds = TensDataset(solutions_tens)
+            return board_ds, solution_ds
+        
+        solution_ds = TensDataset(solutions_tens)
+        return solution_ds
     else:
         class SequenceDataset(Dataset):
             def __init__(self, data):
