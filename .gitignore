@@ -163,3 +163,5 @@ cython_debug/
 mouseizer_*
 quailizer_*
 racoonizer_*
+
+rt/data/
