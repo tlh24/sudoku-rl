@@ -14,8 +14,8 @@ from utils import isValidSudoku
 
 class LargerSatNetInitial:
     '''
-    Returns initial puzzles as a 1d array. Each element in the array is digit in [0-8], corresponding to
-    digits in [1,9], or -1 if incomplete
+    Returns initial puzzles as a 1d array. Each element in the array is -1 if incomplete or digit in [0-8], corresponding to
+    digits in [1,9] 
     '''
     def __init__(self):
         with open(os.path.join(home_dir, 'data', 'easy_130k_given.p'), 'rb') as file:
@@ -30,23 +30,34 @@ class LargerSatNetInitial:
         return item
 
 
+
 def main(args):
     device = torch.device('cuda')
     model, graph, noise = load_model_local('./',device, args.model_path, args.checkpoint_num)
     if args.evaluate:
-        #test_dataset_sols = data.get_dataset(args.dataset, mode="test")
-        full_dataset_puzzles = LargerSatNetInitial()
-        test_dataset_puzzles = Subset(full_dataset_puzzles, np.arange( int(0.9*len(full_dataset_puzzles)), len(full_dataset_puzzles)))
-
-        puzzles_indices = np.random.choice(len(test_dataset_puzzles), args.batch_size, replace=False).tolist()
-        subset = Subset(test_dataset_puzzles, puzzles_indices) #(num_puzzles, 81)
-        puzzles = np.stack([subset[i] for i in range(0, len(subset))])
-        puzzles = torch.from_numpy(puzzles).to(device)
+        if args.dataset == "larger_satnet":
+            #test_dataset_sols = data.get_dataset(args.dataset, mode="test")
+            full_dataset_puzzles = LargerSatNetInitial()
+            test_dataset_puzzles = Subset(full_dataset_puzzles, np.arange(int(0.9*len(full_dataset_puzzles)), len(full_dataset_puzzles)))
+            
+            puzzles_indices = np.random.choice(len(test_dataset_puzzles), args.batch_size, replace=False).tolist()
+            subset = Subset(test_dataset_puzzles, puzzles_indices) # (num_puzzles, 81)
+            puzzles = np.stack([subset[i] for i in range(0, len(subset))])
+            puzzles = torch.from_numpy(puzzles).to(device)
+        elif args.dataset == "rrn":
+            board_ds, solutions_ds = data.get_dataset(args.dataset, mode="train", with_initial_puzzles=True)
+            puzzles_indices = np.random.choice(len(board_ds), args.batch_size, replace=False).tolist()
+            subset = Subset(board_ds, puzzles_indices) # (num_puzzles, 81)
+            puzzles = torch.stack([subset[i] for i in range(0, len(subset))]).to(device)
+        else:
+            raise NotImplementedError()
         
         def proj_fun(x: torch.Tensor):
             '''
-            Replaces each tensor and infills the puzzle with initial hints
+            Replaces each tensor and infills the puzzle with initial hints that have values [0,8]
             x: tensor of shape (num_puzzles, 81). 
+            Note: digits should be values [0,8] corresponding to values [1,9]
+            
             '''
             infilled_x = torch.where(puzzles > -1, puzzles, x)
             return infilled_x
@@ -75,11 +86,8 @@ def main(args):
                 
                 if is_valid: num_valid += 1
             
-            print(f"Total boards correct: {num_valid}/{len(samples)}={num_valid/len(samples):.2f}\n")
+            print(f"Total boards correct: {num_valid}/{len(samples)}={num_valid/len(samples):.4f}\n")
             file.write(f"Total boards correct: {num_valid}/{len(samples)}\n")
-
-
-            
 
 
 
@@ -91,9 +99,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", default='experiments/09-05-2024-13:15')
+
+    parser.add_argument("--model_path", default='experiments/09-07-2024-10:16')
     parser.add_argument("--checkpoint_num", type=int, required=True)
-    parser.add_argument("--dataset", type=str, default='larger_satnet')
+    parser.add_argument("--dataset", type=str, default='rrn')
     parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--steps", type=int, default=1024)
     parser.add_argument("--evaluate", action='store_true')
