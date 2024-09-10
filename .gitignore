@@ -165,3 +165,4 @@ quailizer_*
 racoonizer_*
 
 rt/data/
+rt/wandb/
