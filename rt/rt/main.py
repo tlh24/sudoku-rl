@@ -2,12 +2,67 @@ import sys
 
 import argparse
 import torch
-from rt.dataset import SudokuSATNetDataset
+from torch.utils.data import DataLoader
+from rt.dataset import SudokuSATNetDataset, SudokuPalmDataset
 from rt.utils import set_seed
 from rt.model import GPT, GPTConfig
 from rt.trainer import Trainer, TrainerConfig
 from rt.network import testNN
 # from helper import print_result, visualize_adjacency
+
+
+def print_result(result):
+    for eval_func in result:
+        print(
+            f"Printing the accuracy (%) using {eval_func} as the evaluation function:"
+        )
+        print(
+            ("{:<6}" + "{:<15}" * 4).format(
+                "idx", "total_acc", "single_acc", "total_count", "single_count"
+            )
+        )
+        row_format = "{:<6}" + "{:<15.2f}" * 2 + "{:<15}" * 2
+        for idx, (correct, total, singleCorrect, singleTotal, _) in enumerate(
+            result[eval_func]
+        ):
+            print(
+                row_format.format(
+                    idx + 1,
+                    100 * correct / total,
+                    100 * singleCorrect / singleTotal,
+                    f"{correct}/{total}",
+                    f"{singleCorrect}/{singleTotal}",
+                )
+            )
+
+
+def run_eval(args):
+    mconf = GPTConfig(
+        vocab_size=10,
+        block_size=81,
+        n_layer=args.n_layer,
+        n_head=args.n_head,
+        n_embd=args.n_embd,
+        num_classes=9,
+        causal_mask=False,
+        losses=args.loss,
+        n_recur=args.n_recur,
+        all_layers=args.all_layers,
+        hyper=args.hyper,
+    )
+    model = GPT(mconf)
+    ckpt = torch.load("./ckpt/satnet.pt")
+    model.load_state_dict(ckpt)
+    dataset = SudokuSATNetDataset()
+    indices = list(range(len(dataset)))
+    test_dataset = torch.utils.data.Subset(dataset, indices[-1000:])
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
+    result = testNN(
+        model,
+        test_dataloader,
+    )
+    all_result = {"test_nn": [result]}
+    print_result(all_result)
 
 
 def main(args):
@@ -52,6 +107,13 @@ def main(args):
         train_dataset = torch.utils.data.Subset(
             dataset, indices[: min(9000, args.n_train)]
         )
+    elif args.dataset == "palm":
+        train_dataset = SudokuPalmDataset(
+            segment="train", limit=args.n_train, seed=args.seed
+        )
+        test_dataset = SudokuPalmDataset(
+            segment="test", limit=args.n_test, seed=args.seed
+        )
     else:
         raise NotImplementedError
     # check if we have unlabeled training data
@@ -91,8 +153,8 @@ def main(args):
 
     if args.wandb:
         wandb.watch(model, log_freq=100)
-    if args.heatmap:
-        visualize_adjacency()
+    # if args.heatmap:
+    #     visualize_adjacency()
 
     tconf = TrainerConfig(
         max_epochs=args.epochs,
@@ -108,6 +170,7 @@ def main(args):
         heatmap=args.heatmap,
         prefix=prefix,
         wandb=wandb,
+        ckpt_path=f"./ckpt/{args.dataset}.pt",
     )
 
     trainer = Trainer(model, train_dataset, train_dataset_ulb, test_dataset, tconf)
@@ -210,7 +273,7 @@ if __name__ == "__main__":
         "--debug", default=False, action="store_true", help="debug mode"
     )
     parser.add_argument(
-        "--wandb", default=False, action="store_true", help="save all logs on wandb"
+        "--wandb", default=True, action="store_true", help="save all logs on wandb"
     )
     parser.add_argument(
         "--heatmap",
@@ -227,3 +290,4 @@ if __name__ == "__main__":
     if args.debug:
         args.wandb = False
     main(args)
+    # run_eval(args)

@@ -1,0 +1,14 @@
+# ml
+torch
+torchvision
+torchaudio
+tqdm
+wandb
+
+
+
+# dev 
+ipython
+ruff
+ruff-lsp
+pyright

@@ -266,7 +266,7 @@ class Trainer:
                     result = eval_func(model, self.test_dataloader, self.heatmap)
                     self.result[eval_func.__name__].append(result)
                     if self.wandb:
-                        prev_n_recur = model.n_recur
+                        # prev_n_recur = model.n_recur
                         correct, total, singleCorrect, singleTotal, _ = result
                         self.wandb.log(
                             {
@@ -284,47 +284,51 @@ class Trainer:
                             },
                             step=epoch + 1,
                         )
-                        self.wandb.log(
-                            {
-                                f"test_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
-                                * correct
-                                / total
-                            },
-                            step=epoch + 1,
-                        )
-                        self.wandb.log(
-                            {
-                                f"test_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
-                                * singleCorrect
-                                / singleTotal
-                            },
-                            step=epoch + 1,
-                        )
-                        # evaluate the accuracy with fixed number of recurrence during inference
-                        for n_recur in (16, 32, 64):
-                            # if n_recur > prev_n_recur:
-                            if n_recur == prev_n_recur * 2:
-                                model.n_recur = n_recur
-                                correct, total, singleCorrect, singleTotal, _ = (
-                                    eval_func(model, self.test_dataloader, self.heatmap)
-                                )
-                                self.wandb.log(
-                                    {
-                                        f"test_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
-                                        * correct
-                                        / total
-                                    },
-                                    step=epoch + 1,
-                                )
-                                self.wandb.log(
-                                    {
-                                        f"test_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
-                                        * singleCorrect
-                                        / singleTotal
-                                    },
-                                    step=epoch + 1,
-                                )
-                        model.n_recur = prev_n_recur
+                        # self.wandb.log(
+                        #     {
+                        #         f"test_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
+                        #         * correct
+                        #         / total
+                        #     },
+                        #     step=epoch + 1,
+                        # )
+                        # self.wandb.log(
+                        #     {
+                        #         f"test_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
+                        #         * singleCorrect
+                        #         / singleTotal
+                        #     },
+                        #     step=epoch + 1,
+                        # )
+                        # # evaluate the accuracy with fixed number of recurrence during inference
+                        # for n_recur in (16, 32, 64):
+                        #     # if n_recur > prev_n_recur:
+                        #     if n_recur == prev_n_recur * 2:
+                        #         model.n_recur = n_recur
+                        #         (
+                        #             correct,
+                        #             total,
+                        #             singleCorrect,
+                        #             singleTotal,
+                        #             _,
+                        #         ) = eval_func(model, self.test_dataloader, self.heatmap)
+                        #         self.wandb.log(
+                        #             {
+                        #                 f"test_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
+                        #                 * correct
+                        #                 / total
+                        #             },
+                        #             step=epoch + 1,
+                        #         )
+                        #         self.wandb.log(
+                        #             {
+                        #                 f"test_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
+                        #                 * singleCorrect
+                        #                 / singleTotal
+                        #             },
+                        #             step=epoch + 1,
+                        #         )
+                        # model.n_recur = prev_n_recur
 
                         # evaluate on training data
                         correct, total, singleCorrect, singleTotal, _ = eval_func(
@@ -346,49 +350,53 @@ class Trainer:
                             },
                             step=epoch + 1,
                         )
-                        self.wandb.log(
-                            {
-                                f"train_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
-                                * correct
-                                / total
-                            },
-                            step=epoch + 1,
-                        )
-                        self.wandb.log(
-                            {
-                                f"train_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
-                                * singleCorrect
-                                / singleTotal
-                            },
-                            step=epoch + 1,
-                        )
-                        # evaluate the accuracy with fixed number of recurrence during inference
-                        for n_recur in (16, 32, 64):
-                            # if n_recur > prev_n_recur:
-                            if n_recur == prev_n_recur * 2:
-                                model.n_recur = n_recur
-                                correct, total, singleCorrect, singleTotal, _ = (
-                                    eval_func(
-                                        model, self.train_dataloader, self.heatmap
-                                    )
-                                )
-                                self.wandb.log(
-                                    {
-                                        f"train_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
-                                        * correct
-                                        / total
-                                    },
-                                    step=epoch + 1,
-                                )
-                                self.wandb.log(
-                                    {
-                                        f"train_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
-                                        * singleCorrect
-                                        / singleTotal
-                                    },
-                                    step=epoch + 1,
-                                )
-                        model.n_recur = prev_n_recur
+                        # self.wandb.log(
+                        #     {
+                        #         f"train_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
+                        #         * correct
+                        #         / total
+                        #     },
+                        #     step=epoch + 1,
+                        # )
+                        # self.wandb.log(
+                        #     {
+                        #         f"train_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
+                        #         * singleCorrect
+                        #         / singleTotal
+                        #     },
+                        #     step=epoch + 1,
+                        # )
+                        # # evaluate the accuracy with fixed number of recurrence during inference
+                        # for n_recur in (16, 32, 64):
+                        #     # if n_recur > prev_n_recur:
+                        #     if n_recur == prev_n_recur * 2:
+                        #         model.n_recur = n_recur
+                        #         (
+                        #             correct,
+                        #             total,
+                        #             singleCorrect,
+                        #             singleTotal,
+                        #             _,
+                        #         ) = eval_func(
+                        #             model, self.train_dataloader, self.heatmap
+                        #         )
+                        #         self.wandb.log(
+                        #             {
+                        #                 f"train_acc/{eval_func.__name__}_board[{model.n_recur}]": 100
+                        #                 * correct
+                        #                 / total
+                        #             },
+                        #             step=epoch + 1,
+                        #         )
+                        #         self.wandb.log(
+                        #             {
+                        #                 f"train_acc/{eval_func.__name__}_cell[{model.n_recur}]": 100
+                        #                 * singleCorrect
+                        #                 / singleTotal
+                        #             },
+                        #             step=epoch + 1,
+                        #         )
+                        # model.n_recur = prev_n_recur
 
                 # # store the visualization of attention matrices
                 # if self.heatmap and (epoch + 1) % 100 == 0 and "testNN" in self.result:
@@ -425,3 +433,11 @@ class Trainer:
                 #         x_label_name="pos emb",
                 #         filename=f"heatmap/pos_emb_{self.prefix}epoch{epoch+1}",
                 #     )
+
+    def evaluate(self):
+        result = {}
+        model = self.model, self.config
+        for eval_func in self.eval_funcs:
+            # evaluate on testing data
+            result = eval_func(model, self.test_dataloader, self.heatmap)
+            result[eval_func.__name__].append(result)
