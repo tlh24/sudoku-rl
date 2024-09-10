@@ -81,7 +81,7 @@ def getDataLoaders(puzzles, num_samples, num_validate):
 	'''
 	Returns a pytorch train and test dataloader for gracoonizer position prediction
 	'''
-	data_dict, coo, a2a, reward_loc = getDataDict(puzzles)
+	data_dict = getDataDict(puzzles)
 	train_dataset = SudokuDataset(data_dict['train_orig_board'],
 											data_dict['train_new_board'], 
 											data_dict['train_rewards'])
@@ -93,15 +93,14 @@ def getDataLoaders(puzzles, num_samples, num_validate):
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 	test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-	return train_dataloader, test_dataloader, coo, a2a, reward_loc
+	return train_dataloader, test_dataloader
 
 
 def getDataDict(puzzles):
 	'''
 	Returns a dictionary containing training and test data
 	'''
-	orig_board, new_board, coo, a2a, rewards, reward_loc = \
-			board_ops.enumerateBoards(puzzles)
+	orig_board, new_board, rewards = board_ops.enumerateBoards(puzzles)
 	num_samples = orig_board.shape[0]
 	num_validate = num_samples // 10
 	print(orig_board.shape, new_board.shape, rewards.shape)
@@ -117,7 +116,7 @@ def getDataDict(puzzles):
 		'test_new_board': test_new_board,
 		'test_rewards': test_rewards
 	}
-	return dataDict, coo, a2a, reward_loc
+	return dataDict
 
 def getMemoryDict():
 	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
@@ -131,16 +130,6 @@ def getMemoryDict():
 					 'fd_reward': fd_reward, 'fd_rewardp': fd_rewardp, 'fd_attention': fd_attention,
 					  'fd_wqkv':fd_wqkv }
 	return memory_dict
-
-
-def getLossMask(board_enc, device):
-	'''
-	mask off extra space for passing info between layers
-	'''
-	loss_mask = torch.ones(1, board_enc.shape[1], board_enc.shape[2], device=device,dtype=g_dtype)
-	for i in range(11,20):
-		loss_mask[:,:,i] *= 0.001 # semi-ignore the "latents"
-	return loss_mask 
 
 
 def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
@@ -643,7 +632,7 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 
 	return boards,actions,rewards
 
-def expandCoordinateVector(coo,a2a):
+def expandCoordinateVector(coo, a2a):
 	# first half of heads are kids to parents
 	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
 	# swap dst and src
@@ -663,10 +652,25 @@ def expandCoordinateVector(coo,a2a):
 	all2all = all2all.cuda()
 	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
 		(self2self, dst_mxlen_s2s), all2all]
-	hcoo_m = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
-		(self2self, dst_mxlen_s2s), all2all, None]
+	# hcoo_m = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+	# 	(self2self, dst_mxlen_s2s), all2all, None]
+
+	return hcoo
+
+def getLayerCoordinateVectors():
+	sudoku = Sudoku(SuN, SuK)
+	pdb.set_trace()
+	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(torch.zeros(9,9), torch.zeros(9,9), torch.zeros((2,)), 0, 0)
+
+	hcoo = expandCoordinateVector(coo, a2a)
+
+	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(torch.zeros(9,9), torch.zeros(9,9), torch.zeros((2,)), 0, 0, many_reward=True)
+
+	hcoo_m = expandCoordinateVector(coo, a2a)
+	hcoo_m.append(None) # for dense attention.
 
 	return hcoo, hcoo_m
+
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Train sudoku world model")
@@ -697,9 +701,9 @@ if __name__ == '__main__':
 	args = {"NUM_TRAIN": NUM_TRAIN, "NUM_VALIDATE": NUM_VALIDATE, "NUM_SAMPLES": NUM_SAMPLES, "NUM_ITERS": NUM_ITERS, "device": device}
 	
 	# get our train and test dataloaders
-	train_dataloader, test_dataloader, coo, a2a, reward_loc = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
+	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
 
-	hcoo,hcoo_m = expandCoordinateVector(coo,a2a)
+	hcoo,hcoo_m = getLayerCoordinateVectors()
 	
 	# allocate memory
 	memory_dict = getMemoryDict()

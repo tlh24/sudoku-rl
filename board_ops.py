@@ -170,4 +170,4 @@ def enumerateBoards(puzzles):
 		torch.save(new_board_enc, f'new_board_enc_{n}.pt')
 		torch.save(rewards_enc, f'rewards_enc_{n}.pt')
 
-	return orig_board_enc, new_board_enc, coo, a2a, rewards_enc, reward_loc
+	return orig_board_enc, new_board_enc, rewards_enc

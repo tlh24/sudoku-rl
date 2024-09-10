@@ -113,7 +113,7 @@ def sudokuActionNodes(action_type, action_value):
 			assert(False)
 	return na
 		
-def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
+def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float, many_reward=False):
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
 
@@ -133,7 +133,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 		ncursor.setAxVal( Axes.H_AX, 0.0 )
 	nodes.append(ncursor)
 	
-	# reward token (used for reward prediction)
+	# reward token (used for one-step reward prediction)
 	nreward = Node(Types.REWARD)
 	nreward.setAxVal( Axes.R_AX, reward*5 )
 	nodes.append(nreward)
@@ -218,6 +218,16 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 					if b == bb: 
 						nb.addChild( board_nodes[x][y] )
 			bsets.addChild(nb)
+
+	if many_reward:
+		axes = [(Axes.X_AX, Axes.Y_AX)]
+		dirs = [-1, 1]
+		for ax in axes:
+			for d in dirs:
+				nr = Node(Types.REWARD)
+				nr.setAxVal( Axes.R_AX, 0.0 ) # fill this in later.
+				nr.setAxVal( ax, d )
+				nodes.append(nr)
 	
 	# set the node indexes.
 	# some nodes are in the top-level list; others are just children.
