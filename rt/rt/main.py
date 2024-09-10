@@ -15,8 +15,6 @@ def main(args):
 
     # generate the name of this experiment
     prefix = f"[{args.dataset},{args.n_train//1000}k]"
-    if args.label_size < args.batch_size:
-        prefix = prefix[:-1] + f",{args.label_size}-{args.batch_size-args.label_size}]"
     if args.loss:
         prefix += (
             "["
@@ -27,13 +25,6 @@ def main(args):
         )
     prefix += f"L{args.n_layer}R{args.n_recur}H{args.n_head}_"
 
-    if args.wandb:
-        import wandb
-
-        wandb.init(project="transformer-ste-sudoku")
-        wandb.run.name = prefix[:-1]
-    else:
-        wandb = None
 
     #############
     # Seed everything for reproductivity
@@ -54,21 +45,9 @@ def main(args):
         )
     else:
         raise NotImplementedError
-    # check if we have unlabeled training data
-    n_train_lb = int(args.n_train * (args.label_size / args.batch_size))
-    n_train_ulb = args.n_train - n_train_lb
-    if n_train_ulb:
-        indices = list(range(len(train_dataset)))
-        train_dataset_ulb = torch.utils.data.Subset(train_dataset, indices[n_train_lb:])
-        train_dataset = torch.utils.data.Subset(train_dataset, indices[:n_train_lb])
-    if train_dataset_ulb:
-        print(
-            f"[{args.dataset}] use {len(train_dataset) + len(train_dataset_ulb)} ({len(train_dataset)}lb + {len(train_dataset_ulb)}ulb) for training and {len(test_dataset)} for testing"
-        )
-    else:
-        print(
-            f"[{args.dataset}] use {len(train_dataset)} for training and {len(test_dataset)} for testing"
-        )
+    print(
+        f"[{args.dataset}] use {len(train_dataset)} for training and {len(test_dataset)} for testing"
+    )
 
     #############
     # Construct a GPT model and a trainer
@@ -89,15 +68,9 @@ def main(args):
     )
     model = GPT(mconf)
 
-    if args.wandb:
-        wandb.watch(model, log_freq=100)
-    if args.heatmap:
-        visualize_adjacency()
-
     tconf = TrainerConfig(
         max_epochs=args.epochs,
         batch_size=args.batch_size,
-        label_size=args.label_size,
         learning_rate=args.lr,
         lr_decay=args.lr_decay,
         warmup_tokens=1024,  # until which point we increase lr from 0 to lr; lr decays after this point
@@ -105,20 +78,18 @@ def main(args):
         eval_funcs=[testNN],  # test without inference trick
         eval_interval=args.eval_interval,  # test for every eval_interval number of epochs
         gpu=args.gpu,
-        heatmap=args.heatmap,
         prefix=prefix,
-        wandb=wandb,
     )
 
-    trainer = Trainer(model, train_dataset, train_dataset_ulb, test_dataset, tconf)
+    trainer = Trainer(model, train_dataset, test_dataset, tconf)
 
     #############
     # Start training
     #############
     trainer.train()
     result = trainer.result
-    print("Total and single accuracy are the board and cell accuracy respectively.")
-    print_result(result)
+    print(f"Total and single accuracy are the board and cell accuracy respectively. {result}")
+    #print_result(result)
 
 
 if __name__ == "__main__":
@@ -132,12 +103,6 @@ if __name__ == "__main__":
         help="Compute accuracy for how many number of epochs.",
     )
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
-    parser.add_argument(
-        "--label_size",
-        type=int,
-        default=16,
-        help="The number of labeled training data in a batch",
-    )
     parser.add_argument("--lr", type=float, default=6e-4, help="Learning rate")
     parser.add_argument(
         "--lr_decay",
@@ -209,21 +174,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--debug", default=False, action="store_true", help="debug mode"
     )
-    parser.add_argument(
-        "--wandb", default=False, action="store_true", help="save all logs on wandb"
-    )
-    parser.add_argument(
-        "--heatmap",
-        default=False,
-        action="store_true",
-        help="save all heatmaps in trainer.result",
-    )
+
     parser.add_argument(
         "--comment", type=str, default="", help="Comment of the experiment"
     )
     args = parser.parse_args()
-
-    # we do not log onto wandb in debug mode
-    if args.debug:
-        args.wandb = False
     main(args)
