@@ -219,8 +219,9 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 						nb.addChild( board_nodes[x][y] )
 			bsets.addChild(nb)
 
+	# add in at the end.
 	if many_reward:
-		axes = [(Axes.X_AX, Axes.Y_AX)]
+		axes = [Axes.X_AX, Axes.Y_AX]
 		dirs = [-1, 1]
 		for ax in axes:
 			for d in dirs:
@@ -236,7 +237,9 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	assert(i == token_cnt)
+	if i > token_cnt:
+		print(f'expect {token_cnt}, encoded {i} tokens')
+		pdb.set_trace()
 	
 	board_loc = torch.zeros((SuN,SuN),dtype=int)
 	if full_board:

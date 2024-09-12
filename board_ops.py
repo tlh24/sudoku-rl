@@ -64,7 +64,7 @@ def runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action:int, action_val:int
 	return reward
 
 
-def encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val):
+def encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val, many_reward=False):
 	'''
 	Encodes the current board state and encodes the given action,
 		runs the action, and then encodes the new board state.
@@ -76,12 +76,12 @@ def encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val):
 	action encoding: Shape (#action nodes x world_dim)
 	new board encoding: Shape (#newboard nodes x world_dim)
 	'''
-	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action, action_val, 0.0)
+	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action, action_val, 0.0, many_reward)
 	benc,coo,a2a = sparse_encoding.encodeNodes(nodes)
 
 	reward = runAction(sudoku, puzzl_mat, guess_mat, curs_pos, action, action_val)
 
-	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action, action_val, reward) # action_val doesn't matter
+	nodes, reward_loc,_ = sparse_encoding.sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action, action_val, reward, many_reward) # action_val doesn't matter
 	newbenc,coo,a2a = sparse_encoding.encodeNodes(nodes)
 
 	return benc, newbenc, coo, a2a, reward, reward_loc
@@ -113,7 +113,7 @@ def enumerateBoards(puzzles):
 	n_actions = len(action_types) # 13
 	n_curspos = 3
 	n_masks = 3
-	n_puzzles = 4096 # 1024, 1280 1536 2048
+	n_puzzles = 2048 # 1024, 1280 1536 2048
 	n = n_actions * n_masks * n_curspos * n_puzzles
 	
 	try:

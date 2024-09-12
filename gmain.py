@@ -28,7 +28,7 @@ from type_file import Action, Axes, getActionName
 from l1attn_sparse_cuda import expandCoo
 import anode
 import board_ops
-import psgd 
+import psgd_20240912 as psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
@@ -142,7 +142,7 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner=0.02, momentum=0.9,\
-			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=6.0)
+			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
 		# grad clipping at 2 seems to slow things a bit
 	return optimizer 
 
@@ -261,31 +261,41 @@ def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, h
 	n_tok = rollouts_board.shape[1]
 	width = rollouts_board.shape[2]
 	pred_data = {}
+
+	# need to make a null board for getting the man-reward tokens.
+	nodes,_,_ = sparse_encoding.sudokuToNodes(torch.zeros(9,9), torch.zeros(9,9), torch.zeros(2), 8, 0, many_reward=True)
+	rw_boards,_,_ = sparse_encoding.encodeNodes(nodes)
+		# get the coo and a2a vectors from the calling function, in hcoo_m
+	reward_enc = rw_boards[-4:, :]
+	reward_enc = torch.expand(reward_enc[None,:,:], batch_size)
+
 	for uu in range(nn): 
 		indx = torch.randint(0,n_roll,(batch_size,))
 		boards = rollouts_board[indx,:,:].squeeze().float()
 		reward = rollouts_reward[indx,:4].squeeze()
 		
+		# add on reward tokens.
+		boards = torch.cat((boards, reward_enc), dim=1)
 		# expand boards to 64 wide
-		boards = torch.cat((boards, torch.zeros(batch_size, n_tok, width, device=boards.device)), dim=2)
+		boards = torch.cat((boards, torch.zeros(batch_size, n_tok+4, width, device=boards.device)), dim=2)
 		# remove the layer encoding; will be replaced in the model.
 		boards[:,:,0] = 0
 		boards = torch.round(boards * 4.0) / 4.0
 			
 		boards = boards.cuda()
 		reward = reward.cuda()
-		with torch.no_grad():
-			model_boards = model.forward(boards,hcoo,0,None)
+		# with torch.no_grad():
+			# model_boards = model.forward(boards,hcoo,0,None)
 			# plt.plot((model_boards[:,reward_loc, 32+26] - reward).cpu().numpy())
 			# pdb.set_trace()
 		def closure(): 
 			nonlocal pred_data
-			qfun_boards = qfun.forward(model_boards,hcoo_m,0,None)
+			qfun_boards = qfun.forward(boards,hcoo_m,0,None)
 			with torch.no_grad(): 
 				new_boards = boards.detach().clone()
 				# new_boards[:,0:3, 20:24] = torch.tile(reward.unsqueeze(1),(1,3,1)) # action, cursor, reward.
-				new_boards[:,reward_loc, 20:24] = reward # action, cursor, reward.
-			reward_preds = qfun_boards[:,reward_loc, 32+20:32+24]
+				new_boards[:,-4:, Axes.R_AX.value] = reward # action, cursor, reward.
+			reward_preds = qfun_boards[:,-4:, 32+Axes.R_AX.value]
 			pred_data = {'old_board':boards, 'new_board':new_boards, \
 					'new_state_preds':qfun_boards,
 					'rewards': reward[:,0], \
@@ -659,17 +669,16 @@ def expandCoordinateVector(coo, a2a):
 
 def getLayerCoordinateVectors():
 	sudoku = Sudoku(SuN, SuK)
-	pdb.set_trace()
-	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(torch.zeros(9,9), torch.zeros(9,9), torch.zeros((2,)), 0, 0)
+	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(sudoku, np.zeros((9,9)), np.zeros((9,9)), np.zeros((2,), dtype=int), 0, 0)
 
 	hcoo = expandCoordinateVector(coo, a2a)
 
-	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(torch.zeros(9,9), torch.zeros(9,9), torch.zeros((2,)), 0, 0, many_reward=True)
+	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(sudoku, np.zeros((9,9)), np.zeros((9,9)), np.zeros((2,), dtype=int), 0, 0, many_reward=False) # FIXME
 
 	hcoo_m = expandCoordinateVector(coo, a2a)
 	hcoo_m.append(None) # for dense attention.
 
-	return hcoo, hcoo_m
+	return hcoo, hcoo_m, reward_loc
 
 
 if __name__ == '__main__':
@@ -684,10 +693,10 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	try: 
-		puzzles = torch.load(f'puzzles_{SuN}_50000.pt',weights_only=True)
+		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
 	except Exception as error:
 		print(colored(f"could not load puzzles {error}", "red"))
-		print("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing")
+		print(colored("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing", "blue"))
 	
 	NUM_TRAIN = 64 * 1800
 	NUM_VALIDATE = 64 * 300
@@ -703,7 +712,7 @@ if __name__ == '__main__':
 	# get our train and test dataloaders
 	train_dataloader, test_dataloader = getDataLoaders(puzzles, args["NUM_SAMPLES"], args["NUM_VALIDATE"])
 
-	hcoo,hcoo_m = getLayerCoordinateVectors()
+	hcoo,hcoo_m,reward_loc = getLayerCoordinateVectors()
 	
 	# allocate memory
 	memory_dict = getMemoryDict()
