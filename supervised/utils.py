@@ -61,7 +61,7 @@ class Sudoku_Dataset_SATNet(Dataset):
 		for k in data_to_path:
 			try:
 				with open(data_to_path[k], 'rb') as f:
-					data[k] = torch.load(f)
+					data[k] = torch.load(f, weights_only=False)
 			except Exception as error:
 				print(f"could not find data file: {error}")
 				print("please download: wget -cq powei.tw/sudoku.zip && unzip -qq sudoku.zip (see https://github.com/azreasoners/recurrent_transformer)")
