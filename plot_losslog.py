@@ -38,7 +38,6 @@ def slidingWindowR2(x, y, window_size, stride):
 
 
 def isFileEmpty(file_path):
-    # Check if file exist and it is empty
     return os.path.exists(file_path) and os.path.getsize(file_path) == 0
 
 
@@ -71,6 +70,10 @@ def isFileEmpty(file_path):
 # 	time.sleep(2)
 # 	print("tock")
 
+if "DISPLAY" not in os.environ:
+	print("No X11 server detected, switching to non-interactive Agg backend")
+	matplotlib.use('Agg')  # Use non-interactive backend
+
 
 # Check if there are at least two arguments (besides the script name)
 if len(sys.argv) < 2:
@@ -81,8 +84,8 @@ else:
 # Define colors for plotting, use default if not enough colors are provided
 colors = ['b', 'k', 'r', 'g', 'm', 'c']  # Extendable list of colors
 color_cycle = colors * (len(file_names) // len(colors) + 1)  # Repeat colors if N > len(colors)
-
-while True:
+cont = True
+while cont:
 	ax.cla()
 	# Loop through each file and plot
 	for i, fname in enumerate(file_names):
@@ -105,11 +108,16 @@ while True:
 	ax.set_title('Log Loss Comparison')
 	ax.legend()
 
-	# Tight layout and draw
-	fig.tight_layout()
-	fig.canvas.draw()
-	fig.canvas.flush_events()
-
-	# Wait for 2 seconds before next update
-	time.sleep(2)
-	print("tock")
+	if matplotlib.get_backend() == 'Agg':
+		# Save plot to PNG file when in non-interactive mode
+		output_file = 'plot_losslog.png'
+		fig.savefig(output_file)
+		print(f"Plot saved to {output_file}")
+		cont = False
+	else:
+		# Tight layout and draw
+		fig.tight_layout()
+		fig.canvas.draw()
+		fig.canvas.flush_events()
+		time.sleep(2)
+		print("tock")
