@@ -89,7 +89,7 @@ class Trainer:
 
                 print(f"Epoch {epoch + 1}/{self.config.num_epochs}, Val Loss: {avg_val_loss:.4f}\
                         Avg Solve Rate {avg_solve_rate:.3f} Val Avg Avg Acc: {avg_avg_acc:.4f}")
-                self.logger.info(f"Epoch {epoch + 1}/{self.config.num_epochs} Avg Solve Rate {avg_solve_rate:.3f}")
+                self.logger.info(f"Epoch {epoch + 1}/{self.config.num_epochs} Avg Solve Rate {avg_solve_rate:.3f} Val Acc: {avg_avg_acc:.3f}")
 
                 # Save the best model 
                 if avg_solve_rate > best_solve_rate or avg_val_loss < best_loss:
