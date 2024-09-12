@@ -3,7 +3,7 @@ Train our nano-GPT model.
 Boiler-plate code adapted from https://github.com/azreasoners/recurrent_transformer/blob/main/sudoku/main.py#L11
 '''
 import argparse 
-from utils import set_seed, Sudoku_Dataset_SATNet, get_logger
+from utils import set_seed, Sudoku_Dataset_SATNet, get_logger, restore_checkpoint 
 from model import GPTConfig, GPT, Trainer, TrainerConfig 
 import torch
 import os 
@@ -51,7 +51,7 @@ def main(args=None):
     state = dict(optimizer=optimizer, model=model, step=0) 
     
     if args.load_best:
-        state = utils.restore_checkpoint(checkpoint_path, state, device)
+        state = restore_checkpoint(checkpoint_path, state, device)
     
     initial_step = int(state['step'])
 
