@@ -697,6 +697,7 @@ if __name__ == '__main__':
 	except Exception as error:
 		print(colored(f"could not load puzzles {error}", "red"))
 		print(colored("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing", "blue"))
+		print(colored("gdown https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing --fuzzy", "blue"))
 	
 	NUM_TRAIN = 64 * 1800
 	NUM_VALIDATE = 64 * 300
