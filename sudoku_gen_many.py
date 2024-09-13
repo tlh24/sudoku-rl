@@ -12,6 +12,16 @@ from itertools import product
 import random, copy
 import os 
 
+def makePuzzle(j): # argument is ignored.
+	S = 9
+	if S == 9:
+		k = np.random.randint(20) + 25 # how many positions to blank.
+	if S == 4:
+		k = np.random.randint(4) + 5
+	sudoku = Sudoku(S, k)
+	sudoku.fillValues()
+	return torch.tensor(sudoku.mat)
+
 def generatePuzzles(N=500000,S=9):
 	'''
 	Generate puzzles following Tim's puzzle generation code 
@@ -19,15 +29,6 @@ def generatePuzzles(N=500000,S=9):
 	# the naive sudoku generator is slow. 
 	# parallelize and save the results for fast loading later.
 	x = torch.zeros(N, S, S)
-
-	def makePuzzle(j): # argument is ignored.
-		if S == 9:
-			k = np.random.randint(20) + 25 # how many positions to blank.
-		if S == 4:
-			k = np.random.randint(4) + 5
-		sudoku = Sudoku(S, k)
-		sudoku.fillValues()
-		return torch.tensor(sudoku.mat)
 
 	pool = Pool() #defaults to number of available CPU's
 	chunksize = 1 # some puzzles require a lot of backtracking to fill, so keep small

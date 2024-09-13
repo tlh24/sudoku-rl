@@ -1,9 +1,10 @@
 import numpy as np
 import torch
 from termcolor import colored
+from multiprocessing import Pool
 from type_file import Action, Axes, getActionName
 from sudoku_gen import Sudoku
-from constants import SuN,SuK,g_dtype
+from constants import SuN,SuK,g_dtype,token_cnt
 import sparse_encoding
 import pdb
 
@@ -105,6 +106,50 @@ def enumerateActionList():
 
 	return action_types,action_values
 
+def enumerateActions(arg):
+	i_p, puzzl = arg
+	action_types,action_values = enumerateActionList()
+	n_actions = len(action_types) # 13
+	n_curspos = 3
+	n_masks = 3
+	sudoku = Sudoku(SuN, SuK)
+	sn = n_actions * n_masks * n_curspos
+	i = 0
+	# print(f"new tensor size {sn} {token_cnt} 32")
+	# !!! torch does not work with multiprocessing !!!
+	orig_boards_l = np.zeros((sn, token_cnt, 32), dtype=np.float16)
+	new_boards_l = np.zeros((sn, token_cnt, 32), dtype=np.float16)
+	rewards_l = np.zeros((sn,), dtype=np.float16)
+	for i_m in range(n_masks):
+		# move half the clues to guesses (on average)
+		# to force generalization over both!
+		mask = np.random.randint(0,2, (SuN,SuN)) == 1
+		# mask = np.zeros((SuN,SuN))
+		guess_mat = puzzl * mask
+		puzzl_mat = puzzl * (1-mask)
+		for i_c in range(n_curspos):
+			curs_pos = np.random.randint(0, SuN, (2,))
+			# for half the boards, select only open positions.
+			if (i_c + i_m*3)%2 == 1:
+				while puzzl[curs_pos[0], curs_pos[1]] > 0:
+					curs_pos = np.random.randint(0, SuN, (2,), dtype=int)
+			for i_a in range(n_actions):
+				mask = np.random.randint(0,2, (SuN,SuN)) == 1
+				# mask = np.zeros((SuN,SuN))
+				guess_mat = puzzl * mask
+				puzzl_mat = puzzl * (1-mask)
+				at,av = action_types[i_a], action_values[i_a]
+
+				benc,newbenc,coo,a2a,reward,reward_loc = \
+					encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, at, av )
+				orig_boards_l[i] = benc.astype(np.float16)
+				new_boards_l[i] = newbenc.astype(np.float16)
+				rewards_l[i] = reward
+				if i % 100 == 99:
+					print(".", end = "", flush=True)
+				i = i + 1
+	return (orig_boards_l, new_boards_l, rewards_l)
+
 
 def enumerateBoards(puzzles):
 	# changing the strategy: for each board, do all possible actions.
@@ -113,61 +158,78 @@ def enumerateBoards(puzzles):
 	n_actions = len(action_types) # 13
 	n_curspos = 3
 	n_masks = 3
-	n_puzzles = 1536 # 1024, 1280 1536 2048
+	n_puzzles = 512 # 1024, 1280 1536 2048
 	n = n_actions * n_masks * n_curspos * n_puzzles
 	
 	try:
 		orig_board_enc = torch.load(f'orig_board_enc_{n}.pt',weights_only=True)
 		new_board_enc = torch.load(f'new_board_enc_{n}.pt',weights_only=True)
 		rewards_enc = torch.load(f'rewards_enc_{n}.pt',weights_only=True)
-		# need to get the coo, a2a, etc variables - so run one encoding.
-		n_puzzles = 1
+		n = 1
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
 		print("generating random board, action, board', reward")
 
-	sudoku = Sudoku(SuN, SuK)
-	orig_boards = []
-	new_boards = []
-	rewards = torch.zeros(n, dtype=g_dtype)
-	i = 0
-	for i_p in range(n_puzzles): 
-		puzzl = puzzles[i_p, :, :].numpy()
-		for i_m in range(3): 
-			# move half the clues to guesses (on average)
-			# to force generalization over both!
-			mask = np.random.randint(0,2, (SuN,SuN)) == 1
-			# mask = np.zeros((SuN,SuN))
-			guess_mat = puzzl * mask
-			puzzl_mat = puzzl * (1-mask)
-			for i_c in range(3): 
-				curs_pos = torch.randint(SuN, (2,), dtype=int)
-				# for half the boards, select only open positions.
-				if (i_c + i_m*3)%2 == 1: 
-					while puzzl[curs_pos[0], curs_pos[1]] > 0:
-						curs_pos = torch.randint(SuN, (2,), dtype=int)
-				for i_a in range(n_actions):
-					mask = np.random.randint(0,2, (SuN,SuN)) == 1
-					# mask = np.zeros((SuN,SuN))
-					guess_mat = puzzl * mask
-					puzzl_mat = puzzl * (1-mask)
-					at,av = action_types[i_a], action_values[i_a]
+	if n > 1:
+		orig_board_enc = np.zeros((n, token_cnt, 32), dtype=np.float16)
+		new_board_enc = np.zeros((n, token_cnt, 32), dtype=np.float16)
+		rewards_enc = np.zeros((n,), dtype=np.float16)
 
-					benc,newbenc,coo,a2a,reward,reward_loc = \
-						encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, at, av )
-					orig_boards.append(benc)
-					new_boards.append(newbenc)
-					rewards[i] = reward
-					if i % 1000 == 999:
-						print(".", end = "", flush=True)
-					i = i + 1
+		sn = n_actions * n_masks * n_curspos
+		args = []
+		for i in range(n_puzzles):
+			args.append((i, puzzles[i].numpy()))
+		chunksize = 1
+		pool = Pool() #defaults to number of available CPU's
+		for ind, res in enumerate(pool.imap_unordered(enumerateActions, args, chunksize)):
+		# for ind in range(n_puzzles):
+			# res = enumerateActions(args[ind])
+			orig_boards_l, new_boards_l, rewards_l = res
+			orig_board_enc[sn*ind:sn*(ind+1),:,:] = orig_boards_l
+			new_board_enc[sn*ind:sn*(ind+1),:,:] = new_boards_l
+			rewards_enc[sn*ind:sn*(ind+1)] = rewards_l
 
-	if n_puzzles > 1: 
-		orig_board_enc = torch.stack(orig_boards)
-		new_board_enc = torch.stack(new_boards)
-		rewards_enc = rewards
+		orig_board_enc = torch.from_numpy(orig_board_enc)
+		new_board_enc = torch.from_numpy(new_board_enc)
+		rewards_enc = torch.from_numpy(rewards_enc)
+
+		print("saving the generated boards")
 		torch.save(orig_board_enc, f'orig_board_enc_{n}.pt')
 		torch.save(new_board_enc, f'new_board_enc_{n}.pt')
 		torch.save(rewards_enc, f'rewards_enc_{n}.pt')
+
+
+	# for i_p in range(n_puzzles):
+	# 	puzzl = puzzles[i_p, :, :].numpy()
+	# 	for i_m in range(3):
+	# 		# move half the clues to guesses (on average)
+	# 		# to force generalization over both!
+	# 		mask = np.random.randint(0,2, (SuN,SuN)) == 1
+	# 		# mask = np.zeros((SuN,SuN))
+	# 		guess_mat = puzzl * mask
+	# 		puzzl_mat = puzzl * (1-mask)
+	# 		for i_c in range(3):
+	# 			curs_pos = torch.randint(SuN, (2,), dtype=int)
+	# 			# for half the boards, select only open positions.
+	# 			if (i_c + i_m*3)%2 == 1:
+	# 				while puzzl[curs_pos[0], curs_pos[1]] > 0:
+	# 					curs_pos = torch.randint(SuN, (2,), dtype=int)
+	# 			for i_a in range(n_actions):
+	# 				mask = np.random.randint(0,2, (SuN,SuN)) == 1
+	# 				# mask = np.zeros((SuN,SuN))
+	# 				guess_mat = puzzl * mask
+	# 				puzzl_mat = puzzl * (1-mask)
+	# 				at,av = action_types[i_a], action_values[i_a]
+ #
+	# 				benc,newbenc,coo,a2a,reward,reward_loc = \
+	# 					encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, at, av )
+	# 				orig_boards.append(benc)
+	# 				new_boards.append(newbenc)
+	# 				rewards[i] = reward
+	# 				if i % 1000 == 999:
+	# 					print(".", end = "", flush=True)
+	# 				i = i + 1
+
+	# if n_puzzles > 1:
 
 	return orig_board_enc, new_board_enc, rewards_enc

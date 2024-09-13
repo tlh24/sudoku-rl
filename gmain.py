@@ -167,6 +167,10 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		else: 
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 		
+		# expand the boards to 64
+		old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float()
+		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float()
+
 		pred_data = {}
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()

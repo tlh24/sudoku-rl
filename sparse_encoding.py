@@ -241,7 +241,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 		print(f'expect {token_cnt}, encoded {i} tokens')
 		pdb.set_trace()
 	
-	board_loc = torch.zeros((SuN,SuN),dtype=int)
+	board_loc = np.zeros((SuN,SuN),dtype=int)
 	if full_board:
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column
@@ -283,7 +283,7 @@ def encodeNodes(nodes):
 		nodes_flat = n.flatten(nodes_flat)
 	count = len(nodes_flat)
 	assert(i == count)
-	benc = np.zeros((count, world_dim))
+	benc = np.zeros((count, 32))
 	for n in nodes_flat: 
 		i = n.loc # must be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
@@ -309,7 +309,7 @@ def encodeNodes(nodes):
 				benc[i,10+vi] = 1.0
 		
 	coo,a2a = nodesToCoo(nodes)
-	return torch.tensor(benc, dtype=g_dtype), coo, a2a
+	return benc, coo, a2a
 	
 def encodeActionNodes(action_type, action_value): 
 	# action nodes are at the beginning of the board encoding, 
@@ -322,8 +322,8 @@ def decodeNodes(indent, benc, locs):
 	# prints the output; returns nothing.
 	posOffset = (SuN - 1) / 2.0
 	board_loc,cursor_loc = locs
-	puzzle = torch.zeros((SuN, SuN), dtype = int)
-	guess_mat = torch.zeros((SuN, SuN), dtype = int)
+	puzzle = np.zeros((SuN, SuN), dtype = int)
+	guess_mat = np.zeros((SuN, SuN), dtype = int)
 	xo = Axes.X_AX.value
 	yo = Axes.Y_AX.value
 	go = Axes.G_AX.value
