@@ -39,7 +39,7 @@ class LinearNobias(nn.Module):
 		
 	def forward(self, x):
 		return torch.einsum('oi,bhi -> bho', self.w[:, :-1], x)
-		# einsum might be slower than mm
+		# einsum is slower than mm (!)
 
 class ResidualAttentionBlock(nn.Module): 
 	def __init__(self, d_model: int, n_head: int):
@@ -48,20 +48,20 @@ class ResidualAttentionBlock(nn.Module):
 		init_zeros = False
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wq = LinearM(d_model, n_head*d_model, init_zeros) # constant init works fine, just a bit slower. 
-		self.wv = LinearM(d_model, 2*n_head*d_model, init_zeros)
-		#self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros) 
-		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
+		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
+		# self.wqv = LinearM(d_model, 3*n_head*d_model, init_zeros)
+		# for wqv, constant init works fine (!), just a bit slower.
+		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
 		
 		self.l1a_s = l1attn_sparse_bidi_cuda.L1AttnSparseBidi()
 		self.l1a_f = l1attn_cuda.L1Attn()
-		self.soft = torch.nn.Softmax(dim=2) # unused with L1 attn
-		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		# self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		self.fanout = nn.Linear(d_model, d_model)
 		self.gelu = QuickGELU()
 		# self.gelu = nn.ReLU() # slightly worse, unlike the l1-attn example.
 		# self.fanin = nn.Linear(d_model * 3, d_model)
 		
-	def attention(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
+	def attention(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
 		# x is [batch, tokens, d_model]
@@ -69,11 +69,9 @@ class ResidualAttentionBlock(nn.Module):
 		ntok = x.shape[1]
 		width = x.shape[2]
 		
-		q = self.wq(x)
-		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
-		v = self.wv(x)
-		v = torch.reshape(v, (batch_size, ntok, 2*self.n_head, d_head))
-		vf,vb = torch.split(v, self.n_head, 2)
+		v = self.wqv(x)
+		v = torch.reshape(v, (batch_size, ntok, 3*self.n_head, d_head))
+		q,vf,vb = torch.split(v, self.n_head, 2)
 		
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
@@ -96,7 +94,7 @@ class ResidualAttentionBlock(nn.Module):
 			# add in e^0=1 as a 'noop' option
 			# (hence max attention is 0.5, not 1)
 			# output is b,src,dst,heads
-			a = F.softmax(a, 1) # see l1attn.py -- sm over src FIXME 1
+			a = F.softmax(a, 1) # see l1attn.py -- sm over src
 			a = a[:, :ntok, :ntok, :] # remove noop
 			bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
 			bb = torch.einsum('bdsh, bshw -> bdhw', a, vb)
@@ -141,10 +139,8 @@ class ResidualAttentionBlock(nn.Module):
 		 
 		return b # residual sum later.
 
-	def forward(self, x:torch.Tensor, hcoo:list, n:int, layer:int, pas:int, record=list):
-		y = self.attention(x,hcoo,n,layer,pas,record)
-		if record is not None: 
-			record.append( y )
+	def forward(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
+		y = self.attention(x,hcoo,layer,pas)
 		# y = self.fanout(y)
 		y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
 		# y = self.gelu(y)
@@ -162,10 +158,10 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head) for _ in range(layers)])
 
-	def forward(self, x:torch.Tensor, hcoo:list, n:int, record:list):
+	def forward(self, x:torch.Tensor, hcoo:list):
 		for i in range(self.repeat): 
 			for j, layer in enumerate(self.resblocks):
 				# linearly encode the repeat position on all tokens. 
 				x[:,:,0] = i*2
-				x = layer(x,hcoo,n,j,i,record)
+				x = layer(x,hcoo,j,i)
 		return x

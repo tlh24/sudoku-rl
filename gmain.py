@@ -175,7 +175,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()
 			new_state_preds = \
-				model.forward(old_board, hcoo, uu, None)
+				model.forward(old_board, hcoo)
 			reward_preds = new_state_preds[:,reward_loc, 32+Axes.R_AX.value]
 			pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 					  		'rewards': rewards*5, 'reward_preds': reward_preds,
@@ -190,7 +190,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			# psgd library internally does loss.backwards and zero grad
 			def closure():
 				nonlocal pred_data
-				new_state_preds = model.forward(old_board, hcoo, uu, None)
+				new_state_preds = model.forward(old_board, hcoo)
 				reward_preds = new_state_preds[:,reward_loc, 32+Axes.R_AX.value]
 				pred_data = {'old_board':old_board, 'new_board':new_board, 'new_state_preds':new_state_preds,
 								'rewards': rewards*5, 'reward_preds': reward_preds,
@@ -232,7 +232,7 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu, inverse_wm=False
 			else:
 				old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 
-			new_state_preds = model.forward(old_board, hcoo, uu, None)
+			new_state_preds = model.forward(old_board, hcoo)
 			reward_preds = new_state_preds[:,reward_loc, 32+26]
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
 			lloss = loss.detach().cpu().item()

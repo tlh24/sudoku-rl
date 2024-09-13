@@ -56,14 +56,12 @@ class Gracoonizer(nn.Module):
 			# simple MLP, as a control.
 			self.xfrmr = NetDenoise(token_cnt * world_dim)
 	
-	def forward(self, benc, hcoo, n, record): 
+	def forward(self, benc, hcoo):
 		'''
 		Given an input board, returns another board (whose shape is identical to the input board) 
 		'''
-		if record is not None: 
-			record.append(actenc)
 		if self.mode == 0: 
-			y = self.xfrmr(benc,hcoo,n,record)
+			y = self.xfrmr(benc,hcoo)
 		elif self.mode == 1: 
 			y = self.xfrmr(benc)
 		else: 
