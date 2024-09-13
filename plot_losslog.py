@@ -109,6 +109,7 @@ while cont:
 	ax.set_title('Log Loss Comparison')
 	ax.legend()
 
+	fig.tight_layout()
 	if matplotlib.get_backend() == 'Agg':
 		# Save plot to PNG file when in non-interactive mode
 		output_file = 'plot_losslog.png'
@@ -116,8 +117,6 @@ while cont:
 		print(f"Plot saved to {output_file}")
 		cont = False
 	else:
-		# Tight layout and draw
-		fig.tight_layout()
 		fig.canvas.draw()
 		fig.canvas.flush_events()
 		time.sleep(2)
