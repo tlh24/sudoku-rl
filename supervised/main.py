@@ -80,7 +80,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=10000, help='Number of epochs.')
     parser.add_argument('--val_interval', type=int, default=10, help='Compute validation accuracy for how many number of epochs.')
     parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate')
 
     parser.add_argument('--load_best', action='store_true')
     parser.add_argument('--evaluate', action='store_true')
