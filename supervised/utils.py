@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 import torch
 import logging
+import os 
+from os import makedirs
 
 
 def isValidSudoku(board) -> bool:
