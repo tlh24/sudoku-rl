@@ -48,15 +48,20 @@ class ResidualAttentionBlock(nn.Module):
 		init_zeros = False
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
+		self.wq = LinearM(d_model, n_head*d_model, init_zeros) # constant init works fine, just a bit slower.
+		self.wv = LinearM(d_model, 2*n_head*d_model, init_zeros)
+		#self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros)
+		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
+
+		# self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		# self.wqv = LinearM(d_model, 3*n_head*d_model, init_zeros)
 		# for wqv, constant init works fine (!), just a bit slower.
 		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
 		
 		self.l1a_s = l1attn_sparse_bidi_cuda.L1AttnSparseBidi()
 		self.l1a_f = l1attn_cuda.L1Attn()
-		# self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
-		self.fanout = nn.Linear(d_model, d_model)
+		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		# self.fanout = nn.Linear(d_model, d_model)
 		self.gelu = QuickGELU()
 		# self.gelu = nn.ReLU() # slightly worse, unlike the l1-attn example.
 		# self.fanin = nn.Linear(d_model * 3, d_model)
@@ -69,9 +74,15 @@ class ResidualAttentionBlock(nn.Module):
 		ntok = x.shape[1]
 		width = x.shape[2]
 		
-		v = self.wqv(x)
-		v = torch.reshape(v, (batch_size, ntok, 3*self.n_head, d_head))
-		q,vf,vb = torch.split(v, self.n_head, 2)
+		q = self.wq(x)
+		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
+		v = self.wv(x)
+		v = torch.reshape(v, (batch_size, ntok, 2*self.n_head, d_head))
+		vf,vb = torch.split(v, self.n_head, 2)
+
+		# v = self.wqv(x)
+		# v = torch.reshape(v, (batch_size, ntok, 3*self.n_head, d_head))
+		# q,vf,vb = torch.split(v, self.n_head, 2)
 		
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
