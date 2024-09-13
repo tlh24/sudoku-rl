@@ -60,8 +60,6 @@ class Gracoonizer(nn.Module):
 		'''
 		Given an input board, returns another board (whose shape is identical to the input board) 
 		'''
-		batch_size = benc.shape[0]
-		board_size = benc.shape[1]
 		if record is not None: 
 			record.append(actenc)
 		if self.mode == 0: 

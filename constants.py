@@ -1,6 +1,6 @@
 import torch
 
-n_heads = 6
+n_heads = 8
 world_dim = 64 #
 xfrmr_dim = 64 # default: 128
 reward_dim = 1 # immediate and infinite-horizon
