@@ -193,6 +193,9 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		else: 
 			old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 		
+		# expand the boards to 64
+		old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float()
+		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float()
 		pred_data = {}
 		if optimizer_name != 'psgd': 
 			optimizer.zero_grad()
@@ -674,7 +677,7 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	try: 
-		puzzles = torch.load(f'puzzles_{SuN}_50000.pt',weights_only=True)
+		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
 	except Exception as error:
 		print(colored(f"could not load model checkpoint {error}", "red"))
 		print("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing")
