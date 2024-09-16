@@ -159,7 +159,7 @@ def updateMemory(memory_dict, pred_dict):
 def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, uu, inverse_wm=False):
 	''' this trains the *world model* on random actions placed
 	on random boards '''
-	model.train()
+	# model.train()
 	for batch_indx, batch_data in enumerate(train_loader):
 		if inverse_wm: 
 			# transpose: predict the old board from the new board
@@ -231,6 +231,10 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu, inverse_wm=False
 				new_board, old_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 			else:
 				old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
+
+			# expand the boards to 64
+			old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float()
+			new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float()
 
 			new_state_preds = model.forward(old_board, hcoo)
 			reward_preds = new_state_preds[:,reward_loc, 32+26]
@@ -700,7 +704,7 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=3, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
 	model.printParamCount()
 	
 	# movement predictor

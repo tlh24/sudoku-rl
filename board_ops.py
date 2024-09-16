@@ -198,38 +198,4 @@ def enumerateBoards(puzzles):
 		torch.save(new_board_enc, f'new_board_enc_{n}.pt')
 		torch.save(rewards_enc, f'rewards_enc_{n}.pt')
 
-
-	# for i_p in range(n_puzzles):
-	# 	puzzl = puzzles[i_p, :, :].numpy()
-	# 	for i_m in range(3):
-	# 		# move half the clues to guesses (on average)
-	# 		# to force generalization over both!
-	# 		mask = np.random.randint(0,2, (SuN,SuN)) == 1
-	# 		# mask = np.zeros((SuN,SuN))
-	# 		guess_mat = puzzl * mask
-	# 		puzzl_mat = puzzl * (1-mask)
-	# 		for i_c in range(3):
-	# 			curs_pos = torch.randint(SuN, (2,), dtype=int)
-	# 			# for half the boards, select only open positions.
-	# 			if (i_c + i_m*3)%2 == 1:
-	# 				while puzzl[curs_pos[0], curs_pos[1]] > 0:
-	# 					curs_pos = torch.randint(SuN, (2,), dtype=int)
-	# 			for i_a in range(n_actions):
-	# 				mask = np.random.randint(0,2, (SuN,SuN)) == 1
-	# 				# mask = np.zeros((SuN,SuN))
-	# 				guess_mat = puzzl * mask
-	# 				puzzl_mat = puzzl * (1-mask)
-	# 				at,av = action_types[i_a], action_values[i_a]
- #
-	# 				benc,newbenc,coo,a2a,reward,reward_loc = \
-	# 					encodeBoard(sudoku, puzzl_mat, guess_mat, curs_pos, at, av )
-	# 				orig_boards.append(benc)
-	# 				new_boards.append(newbenc)
-	# 				rewards[i] = reward
-	# 				if i % 1000 == 999:
-	# 					print(".", end = "", flush=True)
-	# 				i = i + 1
-
-	# if n_puzzles > 1:
-
 	return orig_board_enc, new_board_enc, rewards_enc
