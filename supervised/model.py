@@ -87,9 +87,9 @@ class Trainer:
 				avg_avg_acc = np.mean(batch_accs)
 				avg_solve_rate = total_num_solved/total_puzzles
 
-                print(f"Epoch {epoch + 1}/{self.config.num_epochs}, Val Loss: {avg_val_loss:.4f}\
-                        Avg Solve Rate {avg_solve_rate:.3f} Val Avg Avg Acc: {avg_avg_acc:.4f}")
-                self.logger.info(f"Epoch {epoch + 1}/{self.config.num_epochs} Avg Solve Rate {avg_solve_rate:.3f} Val Acc: {avg_avg_acc:.3f}")
+				print(f"Epoch {epoch + 1}/{self.config.num_epochs}, Val Loss: {avg_val_loss:.4f}\
+						Avg Solve Rate {avg_solve_rate:.3f} Val Avg Avg Acc: {avg_avg_acc:.4f}")
+				self.logger.info(f"Epoch {epoch + 1}/{self.config.num_epochs} Avg Solve Rate {avg_solve_rate:.3f}")
 
 				# Save the best model
 				if avg_solve_rate > best_solve_rate or avg_val_loss < best_loss:
