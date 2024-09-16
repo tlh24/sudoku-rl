@@ -3,8 +3,9 @@ import mmap
 import numpy as np
 import torch as th
 import argparse
+import matplotlib
 import matplotlib.pyplot as plt
-from ctypes import * # for c_char
+from ctypes import c_char
 import time
 import os
 import io
@@ -65,14 +66,18 @@ if __name__ == "__main__":
 	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
 	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
 
+	if "DISPLAY" not in os.environ:
+		print("No X11 server detected, switching to non-interactive Agg backend")
+		matplotlib.use('Agg')  # Use non-interactive backend
+
 	if mode == 0: 
 		plot_rows = 2
 		plot_cols = 3
-		figsize = (12, 6)
+		# figsize = (12, 6)
 	if mode == 1: 
 		plot_rows = 4
 		plot_cols = 9
-		figsize = (32, 12)
+	figsize = (32, 12)
 	plt.ion()
 	plt.rcParams['toolbar'] = 'toolbar2'
 	fig, axs = plt.subplots(plot_rows, plot_cols, figsize=figsize)
@@ -84,8 +89,7 @@ if __name__ == "__main__":
 	base_dir = os.path.basename(current_directory)
 	fig.canvas.manager.set_window_title(f'plot_mmap {base_dir}')
 
-
-	def plot_tensor(r, c, v, name, lo, hi, colorbar=True):
+	def plotTensor(r, c, v, name, lo, hi, colorbar=True):
 		if not initialized:
 			cmap_name = 'PuRd' # purple-red
 			if lo == -1*hi:
@@ -109,8 +113,9 @@ if __name__ == "__main__":
 	mask = torch.zeros(token_cnt, world_dim)
 	mask[:,:32] = 1.0; 
 	lines = None
+	cont = True
 
-	while True:
+	while cont:
 		# i = np.random.randint(batch_size) # checking
 		i = 0
 			
@@ -131,21 +136,17 @@ if __name__ == "__main__":
 			
 			guess = 10 + torch.argmax(new_board[i,0,10:20])
 			
-			plot_tensor(0, 0, new_board[i,:cl,:].T, f"new_board[{i},:,:]", -4.0, 4.0)
+			plotTensor(0, 0, new_board[i,:cl,:32].T, f"new_board[{i},:,:32]", -4.0, 4.0)
 			if lines is not None: 
 				lines.pop(0).remove()
 			lines = axs[0,0].plot([0,4,0,0,cl-1],[6,6,6,guess,guess], 'g', alpha=0.4)
-			plot_tensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
-			plot_tensor(0, 1, new_board[i,:cl,:].T - board[i,:cl,:].T, f"(new_board -  board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
-			plot_tensor(0, 2, (boardp[i,:cl,33:].T - new_board[i,:cl,1:32].T), f"(board_pred - new_board)[{i},:,:]", -4.0, 4.0)
-			# if not initialized: 
-			# 	axs[0,2].plot([0,token_cnt-1],[21,21], 'g', alpha=0.4) # make easier
-			# plot_tensor(0, 2, reward[:,:], f"reward[{i},:,:]", -2.0, 2.0)
-			plot_tensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
+			plotTensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
+			plotTensor(0, 1, new_board[i,:cl,:32].T - board[i,:cl,:32].T, f"(new_board -  board)[{i},:,:32]", -4.0, 4.0)
+			plotTensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
+			plotTensor(0, 2, (boardp[i,:cl,33:].T - new_board[i,:cl,1:32].T), f"(board_pred - new_board)[{i},:,:32]", -4.0, 4.0)
+			plotTensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
 			
 		if mode == 1: 
-			
 			attention = read_mmap(fd_attention, [2, token_cnt, token_cnt, n_heads])
 			wqkv = read_mmap(fd_wqkv, [2,n_heads,2*xfrmr_dim,xfrmr_dim])
 
@@ -155,7 +156,7 @@ if __name__ == "__main__":
 					# j = layer*n_heads + head
 					# maxattn[j] = maxattn[j] * 0.97 + th.max(x) * 0.03
 					# x = x / maxattn[j]
-					plot_tensor(layer+0, head, x, f"attention[{layer},:,:,{head}]", -1.0, 1.0, colorbar=False)
+					plotTensor(layer+0, head, x, f"attention[{layer},:,:,{head}]", -1.0, 1.0, colorbar=False)
 					
 				for head in range(n_heads): 
 					x = wqkv[layer,head,:,:]
@@ -163,7 +164,7 @@ if __name__ == "__main__":
 					maxqkv[head] = th.clamp(th.abs(maxqkv[head]), 0.01, 1e6)
 					x = x.T / maxqkv[head]
 					
-					plot_tensor(layer+2, head, x, f"wqv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
+					plotTensor(layer+2, head, x, f"wqv[{layer},{head},:,:]", -1.0, 1.0, colorbar=False)
 					# if not initialized: 
 					# 	axs[layer+2,head].plot([19.5, 19.5], [0.0, 19.5], 'g')
 					if head == 0: 
@@ -173,18 +174,20 @@ if __name__ == "__main__":
 		
 		
 		fig.tight_layout()
-		fig.canvas.draw()
-		fig.canvas.flush_events()
-		print(f"tock {maxerr} {sumerr}")
-		if maxerr > 1.0 and False:
-			time.sleep(60.0)
+		if matplotlib.get_backend() == 'Agg':
+			# Save plot to PNG file when in non-interactive mode
+			output_file = 'plot_mmap.png'
+			fig.savefig(output_file)
+			print(f"Plot saved to {output_file}")
+			cont = False
 		else:
-			time.sleep(4.0)
+			fig.canvas.draw()
+			fig.canvas.flush_events()
+			print(f"tock {maxerr} {sumerr}")
+			if maxerr > 1.0 and False:
+				time.sleep(60.0)
+			else:
+				time.sleep(4.0)
 		initialized=True
 		u = u + 1
-		
-		# if reward[i,0,-1] - rewardp[i,0,-1] > 0.9: 
-		# 	print('paused!')
-		# 	update = False
-			
 
