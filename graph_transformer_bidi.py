@@ -48,24 +48,32 @@ class ResidualAttentionBlock(nn.Module):
 		init_zeros = False
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wq = LinearM(d_model, n_head*d_model, init_zeros) # constant init works fine, just a bit slower.
+		self.wq = LinearM(d_model, n_head*d_model, init_zeros)
+			# constant init works fine, just a bit slower.
 		self.wv = LinearM(d_model, 2*n_head*d_model, init_zeros)
-		#self.wqv = LinearM(d_model, n_head*2*d_model, init_zeros)
-		self.wk = torch.nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
+		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
+		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
 
 		# self.wqv = nn.Linear(d_model, 3*n_head*d_model)
-		# self.wqv = LinearM(d_model, 3*n_head*d_model, init_zeros)
+		# initWeights(self.wqv)
 		# for wqv, constant init works fine (!), just a bit slower.
-		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
+		# self.fanout = nn.Linear(d_model, d_model)
+		# initWeights(self.wqv)
 		
 		self.l1a_s = l1attn_sparse_bidi_cuda.L1AttnSparseBidi()
 		self.l1a_f = l1attn_cuda.L1Attn()
-		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
-		# self.fanout = nn.Linear(d_model, d_model)
+
 		self.gelu = QuickGELU()
 		# self.gelu = nn.ReLU() # slightly worse, unlike the l1-attn example.
 		# self.fanin = nn.Linear(d_model * 3, d_model)
 		
+	def initWeights(self, module):
+		if isinstance(module, nn.Linear):
+			torch.nn.init.normal_(module.weight, mean=0.0, std=0.005)
+			if module.bias is not None:
+					torch.nn.init.zeros_(module.bias)
+
+	@torch.compile
 	def attention(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
@@ -150,6 +158,7 @@ class ResidualAttentionBlock(nn.Module):
 		 
 		return b # residual sum later.
 
+	@torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		y = self.attention(x,hcoo,layer,pas)
 		# y = self.fanout(y)
@@ -169,6 +178,7 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head) for _ in range(layers)])
 
+	@torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list):
 		for i in range(self.repeat): 
 			for j, layer in enumerate(self.resblocks):
