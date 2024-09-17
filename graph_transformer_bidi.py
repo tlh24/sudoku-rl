@@ -116,7 +116,7 @@ class ResidualAttentionBlock(nn.Module):
 			bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
 			bb = torch.einsum('bdsh, bshw -> bdhw', a, vb)
 			b = bf + bb
-		elif layer % len(hcoo) == 3:
+		elif layer % len(hcoo) == len(hcoo)-1:
 			# extract all global / all-to-all tokens
 			# could also do this with pure sparse attn.. will have to compare.
 			a2a = hcoo[3]
