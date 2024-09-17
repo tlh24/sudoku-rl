@@ -651,8 +651,9 @@ def expandCoordinateVector(coo, a2a):
 	parents2kids = parents2kids.cuda()
 	self2self = self2self.cuda()
 	all2all = all2all.cuda()
-	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
-		(self2self, dst_mxlen_s2s), all2all]
+	# hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+	# 	(self2self, dst_mxlen_s2s), all2all]
+	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), all2all]
 
 	return hcoo
 
@@ -705,7 +706,7 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=6, repeat=5, mode=0).to(device)
 	model.printParamCount()
 	
 	# movement predictor
