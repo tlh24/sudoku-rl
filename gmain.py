@@ -259,6 +259,10 @@ def validate(args, model, test_loader, optimzer_name, hcoo, uu, inverse_wm=False
 			else:
 				old_board, new_board, rewards = [t.to(args["device"]) for t in batch_data.values()]
 
+			# expand the boards to 64
+			old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float()
+			new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float()
+
 			new_state_preds = model.forward(old_board, hcoo, uu, None)
 			reward_preds = new_state_preds[:,reward_loc, 32+26]
 			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
