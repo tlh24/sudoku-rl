@@ -687,7 +687,7 @@ if __name__ == '__main__':
 		print(colored("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing", "blue"))
 		print(colored("> gdown https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing --fuzzy", "blue"))
 	
-	NUM_ITERS = 100000
+	NUM_ITERS = 200000
 	device = torch.device('cuda:0') 
 	# use export CUDA_VISIBLE_DEVICES=1
 	# to switch to another GPU
@@ -734,7 +734,7 @@ if __name__ == '__main__':
 				# Filter out directories and only keep files
 				files = [f for f in files if os.path.isfile(f)]
 				if not files:
-					print(colored(f"could not load {prefix} model checkpoint {error}", "red"))
+					print(colored(f"could not load {prefix} model checkpoint", "red"))
 					raise ValueError("No models found in the checkpoint directory")
 				# Find the most recently modified file
 				latest_file = max(files, key=os.path.getmtime)
