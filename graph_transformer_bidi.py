@@ -71,7 +71,7 @@ class ResidualAttentionBlock(nn.Module):
 			if module.bias is not None:
 					torch.nn.init.zeros_(module.bias)
 
-	@torch.compile
+
 	def attention(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
@@ -119,7 +119,7 @@ class ResidualAttentionBlock(nn.Module):
 		elif layer % len(hcoo) == len(hcoo)-1:
 			# extract all global / all-to-all tokens
 			# could also do this with pure sparse attn.. will have to compare.
-			a2a = hcoo[3]
+			a2a = hcoo[len(hcoo)-1]
 			a2len = a2a.shape[0]
 			q = q[:,a2a,:,:]
 			k = k[:,a2a,:,:]
@@ -156,7 +156,7 @@ class ResidualAttentionBlock(nn.Module):
 		 
 		return b # residual sum later.
 
-	@torch.compile
+	# @torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		y = self.attention(x,hcoo,layer,pas)
 		# y = self.fanout(y)
@@ -176,7 +176,7 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head) for _ in range(layers)])
 
-	@torch.compile
+	# @torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list):
 		for i in range(self.repeat): 
 			for j, layer in enumerate(self.resblocks):
