@@ -240,8 +240,9 @@ def generateInitialBoard(percent_filled=0.75):
 
 	def run(num_given_cells, iter=1):
 		'''
-		Attempts to create a puzzle with num_given_cells, but if it can't returns puzzle
-			as close to that and larger in set of iter puzzles generated
+		Attempts to create a puzzle with num_given_cells,
+		but if it can't returns puzzle
+		as close to that and larger in set of iter puzzles generated
 		'''
 		all_results = {}
 	#     print "Constructing a sudoku puzzle."
@@ -262,7 +263,7 @@ def generateInitialBoard(percent_filled=0.75):
 		# the one with the fewest "givens".
 		return set_of_puzzles[min(set_of_puzzles.keys())][0]
 
-	def pluck(puzzle, n=0):
+	def pluck(puzzle, num_given_cells):
 		"""
 		Answers the question: can the cell (i,j) in the puzzle "puz" contain the number
 		in cell (ii,jj)? """
@@ -286,7 +287,7 @@ def generateInitialBoard(percent_filled=0.75):
 		but not before checking that the cell can still be deduced from the remaining cells. """
 		cells     = set(range(81))
 		cellsleft = cells.copy()
-		while len(cells) > n and len(cellsleft):
+		while len(cells) > num_given_cells and len(cellsleft):
 			cell = random.choice(list(cellsleft)) # choose a cell from ones we haven't tried
 			cellsleft.discard(cell) # record that we are trying this cell
 			# row, col and square record whether another cell in those groups could also take

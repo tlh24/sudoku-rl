@@ -113,7 +113,7 @@ def sudokuActionNodes(action_type, action_value):
 			assert(False)
 	return na
 		
-def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
+def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float, many_reward=False):
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
 
@@ -133,7 +133,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 		ncursor.setAxVal( Axes.H_AX, 0.0 )
 	nodes.append(ncursor)
 	
-	# reward token (used for reward prediction)
+	# reward token (used for one-step reward prediction)
 	nreward = Node(Types.REWARD)
 	nreward.setAxVal( Axes.R_AX, reward*5 )
 	nodes.append(nreward)
@@ -218,6 +218,17 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 					if b == bb: 
 						nb.addChild( board_nodes[x][y] )
 			bsets.addChild(nb)
+
+	# add in at the end.
+	if many_reward:
+		axes = [Axes.X_AX, Axes.Y_AX]
+		dirs = [-1, 1]
+		for ax in axes:
+			for d in dirs:
+				nr = Node(Types.REWARD)
+				nr.setAxVal( Axes.R_AX, 0.0 ) # fill this in later.
+				nr.setAxVal( ax, d )
+				nodes.append(nr)
 	
 	# set the node indexes.
 	# some nodes are in the top-level list; others are just children.
@@ -226,9 +237,11 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	assert(i == token_cnt)
+	if i > token_cnt:
+		print(f'expect {token_cnt}, encoded {i} tokens')
+		pdb.set_trace()
 	
-	board_loc = torch.zeros((SuN,SuN),dtype=int)
+	board_loc = np.zeros((SuN,SuN),dtype=int)
 	if full_board:
 		for x in range(SuN): # x = row
 			for y in range(SuN): # y = column
@@ -270,7 +283,7 @@ def encodeNodes(nodes):
 		nodes_flat = n.flatten(nodes_flat)
 	count = len(nodes_flat)
 	assert(i == count)
-	benc = np.zeros((count, world_dim))
+	benc = np.zeros((count, 32))
 	for n in nodes_flat: 
 		i = n.loc # must be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
@@ -296,7 +309,7 @@ def encodeNodes(nodes):
 				benc[i,10+vi] = 1.0
 		
 	coo,a2a = nodesToCoo(nodes)
-	return torch.tensor(benc, dtype=g_dtype), coo, a2a
+	return benc, coo, a2a
 	
 def encodeActionNodes(action_type, action_value): 
 	# action nodes are at the beginning of the board encoding, 
@@ -309,8 +322,8 @@ def decodeNodes(indent, benc, locs):
 	# prints the output; returns nothing.
 	posOffset = (SuN - 1) / 2.0
 	board_loc,cursor_loc = locs
-	puzzle = torch.zeros((SuN, SuN), dtype = int)
-	guess_mat = torch.zeros((SuN, SuN), dtype = int)
+	puzzle = np.zeros((SuN, SuN), dtype = int)
+	guess_mat = np.zeros((SuN, SuN), dtype = int)
 	xo = Axes.X_AX.value
 	yo = Axes.Y_AX.value
 	go = Axes.G_AX.value

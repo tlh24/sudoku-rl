@@ -1,0 +1,78 @@
+# General settings
+ngpus: 1
+#tokens: 729 #encode trajs as series of digit placement actions
+tokens: 50257
+
+# Training settings
+training:
+  batch_size: 16
+  accum: 1
+  n_iters: 1300001
+  snapshot_freq: 10000 #50000
+  log_freq: 50
+  eval_freq: 100
+  snapshot_freq_for_preemption: 10000
+  weight: standard
+  snapshot_sampling: true
+  ema: 0.9999
+
+# Data settings
+data:
+  #is_hugging: false 
+  is_hugging: true
+  train: wikitext2
+  #train: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
+  #valid: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
+  valid: wikitext2
+  cache_dir: data 
+
+# Graph settings
+graph:
+  type: absorb
+  file: data
+  report_all: false
+
+# Noise settings
+noise:
+  type: loglinear
+  sigma_min: 0.0001
+  sigma_max: 20
+
+# Sampling settings
+sampling:
+  predictor: euler
+  steps: 128
+  noise_removal: true
+
+# Evaluation settings
+eval:
+  batch_size: 8
+  perplexity: true
+  perplexity_batch_size: 8
+
+# Optimization settings
+optim:
+  weight_decay: 0
+  optimizer: AdamW
+  lr: 0.0003
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1.0e-8
+  warmup: 2500
+  grad_clip: 1
+
+# Model settings
+model:
+  name: small
+  type: ddit
+  hidden_size: 768
+  cond_dim: 128
+  #length: 81
+  length: 1024
+  n_blocks: 12
+  n_heads: 12
+  scale_by_sigma: true
+  dropout: 0.1
+
+# Output directory (you may want to modify this as needed)
+output_dir: experiments

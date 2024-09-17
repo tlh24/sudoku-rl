@@ -299,39 +299,44 @@ def configure_optimizer(model, weight_decay, learning_rate, betas):
 
 
 class Sudoku_Dataset_SATNet(Dataset):
-    def __init__(self):
-        data = {}
-        data_to_path = {
-            'board': './satnet/features.pt',
-            'board_img': './satnet/features_img.pt',
-            'label': './satnet/labels.pt',
-            'perm': './satnet/perm.pt',
-        }
-        for k in data_to_path:
-            with open(data_to_path[k], 'rb') as f:
-                data[k] = torch.load(f)
-        # board has shape (10000, 81), 0's with no digits and 1-9 for digits
-        self.board = ((data['board'].sum(-1) != 0) * (data['board'].argmax(-1) + 1)).view(-1, 81).long() 
-        self.label = data['label'].argmax(-1).view(-1, 81).long() # (10000, 81)
-        self.label_ug = self.label.clone() # (10000, 81)
-        # label_ug is a label vector of indices(0-8 vs 1-9) of size 81 but all initially given digits are -100
-        self.label_ug[self.board != 0] = -100
+	def __init__(self):
+		data = {}
+		data_to_path = {
+			'board': './satnet/features.pt',
+			'board_img': './satnet/features_img.pt',
+			'label': './satnet/labels.pt',
+			'perm': './satnet/perm.pt',
+		}
+		for k in data_to_path:
+			try:
+				with open(data_to_path[k], 'rb') as f:
+					data[k] = torch.load(f)
+			except Exception as error:
+				print(f"could not find data file: {error}")
+				print("please download from https://github.com/azreasoners/recurrent_transformer")
+				exit()
+		# board has shape (10000, 81), 0's with no digits and 1-9 for digits
+		self.board = ((data['board'].sum(-1) != 0) * (data['board'].argmax(-1) + 1)).view(-1, 81).long()
+		self.label = data['label'].argmax(-1).view(-1, 81).long() # (10000, 81)
+		self.label_ug = self.label.clone() # (10000, 81)
+		# label_ug is a label vector of indices(0-8 vs 1-9) of size 81 but all initially given digits are -100
+		self.label_ug[self.board != 0] = -100
 
-    def __len__(self):
-        return len(self.board)
+	def __len__(self):
+		return len(self.board)
 
-    def __getitem__(self, idx):
-        """
-        Each data instance is a tuple <board, board_img, label, label_ug> where
-            board: a float tensor of shape (81) consisting of {0,...,9}
-            label_ug: a float tensor of shape (81) consisting of {0,...,8} and -100 denoting given cells
-        """
-        # return self.board[idx], self.board_img[idx], self.label[idx], self.label_ug[idx]
-        return self.board[idx], self.label_ug[idx]
+	def __getitem__(self, idx):
+		"""
+		Each data instance is a tuple <board, board_img, label, label_ug> where
+			board: a float tensor of shape (81) consisting of {0,...,9}
+			label_ug: a float tensor of shape (81) consisting of {0,...,8} and -100 denoting given cells
+		"""
+		# return self.board[idx], self.board_img[idx], self.label[idx], self.label_ug[idx]
+		return self.board[idx], self.label_ug[idx]
 
 
 def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+	random.seed(seed)
+	np.random.seed(seed)
+	torch.manual_seed(seed)
+	torch.cuda.manual_seed_all(seed)
