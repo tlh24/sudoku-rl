@@ -48,17 +48,16 @@ class ResidualAttentionBlock(nn.Module):
 		init_zeros = False
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wq = LinearM(d_model, n_head*d_model, init_zeros)
-			# constant init works fine, just a bit slower.
-		self.wv = LinearM(d_model, 2*n_head*d_model, init_zeros)
 		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
-		self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
+		# self.wq = LinearM(d_model, n_head*d_model, init_zeros)
+		# 	# constant init works fine, just a bit slower.
+		# self.wv = LinearM(d_model, 2*n_head*d_model, init_zeros)
+		# self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
 
-		# self.wqv = nn.Linear(d_model, 3*n_head*d_model)
-		# initWeights(self.wqv)
-		# for wqv, constant init works fine (!), just a bit slower.
-		# self.fanout = nn.Linear(d_model, d_model)
-		# initWeights(self.wqv)
+		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
+		self.initWeights(self.wqv)
+		self.fanout = nn.Linear(d_model, d_model)
+		self.initWeights(self.wqv)
 		
 		self.l1a_s = l1attn_sparse_bidi_cuda.L1AttnSparseBidi()
 		self.l1a_f = l1attn_cuda.L1Attn()
@@ -82,15 +81,15 @@ class ResidualAttentionBlock(nn.Module):
 		ntok = x.shape[1]
 		width = x.shape[2]
 		
-		q = self.wq(x)
-		q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
-		v = self.wv(x)
-		v = torch.reshape(v, (batch_size, ntok, 2*self.n_head, d_head))
-		vf,vb = torch.split(v, self.n_head, 2)
+		# q = self.wq(x)
+		# q = torch.reshape(q, (batch_size, ntok, self.n_head, d_head))
+		# v = self.wv(x)
+		# v = torch.reshape(v, (batch_size, ntok, 2*self.n_head, d_head))
+		# vf,vb = torch.split(v, self.n_head, 2)
 
-		# v = self.wqv(x)
-		# v = torch.reshape(v, (batch_size, ntok, 3*self.n_head, d_head))
-		# q,vf,vb = torch.split(v, self.n_head, 2)
+		v = self.wqv(x)
+		v = torch.reshape(v, (batch_size, ntok, 3*self.n_head, d_head))
+		q,vf,vb = torch.split(v, self.n_head, 2)
 		
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.

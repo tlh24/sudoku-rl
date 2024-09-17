@@ -28,7 +28,8 @@ from type_file import Action, Axes, getActionName
 from l1attn_sparse_cuda import expandCoo
 import anode
 import board_ops
-import psgd_20240912 as psgd
+# import psgd_20240912 as psgd
+import psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
