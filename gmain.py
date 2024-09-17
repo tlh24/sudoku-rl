@@ -651,9 +651,9 @@ def expandCoordinateVector(coo, a2a):
 	parents2kids = parents2kids.cuda()
 	self2self = self2self.cuda()
 	all2all = all2all.cuda()
-	# hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
-	# 	(self2self, dst_mxlen_s2s), all2all]
-	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), all2all]
+	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		(self2self, dst_mxlen_s2s), all2all]
+	# hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), all2all]
 
 	return hcoo
 
