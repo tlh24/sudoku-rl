@@ -56,7 +56,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.initWeights(self.wqv)
-		self.fanout = nn.Linear(d_model, d_model)
+		self.fanin = nn.Linear(d_model*n_head, d_model)
 		self.initWeights(self.wqv)
 		
 		self.l1a_s = l1attn_sparse_bidi_cuda.L1AttnSparseBidi()
@@ -64,7 +64,6 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.gelu = QuickGELU()
 		# self.gelu = nn.ReLU() # slightly worse, unlike the l1-attn example.
-		# self.fanin = nn.Linear(d_model * 3, d_model)
 		
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
@@ -152,8 +151,8 @@ class ResidualAttentionBlock(nn.Module):
 			b = self.l1a_s(vf,vb,q,k,coo,dst_mxlen,use_softmax)
 		ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		
-		b = torch.sum(b, dim=2) # sum along the heads
-		b = torch.reshape(b, (batch_size, ntok, self.d_model))
+		# b = torch.sum(b, dim=2) # sum along the heads
+		b = torch.reshape(b, (batch_size, ntok, self.d_model*self.n_head))
 		 
 		return b # residual sum later.
 
@@ -161,9 +160,9 @@ class ResidualAttentionBlock(nn.Module):
 	def forward(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		y = self.attention(x,hcoo,layer,pas)
 		# y = self.fanout(y)
-		y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
-		# y = self.gelu(y)
-		y = self.fanout(y) # allow sign inversions & mixing; no dim change
+		# y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
+		y = self.gelu(y)
+		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		# y = self.gelu(y) # this destroys performance! 
 		return x + y
 		
