@@ -75,8 +75,8 @@ if __name__ == "__main__":
 
 	puzzles = torch.from_numpy(puzzles)
 	solutions = torch.from_numpy(solutions)
-	coo = torch.from_numpy(coo)
-	a2a = torch.from_numpy(a2a)
+	coo = coo.to(args['device'])
+	a2a = a2a.to(args['device'])
 	print(f'loaded {fname}')
 
 	device = torch.device('cuda:0')
@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 
-	for uu in range(1000):
+	for uu in range(100000):
 		indx = np.random.choice(DATA_N, size=batch_size, replace=False)
 		batch_indx = torch.from_numpy(indx)
 		old_board = puzzles[batch_indx, :, :]
