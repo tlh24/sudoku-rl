@@ -724,6 +724,9 @@ if __name__ == '__main__':
 		optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
+	fd_losslog = open(f'losslog_{getGitCommitHash()}.txt', 'w')
+	args['fd_losslog'] = fd_losslog
+
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
 	else:
@@ -786,8 +789,6 @@ if __name__ == '__main__':
 		# get the locations of the reward node.
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
 
-		fd_losslog = open('losslog.txt', 'w')
-		args['fd_losslog'] = fd_losslog
 		trainPolicy(rollouts_board, rollouts_reward, 300000, memory_dict, model, mfun, hcoo, hcoo_m, reward_loc, locs, "mouseizer")
 
 	if cmd_args.q > 0:
@@ -862,14 +863,10 @@ if __name__ == '__main__':
 		# get the locations of the board nodes.
 		_,reward_loc,locs = sparse_encoding.sudokuToNodes(torch.zeros(9,9),torch.zeros(9,9),torch.zeros(2,dtype=int),0,0,0.0)
 
-		fd_losslog = open('losslog.txt', 'w')
-		args['fd_losslog'] = fd_losslog
 		trainQfun(rollouts_parent_board, rollouts_reward, rollouts_action, 1300000, memory_dict, model, qfun, hcoo, reward_loc, locs, "quailizer")
 
 	if cmd_args.t:
 		uu = 0
-		fd_losslog = open('losslog.txt', 'w')
-		args['fd_losslog'] = fd_losslog
 		while uu < NUM_ITERS:
 			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu, cmd_args.inverse_wm)
  
