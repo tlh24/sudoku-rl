@@ -148,6 +148,5 @@ if __name__ == "__main__":
 		lloss = loss.detach().cpu().item()
 		print('v',lloss)
 		lloss = loss.detach().cpu().item()
-		print(lloss)
 
 		uu = uu + 1
