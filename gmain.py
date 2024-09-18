@@ -704,7 +704,7 @@ if __name__ == '__main__':
 	memory_dict = getMemoryDict()
 	
 	# define model 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=6, repeat=5, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
 	model.printParamCount()
 	
 	# movement predictor
