@@ -61,7 +61,10 @@ if __name__ == "__main__":
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
+	VALID_N = DATA_N//10
+	TRAIN_N = DATA_N - VALID_N
 	batch_size = 64
+
 	fname = f"satnet_enc_{DATA_N}.npz"
 	try:
 		file = np.load(fname)
@@ -77,6 +80,12 @@ if __name__ == "__main__":
 	solutions = torch.from_numpy(solutions)
 	coo = torch.from_numpy(coo)
 	a2a = torch.from_numpy(a2a)
+
+	indx = torch.randperm(DATA_N)
+	puzzles_train = puzzles[indx[:-VALID_N],:,:]
+	solutions_train = solutions[indx[:-VALID_N],:,:]
+	puzzles_valid = puzzles[indx[-VALID_N:],:,:]
+	solutions_valid = solutions[indx[-VALID_N:],:,:]
 	print(f'loaded {fname}')
 
 	device = torch.device('cuda:0')
@@ -100,11 +109,11 @@ if __name__ == "__main__":
 
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 
-	for uu in range(100000):
-		indx = np.random.choice(DATA_N, size=batch_size, replace=False)
+	for uu in range(1000):
+		indx = np.random.choice(TRAIN_N, size=batch_size, replace=False)
 		batch_indx = torch.from_numpy(indx)
-		old_board = puzzles[batch_indx, :, :]
-		new_board = solutions[batch_indx, :, :]
+		old_board = puzzles_train[batch_indx, :, :]
+		new_board = solutions_train[batch_indx, :, :]
 
 		old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
 		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
@@ -122,3 +131,23 @@ if __name__ == "__main__":
 		print(lloss)
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
+
+	# validate!
+	for j in range(VALID_N // batch_size):
+		batch_indx = torch.arange(j*batch_size, (j+1)*batch_size)
+
+		old_board = puzzles_valid[batch_indx, :, :]
+		new_board = solutions_valid[batch_indx, :, :]
+
+		old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
+		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
+
+		new_state_preds = model.forward(old_board, hcoo)
+		loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
+
+		lloss = loss.detach().cpu().item()
+		print('v',lloss)
+		lloss = loss.detach().cpu().item()
+		print(lloss)
+
+		uu = uu + 1
