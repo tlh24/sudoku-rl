@@ -109,7 +109,7 @@ if __name__ == "__main__":
 
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 
-	for uu in range(1000):
+	for uu in range(50000):
 		indx = np.random.choice(TRAIN_N, size=batch_size, replace=False)
 		batch_indx = torch.from_numpy(indx)
 		old_board = puzzles_train[batch_indx, :, :]
