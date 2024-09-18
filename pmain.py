@@ -75,8 +75,8 @@ if __name__ == "__main__":
 
 	puzzles = torch.from_numpy(puzzles)
 	solutions = torch.from_numpy(solutions)
-	coo = coo.to(args['device'])
-	a2a = a2a.to(args['device'])
+	coo = torch.from_numpy(coo)
+	a2a = torch.from_numpy(a2a)
 	print(f'loaded {fname}')
 
 	device = torch.device('cuda:0')
