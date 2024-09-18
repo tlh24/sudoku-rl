@@ -4,6 +4,7 @@ import torch
 import subprocess
 import sys
 import select
+from termcolor import colored
 
 def set_seed(seed):
 	random.seed(seed)
@@ -28,7 +29,7 @@ def getGitCommitHash():
 switch_to_validation = False
 # Function to monitor input in a non-blocking way
 def monitorInput():
-	print('Press Enter to stop training and switch to validation')
+	print(colored('Press Enter to stop training and switch to validation','green'))
 	global switch_to_validation
 	while not switch_to_validation:
 		if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:

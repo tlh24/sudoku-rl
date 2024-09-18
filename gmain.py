@@ -4,6 +4,7 @@ import argparse
 import time
 import os
 import sys
+import threading
 import glob # for file filtering
 import numpy as np
 import torch
@@ -34,9 +35,6 @@ import psgd
 import utils
 # from diffusion.data import getBaselineDataloaders
 # from diffusion.model import GPTConfig, GPT
-
-# Flag to indicate switching to validation
-switch_to_validation = False
 
 class SudokuDataset(Dataset):
 	'''
@@ -219,7 +217,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 			updateMemory(memory_dict, pred_data)
 			pass 
 
-		if switch_to_validation:
+		if utils.switch_to_validation:
 			break
 	
 	return uu
@@ -874,7 +872,7 @@ if __name__ == '__main__':
 
 	if cmd_args.t:
 		uu = 0
-		while uu < NUM_ITERS and (not switch_to_validation):
+		while uu < NUM_ITERS and (not utils.switch_to_validation):
 			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu, cmd_args.inverse_wm)
  
 		# print("validation")
