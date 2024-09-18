@@ -210,10 +210,10 @@ def convertToTorch(np_satnet_file):
 	torch.save(sols_tens, sol_filename)
 
 def genSATNetPuzzlesParallel(N, pct_fill):
-	pool = Pool() #defaults to number of available CPU's
-	chunksize = 10
 	puzzles = np.zeros((N, 9, 9), np.int8)
 	solutions = np.zeros((N, 9, 9), np.int8)
+	pool = Pool() #defaults to number of available CPU's
+	chunksize = 10
 	for ind, res in enumerate(pool.imap_unordered(generateSATNetPuzzles, range(N), chunksize)):
 		puzz,sol = res
 		puzzles[ind,:,:] = np.squeeze(puzz)

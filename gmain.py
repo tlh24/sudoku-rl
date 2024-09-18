@@ -703,7 +703,7 @@ if __name__ == '__main__':
 	# allocate memory
 	memory_dict = getMemoryDict()
 	
-	# define model 
+	# world model
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
 	model.printParamCount()
 	
