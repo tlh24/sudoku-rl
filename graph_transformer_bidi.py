@@ -167,8 +167,8 @@ class ResidualAttentionBlock(nn.Module):
 	def forward(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		y = self.attention(x,hcoo,layer,pas)
 		# y = self.fanout(y)
-		# y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
-		y = self.gelu(y)
+		y = self.gelu(y+SuN/2.0)-(SuN/2.0) # this nonlinearity is essential
+		# y = self.gelu(y)
 		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		# y = self.gelu(y) # this destroys performance! 
 		return x + y

@@ -223,9 +223,8 @@ def genSATNetPuzzlesParallel(N, pct_fill):
 
 if __name__ == "__main__":
 	# generatePuzzles()
-	genSATNetPuzzlesParallel(100000, 0.75)
-
-
-	#vizSatNetFile("satnet_both_0.9_filled_10000.npz")
+	N = 10000
+	genSATNetPuzzlesParallel(N, 0.75)
+	vizSatNetFile(f"satnet_both_0.75_filled_{N}.npz")
 	#convertToTorch("satnet_both_0.75_filled_10000.npz")
 
