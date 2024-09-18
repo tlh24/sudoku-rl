@@ -31,7 +31,7 @@ import psgd
 	# https://sites.google.com/site/lixilinx/home/psgd
 	# https://github.com/lixilinx/psgd_torch/issues/2
 
-from utils import set_seed
+import utils
 # from diffusion.data import getBaselineDataloaders
 # from diffusion.model import GPTConfig, GPT
 
@@ -724,7 +724,7 @@ if __name__ == '__main__':
 		optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = getOptimizer(optimizer_name, model)
 
-	fd_losslog = open(f'losslog_{getGitCommitHash()}.txt', 'w')
+	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
 	if cmd_args.c: 

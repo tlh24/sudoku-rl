@@ -37,7 +37,7 @@ def generatePuzzles(N=500000,S=9):
     
 	torch.save(x, f'puzzles_{S}_{N}.pt')
 
-def generateSATNetPuzzles(num_puzzles, percent_filled=0.75):
+def generateSATNetPuzzles(num_puzzles=1, percent_filled=0.75):
 	'''
 	Generates 9x9 sudoku boards and their solutions. Adaped from https://github.com/Kyubyong/sudoku
 	'''
@@ -151,48 +151,40 @@ def generateSATNetPuzzles(num_puzzles, percent_filled=0.75):
 
 
 	num_given_cells = int(81*percent_filled)
-	quizzes = np.zeros((num_puzzles, 9, 9), np.int32)
-	solutions = np.zeros((num_puzzles, 9, 9), np.int32)
 
-	for i in range(num_puzzles):
-		all_results, solution = run(num_given_cells, iter=10)
-		quiz = best(all_results)
-		
-		quizzes[i] = quiz
-		solutions[i] = solution
+	all_results, solution = run(num_given_cells, iter=10)
+	puzzle = best(all_results)
 
-		if (i+1) % 1000 == 0:
-			print(i+1)
-			np.savez(f'satnet_both_{percent_filled}_filled_{num_puzzles}.npz', quizzes=quizzes, solutions=solutions)
+	return puzzle,solution
 
 def savePuzzles():
 	'''
 	From SATNet's Sudoku code generation source, save 100,000 puzzles and solutions
 		https://github.com/Kyubyong/sudoku
 	'''
-	quizzes = np.zeros((100000, 81), np.int32)
+	puzzles = np.zeros((100000, 81), np.int32)
 	solutions = np.zeros((100000, 81), np.int32)
 	for i, line in enumerate(open('data/sudoku.csv', 'r').read().splitlines()[1:]):
 		if i == 100000:
 			break 
 
-		quiz, solution = line.split(",")
-		for j, q_s in enumerate(zip(quiz, solution)):
+		puzzle, solution = line.split(",")
+		for j, q_s in enumerate(zip(puzzle, solution)):
 			q, s = q_s
-			quizzes[i, j] = q
+			puzzles[i, j] = q
 			solutions[i, j] = s
-	quizzes = quizzes.reshape((-1, 9, 9))
+	puzzles = puzzles.reshape((-1, 9, 9))
 	solutions = solutions.reshape((-1, 9, 9))
 
-	quizzes_tens = torch.from_numpy(quizzes)
+	puzzles_tens = torch.from_numpy(puzzles)
 	solutions_tens = torch.from_numpy(solutions)
-	torch.save(quizzes_tens, "satnet_puzzles_100k.pt")
+	torch.save(puzzles_tens, "satnet_puzzles_100k.pt")
 	torch.save(solutions_tens, "satnet_sols_100k.pt")
 
 
 def vizSatNetFile(file_name="satnet_both_0.75_filled_10000.npz"):
 	file = np.load(file_name)
-	puzzles = file["quizzes"]
+	puzzles = file["puzzles"]
 	sols = file["solutions"]
 
 	for i in range(5):
@@ -208,7 +200,7 @@ def convertToTorch(np_satnet_file):
 		np_satnet_file: (str) is of form f'satnet_both_{percent_filled}_filled_{num_puzzles}.npz'
 	'''
 	file = np.load(np_satnet_file)
-	puzzles = file["quizzes"]
+	puzzles = file["puzzles"]
 	sols = file["solutions"]
 	puzzles_tens, sols_tens = torch.from_numpy(puzzles), torch.from_numpy(sols)
 	new_filename = os.path.splitext(np_satnet_file)[0] + '.pt'
@@ -217,9 +209,23 @@ def convertToTorch(np_satnet_file):
 	torch.save(puzzles_tens, puzzle_filename)
 	torch.save(sols_tens, sol_filename)
 
+def genSATNetPuzzlesParallel(N, pct_fill):
+	pool = Pool() #defaults to number of available CPU's
+	chunksize = 10
+	puzzles = np.zeros((N, 9, 9), np.int8)
+	solutions = np.zeros((N, 9, 9), np.int8)
+	for ind, res in enumerate(pool.imap_unordered(generateSATNetPuzzles, range(N), chunksize)):
+		puzz,sol = res
+		puzzles[ind,:,:] = np.squeeze(puzz)
+		solutions[ind,:,:] = np.squeeze(sol)
+	percent_filled = 0.75
+	np.savez(f'satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
+
 if __name__ == "__main__":
 	# generatePuzzles()
-	generateSATNetPuzzles(50000, 0.75)
+	genSATNetPuzzlesParallel(100000, 0.75)
+
+
 	#vizSatNetFile("satnet_both_0.9_filled_10000.npz")
 	#convertToTorch("satnet_both_0.75_filled_10000.npz")
 

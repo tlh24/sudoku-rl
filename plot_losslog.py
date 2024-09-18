@@ -7,18 +7,22 @@ import time
 import os
 import argparse
 import sys
+import utils
 # import sklearn
 
 plot_rows = 1
 plot_cols = 1
 figsize = (7 , 4)
 plt.ion()
+plt.rcParams['font.size'] = 18
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 initialized = False
 
 current_directory = os.getcwd()
 base_dir = os.path.basename(current_directory)
 fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
+
+git_commit_hash = utils.getGitCommitHash()
 
 # parser = argparse.ArgumentParser(description="Plot a txt file of losses")
 # parser.add_argument('-f', type=str, default="./losslog.txt", help='which file to read')
@@ -75,8 +79,8 @@ while cont:
 
 	# Add labels, title, and legend
 	ax.set(xlabel='iteration / batch #', ylabel='log loss')
-	ax.set_title('Log Loss Comparison')
-	ax.legend()
+	ax.set_title(f'Log Loss Comparison {git_commit_hash}',fontsize=18)
+	ax.legend(fontsize=16)
 
 	fig.tight_layout()
 	if matplotlib.get_backend() == 'Agg':
