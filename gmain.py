@@ -35,7 +35,8 @@ import utils
 # from diffusion.data import getBaselineDataloaders
 # from diffusion.model import GPTConfig, GPT
 
-# sys.path.insert(0, "baseline/")
+# Flag to indicate switching to validation
+switch_to_validation = False
 
 class SudokuDataset(Dataset):
 	'''
@@ -217,6 +218,9 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 		if batch_indx % 25 == 0:
 			updateMemory(memory_dict, pred_data)
 			pass 
+
+		if switch_to_validation:
+			break
 	
 	return uu
 	
@@ -687,7 +691,7 @@ if __name__ == '__main__':
 		print(colored("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing", "blue"))
 		print(colored("> gdown https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing --fuzzy", "blue"))
 	
-	NUM_ITERS = 200000
+	NUM_ITERS = 100000
 	device = torch.device('cuda:0') 
 	# use export CUDA_VISIBLE_DEVICES=1
 	# to switch to another GPU
@@ -726,6 +730,9 @@ if __name__ == '__main__':
 
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
+
+	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
+	input_thread.start()
 
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
@@ -867,7 +874,7 @@ if __name__ == '__main__':
 
 	if cmd_args.t:
 		uu = 0
-		while uu < NUM_ITERS:
+		while uu < NUM_ITERS and (not switch_to_validation):
 			uu = train(args, memory_dict, model, train_dataloader, optimizer, hcoo, reward_loc, uu, cmd_args.inverse_wm)
  
 		# print("validation")

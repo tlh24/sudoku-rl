@@ -3,7 +3,6 @@ import argparse
 import time
 import os
 import sys
-import select
 import threading
 import glob # for file filtering
 import numpy as np
@@ -27,18 +26,6 @@ import utils
 
 # Flag to indicate switching to validation
 switch_to_validation = False
-
-# Function to monitor input in a non-blocking way
-def monitorInput():
-	print('Press Enter to stop training and switch to validation')
-	global switch_to_validation
-	while not switch_to_validation:
-		# Non-blocking check for input
-		if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-			input()  # Consume the input to reset stdin
-			print("\nKey pressed! Switching to validation...")
-			switch_to_validation = True
-
 
 def encodeSudoku(puzz):
 	nodes, _ = sparse_encoding.puzzleToNodes(puzz)
@@ -127,7 +114,7 @@ if __name__ == "__main__":
 
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 
-	input_thread = threading.Thread(target=monitorInput, daemon=True)
+	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
 
 	for uu in range(50000):
