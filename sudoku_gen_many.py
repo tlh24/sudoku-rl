@@ -214,17 +214,21 @@ def genSATNetPuzzlesParallel(N, pct_fill):
 	solutions = np.zeros((N, 9, 9), np.int8)
 	pool = Pool() #defaults to number of available CPU's
 	chunksize = 10
-	for ind, res in enumerate(pool.imap_unordered(generateSATNetPuzzles, range(N), chunksize)):
+	for ind, res in enumerate(pool.imap_unordered(lambda: generateSATNetPuzzles(1,pct_fill), range(N), chunksize)):
 		puzz,sol = res
 		puzzles[ind,:,:] = np.squeeze(puzz)
 		solutions[ind,:,:] = np.squeeze(sol)
-	percent_filled = 0.75
-	np.savez(f'satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
+	np.savez(f'satnet_both_{pct_fill}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
 
 if __name__ == "__main__":
 	# generatePuzzles()
-	N = 10000
+	N = 100000
 	genSATNetPuzzlesParallel(N, 0.75)
 	vizSatNetFile(f"satnet_both_0.75_filled_{N}.npz")
+	genSATNetPuzzlesParallel(N, 0.5)
+	vizSatNetFile(f"satnet_both_0.5_filled_{N}.npz")
+	genSATNetPuzzlesParallel(N, 0.25) # 'hard'
+	vizSatNetFile(f"satnet_both_0.25_filled_{N}.npz")
+
 	#convertToTorch("satnet_both_0.75_filled_10000.npz")
 

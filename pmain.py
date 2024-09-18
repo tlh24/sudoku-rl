@@ -3,6 +3,8 @@ import argparse
 import time
 import os
 import sys
+import select
+import threading
 import glob # for file filtering
 import numpy as np
 import torch
@@ -23,13 +25,28 @@ import gmain
 import utils
 
 
+# Flag to indicate switching to validation
+switch_to_validation = False
+
+# Function to monitor input in a non-blocking way
+def monitorInput():
+	print('Press Enter to stop training and switch to validation')
+	global switch_to_validation
+	while not switch_to_validation:
+		# Non-blocking check for input
+		if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+			input()  # Consume the input to reset stdin
+			print("\nKey pressed! Switching to validation...")
+			switch_to_validation = True
+
+
 def encodeSudoku(puzz):
 	nodes, _ = sparse_encoding.puzzleToNodes(puzz)
 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
 	return benc, coo, a2a
 
-def encodeSudokuAll(N):
-	dat = np.load(f'satnet_both_0.75_filled_{N}.npz')
+def encodeSudokuAll(N, percent_filled):
+	dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
 	puzzles = dat['puzzles']
 	solutions = dat['solutions']
 	N = puzzles.shape[0]
@@ -51,7 +68,7 @@ def encodeSudokuAll(N):
 		if i % 1000 == 999:
 			print(".", end='', flush=True)
 
-	np.savez(f"satnet_enc_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
+	np.savez(f"satnet_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 
 	return puzz_enc, sol_enc, coo, a2a
 
@@ -61,25 +78,26 @@ if __name__ == "__main__":
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
+	percent_filled = 0.75
 	VALID_N = DATA_N//10
 	TRAIN_N = DATA_N - VALID_N
 	batch_size = 64
 
-	fname = f"satnet_enc_{DATA_N}.npz"
+	fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
 	try:
 		file = np.load(fname)
 		puzzles = file["puzzles"]
 		solutions = file["solutions"]
 		coo = file["coo"]
 		a2a = file["a2a"]
+		coo = torch.from_numpy(coo)
+		a2a = torch.from_numpy(a2a)
 	except Exception as error:
 		print(error)
-		puzzles, solutions, coo, a2a = encodeSudokuAll(DATA_N)
+		puzzles, solutions, coo, a2a = encodeSudokuAll(DATA_N, percent_filled)
 
 	puzzles = torch.from_numpy(puzzles)
 	solutions = torch.from_numpy(solutions)
-	coo = torch.from_numpy(coo)
-	a2a = torch.from_numpy(a2a)
 
 	indx = torch.randperm(DATA_N)
 	puzzles_train = puzzles[indx[:-VALID_N],:,:]
@@ -109,6 +127,9 @@ if __name__ == "__main__":
 
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 
+	input_thread = threading.Thread(target=monitorInput, daemon=True)
+	input_thread.start()
+
 	for uu in range(50000):
 		indx = np.random.choice(TRAIN_N, size=batch_size, replace=False)
 		batch_indx = torch.from_numpy(indx)
@@ -132,6 +153,9 @@ if __name__ == "__main__":
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
 
+		if switch_to_validation:
+			break
+
 	# validate!
 	for j in range(VALID_N // batch_size):
 		batch_indx = torch.arange(j*batch_size, (j+1)*batch_size)
@@ -147,6 +171,7 @@ if __name__ == "__main__":
 
 		lloss = loss.detach().cpu().item()
 		print('v',lloss)
-		lloss = loss.detach().cpu().item()
+		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
+		args["fd_losslog"].flush()
 
 		uu = uu + 1
