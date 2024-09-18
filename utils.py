@@ -1,6 +1,7 @@
 import random 
 import numpy as np 
 import torch 
+import subprocess
 
 def set_seed(seed):
     random.seed(seed)
