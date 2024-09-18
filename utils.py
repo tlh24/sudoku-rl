@@ -25,7 +25,7 @@ def getGitCommitHash():
 	else:
 		raise RuntimeError(f"Error running git command: {result.stderr}")
 
-
+switch_to_validation = False
 # Function to monitor input in a non-blocking way
 def monitorInput():
 	print('Press Enter to stop training and switch to validation')

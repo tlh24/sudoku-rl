@@ -24,9 +24,6 @@ import gmain
 import utils
 
 
-# Flag to indicate switching to validation
-switch_to_validation = False
-
 def encodeSudoku(puzz):
 	nodes, _ = sparse_encoding.puzzleToNodes(puzz)
 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
@@ -140,7 +137,7 @@ if __name__ == "__main__":
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
 
-		if switch_to_validation:
+		if utils.switch_to_validation:
 			break
 
 	# validate!
