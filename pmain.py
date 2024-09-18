@@ -114,11 +114,15 @@ if __name__ == "__main__":
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
 
+	bi = TRAIN_N
 	for uu in range(50000):
-		indx = np.random.choice(TRAIN_N, size=batch_size, replace=False)
-		batch_indx = torch.from_numpy(indx)
-		old_board = puzzles_train[batch_indx, :, :]
-		new_board = solutions_train[batch_indx, :, :]
+		if bi >= TRAIN_N:
+			batch_indx = torch.randperm(TRAIN_N)
+			bi = 0
+		indx = batch_indx[bi:bi+batch_size]
+		bi = bi + batch_size
+		old_board = puzzles_train[indx, :, :]
+		new_board = solutions_train[indx, :, :]
 
 		old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
 		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
