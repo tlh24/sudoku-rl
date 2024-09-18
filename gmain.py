@@ -3,6 +3,7 @@ import random
 import argparse
 import time
 import os
+import sys
 import glob # for file filtering
 import numpy as np
 import torch
@@ -21,9 +22,6 @@ from plot_mmap import make_mmf, write_mmap
 # from test_gtrans import getTestDataLoaders, SimpleMLP
 from constants import *
 # from tqdm import tqdm
-import time 
-import sys 
-import argparse 
 from type_file import Action, Axes, getActionName
 from l1attn_sparse_cuda import expandCoo
 import anode
@@ -651,9 +649,9 @@ def expandCoordinateVector(coo, a2a):
 	parents2kids = parents2kids.cuda()
 	self2self = self2self.cuda()
 	all2all = all2all.cuda()
-	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
-		(self2self, dst_mxlen_s2s), all2all]
-	# hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), all2all]
+	# hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
+		# (self2self, dst_mxlen_s2s), all2all]
+	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), "self", all2all]
 
 	return hcoo
 
@@ -666,7 +664,7 @@ def getLayerCoordinateVectors():
 	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(sudoku, np.zeros((9,9)), np.zeros((9,9)), np.zeros((2,), dtype=int), 0, 0, many_reward=False) # FIXME
 
 	hcoo_m = expandCoordinateVector(coo, a2a)
-	hcoo_m.append(None) # for dense attention.
+	hcoo_m.append('dense') # for dense attention.
 
 	return hcoo, hcoo_m, reward_loc
 

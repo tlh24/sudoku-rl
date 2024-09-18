@@ -112,7 +112,100 @@ def sudokuActionNodes(action_type, action_value):
 			print(action_type)
 			assert(False)
 	return na
-		
+
+def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None):
+	'''
+	Very simple version: encode the board as a set of box nodes
+	and set / set2 nodes.
+	'''
+	if guess_mat is None:
+		guess_mat = np.zeros((9,9), dtype=int)
+	if curs_pos is None:
+		curs_pos = np.ones((2,), dtype=int) * -1
+
+	nodes = []
+	board_nodes = [[] for _ in range(SuN)]
+
+	posOffset = (SuN - 1) / 2.0
+
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			b = (x // SuH)*SuH + (y // SuH)
+			v = puzzl_mat[x,y]
+			nb = Node(Types.BOX)
+			nb.setAxVal( Axes.N_AX, v )
+			g = guess_mat[x,y]
+			nb.setAxVal( Axes.G_AX, g )
+
+			# think of these as named attributes, var.x, var.y etc
+			# the original encoding is var.pos[0], var.pos[1], var.pos[2]
+			# can do a bit of both by encoding the axes with integers
+			nb.setAxVal( Axes.X_AX, x - posOffset )
+			nb.setAxVal( Axes.Y_AX, y - posOffset )
+			nb.setAxVal( Axes.B_AX, b - posOffset )
+
+			highlight = 0
+			if x == curs_pos[0] and y == curs_pos[1]:
+				highlight = 2
+			nb.setAxVal( Axes.H_AX, highlight )
+
+			board_nodes[x].append(nb)
+
+	xsets = Node(Types.SET2)
+	xsets.setAxVal( Axes.N_AX, 2)
+	nodes.append(xsets)
+	# nboard.addChild(xsets)
+	for x in range(SuN):
+		nb = Node(Types.SET)
+		nb.setAxVal( Axes.N_AX, 1)
+		nb.setAxVal( Axes.X_AX, x - posOffset )
+		highlight = 0
+		if x == curs_pos[0] :
+			highlight = -1
+		nb.setAxVal( Axes.H_AX, highlight )
+		for y in range(SuN):
+			nb.addChild( board_nodes[x][y] )
+		xsets.addChild(nb)
+
+	ysets = Node(Types.SET2)
+	ysets.setAxVal( Axes.N_AX, 4)
+	nodes.append(ysets)
+	# nboard.addChild(ysets)
+	for y in range(SuN):
+		nb = Node(Types.SET)
+		nb.setAxVal( Axes.N_AX, 3)
+		nb.setAxVal( Axes.Y_AX, y - posOffset )
+		highlight = 0
+		if y == curs_pos[1] :
+			highlight = -1
+		nb.setAxVal( Axes.H_AX, highlight )
+		for x in range(SuN):
+			nb.addChild( board_nodes[x][y] )
+		ysets.addChild(nb)
+
+	bsets = Node(Types.SET2)
+	bsets.setAxVal( Axes.N_AX, 6)
+	nodes.append(bsets)
+	# nboard.addChild(bsets)
+	for b in range(SuN):
+		nb = Node(Types.SET)
+		nb.setAxVal( Axes.N_AX, 5)
+		nb.setAxVal( Axes.B_AX, b - posOffset )
+		highlight = 0
+		bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
+		if b == bc :
+			highlight = -1
+		nb.setAxVal( Axes.H_AX, highlight )
+		for x in range(SuN): # x = row
+			for y in range(SuN): # y = column
+				bb = (x // SuH)*SuH + (y // SuH)
+				if b == bb:
+					nb.addChild( board_nodes[x][y] )
+		bsets.addChild(nb)
+
+	return nodes, board_nodes
+
+
 def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float, many_reward=False):
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
@@ -138,86 +231,8 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	nreward.setAxVal( Axes.R_AX, reward*5 )
 	nodes.append(nreward)
 	
-	full_board = True
-	board_nodes = [[] for _ in range(SuN)]
-	if full_board: 
-		for x in range(SuN): # x = row
-			for y in range(SuN): # y = column
-				b = (x // SuH)*SuH + (y // SuH)
-				v = puzzl_mat[x,y]
-				nb = Node(Types.BOX)
-				nb.setAxVal( Axes.N_AX, v )
-				g = guess_mat[x,y]
-				nb.setAxVal( Axes.G_AX, g )
-				
-				# think of these as named attributes, var.x, var.y etc
-				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
-				# can do a bit of both by encoding the axes with integers
-				nb.setAxVal( Axes.X_AX, x - posOffset )
-				nb.setAxVal( Axes.Y_AX, y - posOffset )
-				nb.setAxVal( Axes.B_AX, b - posOffset )
-				
-				highlight = 0
-				if x == curs_pos[0] and y == curs_pos[1]:
-					highlight = 2 
-				nb.setAxVal( Axes.H_AX, highlight )
-				
-				board_nodes[x].append(nb)
-		
-		# make the sets
-		# nboard = Node(Types.SET, 2) # node of the whole board
-		
-		xsets = Node(Types.SET2)
-		xsets.setAxVal( Axes.N_AX, 2)
-		nodes.append(xsets)
-		# nboard.addChild(xsets)
-		for x in range(SuN): 
-			nb = Node(Types.SET)
-			nb.setAxVal( Axes.N_AX, 1)
-			nb.setAxVal( Axes.X_AX, x - posOffset )
-			highlight = 0
-			if x == curs_pos[0] :
-				highlight = -1 
-			nb.setAxVal( Axes.H_AX, highlight )
-			for y in range(SuN): 
-				nb.addChild( board_nodes[x][y] )
-			xsets.addChild(nb)
-		
-		ysets = Node(Types.SET2)
-		ysets.setAxVal( Axes.N_AX, 4)
-		nodes.append(ysets)
-		# nboard.addChild(ysets)
-		for y in range(SuN): 
-			nb = Node(Types.SET)
-			nb.setAxVal( Axes.N_AX, 3)
-			nb.setAxVal( Axes.Y_AX, y - posOffset )
-			highlight = 0
-			if y == curs_pos[1] :
-				highlight = -1
-			nb.setAxVal( Axes.H_AX, highlight )
-			for x in range(SuN): 
-				nb.addChild( board_nodes[x][y] )
-			ysets.addChild(nb)
-			
-		bsets = Node(Types.SET2)
-		bsets.setAxVal( Axes.N_AX, 6)
-		nodes.append(bsets)
-		# nboard.addChild(bsets)
-		for b in range(SuN): 
-			nb = Node(Types.SET)
-			nb.setAxVal( Axes.N_AX, 5)
-			nb.setAxVal( Axes.B_AX, b - posOffset )
-			highlight = 0
-			bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
-			if b == bc :
-				highlight = -1
-			nb.setAxVal( Axes.H_AX, highlight )
-			for x in range(SuN): # x = row
-				for y in range(SuN): # y = column
-					bb = (x // SuH)*SuH + (y // SuH)
-					if b == bb: 
-						nb.addChild( board_nodes[x][y] )
-			bsets.addChild(nb)
+	nodes_b, board_nodes = puzzleToNodes(puzzl_mat, guess_mat, curs_pos)
+	nodes.extend(nodes_b)
 
 	# add in at the end.
 	if many_reward:
@@ -242,10 +257,9 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 		pdb.set_trace()
 	
 	board_loc = np.zeros((SuN,SuN),dtype=int)
-	if full_board:
-		for x in range(SuN): # x = row
-			for y in range(SuN): # y = column
-				board_loc[x,y] = board_nodes[x][y].loc
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			board_loc[x,y] = board_nodes[x][y].loc
 	cursor_loc = ncursor.loc
 	
 	return nodes, nreward.loc, (board_loc,cursor_loc)

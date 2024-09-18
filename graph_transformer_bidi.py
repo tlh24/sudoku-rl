@@ -56,7 +56,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.initWeights(self.wqv)
-		self.fanin = nn.Linear(d_model*n_head, d_model)
+		self.fanin = nn.Linear(d_model, d_model)
 		self.initWeights(self.wqv)
 		
 		self.l1a_s = l1attn_sparse_bidi_cuda.L1AttnSparseBidi()
@@ -98,7 +98,7 @@ class ResidualAttentionBlock(nn.Module):
 		k = k * wk # + bk # with bias to allow for centering.
 		
 		# cycle through the coo vectors.  
-		if hcoo[layer % len(hcoo)] is None:
+		if hcoo[layer % len(hcoo)] == 'dense':
 			# normal dense attention over all tokens
 			# pad out to BLKSIZ tokens (for CUDA kernel).
 			padn = ((ntok + 15) // 16) * 16 - ntok
@@ -116,9 +116,9 @@ class ResidualAttentionBlock(nn.Module):
 			bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
 			bb = torch.einsum('bdsh, bshw -> bdhw', a, vb)
 			b = bf + bb
-		elif layer % len(hcoo) == len(hcoo)-1:
-			# extract all global / all-to-all tokens
-			# could also do this with pure sparse attn.. will have to compare.
+		elif torch.is_tensor(hcoo[layer % len(hcoo)]):
+			# must be a global / top-level token coordinate vec
+			# extract these tokens and pass to dense l1 attn
 			a2a = hcoo[len(hcoo)-1]
 			a2len = a2a.shape[0]
 			q = q[:,a2a,:,:]
@@ -144,15 +144,22 @@ class ResidualAttentionBlock(nn.Module):
 			b = torch.zeros(batch_size, ntok, n_head, width, device=v.device)
 			indx = torch.arange(0, a2len, device=v.device)
 			b[:,a2a,:,:] = bf[:,indx,:,:] + bb[:,indx,:,:]
-		else: 
+		elif hcoo[layer % len(hcoo)] == 'self':
+			# token attends to itself.
+			# do it manually, no need for slow indexing in the sparse lib.
+			a = torch.abs(q - k).sum(dim=-1) / (-1*math.sqrt(self.d_model))
+			a = torch.exp(a)
+			a = a / (a+1) # softmax with a zero option
+			b = vf * a[..., None]
+		else:
 			# sparse attention.
 			coo,dst_mxlen = hcoo[layer % len(hcoo)] 
 			use_softmax = True 
 			b = self.l1a_s(vf,vb,q,k,coo,dst_mxlen,use_softmax)
 		ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		
-		# b = torch.sum(b, dim=2) # sum along the heads
-		b = torch.reshape(b, (batch_size, ntok, self.d_model*self.n_head))
+		b = torch.sum(b, dim=2) # sum along the heads
+		b = torch.reshape(b, (batch_size, ntok, self.d_model))
 		 
 		return b # residual sum later.
 
