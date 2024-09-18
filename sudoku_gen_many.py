@@ -37,7 +37,10 @@ def generatePuzzles(N=500000,S=9):
     
 	torch.save(x, f'puzzles_{S}_{N}.pt')
 
-def generateSATNetPuzzles(num_puzzles=1, percent_filled=0.75):
+# dumb global -- need it for multiprocessing.
+percent_filled = 0.75
+
+def generateSATNetPuzzles(_n):
 	'''
 	Generates 9x9 sudoku boards and their solutions. Adaped from https://github.com/Kyubyong/sudoku
 	'''
@@ -149,7 +152,7 @@ def generateSATNetPuzzles(num_puzzles=1, percent_filled=0.75):
 		# This is the puzzle we found, in all its glory.
 		return (puzzle, len(cells))
 
-
+	global percent_filled
 	num_given_cells = int(81*percent_filled)
 
 	all_results, solution = run(num_given_cells, iter=10)
@@ -209,16 +212,18 @@ def convertToTorch(np_satnet_file):
 	torch.save(puzzles_tens, puzzle_filename)
 	torch.save(sols_tens, sol_filename)
 
-def genSATNetPuzzlesParallel(N, pct_fill):
+def genSATNetPuzzlesParallel(N, pct_filled):
 	puzzles = np.zeros((N, 9, 9), np.int8)
 	solutions = np.zeros((N, 9, 9), np.int8)
+	global percent_filled
+	percent_filled = pct_filled
 	pool = Pool() #defaults to number of available CPU's
 	chunksize = 10
-	for ind, res in enumerate(pool.imap_unordered(lambda: generateSATNetPuzzles(1,pct_fill), range(N), chunksize)):
+	for ind, res in enumerate(pool.imap_unordered( generateSATNetPuzzles, range(N), chunksize)):
 		puzz,sol = res
 		puzzles[ind,:,:] = np.squeeze(puzz)
 		solutions[ind,:,:] = np.squeeze(sol)
-	np.savez(f'satnet_both_{pct_fill}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
+	np.savez(f'satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
 
 if __name__ == "__main__":
 	# generatePuzzles()
