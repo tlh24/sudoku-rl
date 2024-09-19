@@ -63,7 +63,7 @@ if __name__ == "__main__":
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
-	percent_filled = 0.75
+	percent_filled = 0.25
 	VALID_N = DATA_N//10
 	TRAIN_N = DATA_N - VALID_N
 	batch_size = 64
@@ -101,7 +101,7 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=6, mode=0).to(device)
 	model.printParamCount()
 
 	if cmd_args.a:
@@ -116,7 +116,7 @@ if __name__ == "__main__":
 	input_thread.start()
 
 	bi = TRAIN_N
-	for uu in range(50000):
+	for uu in range(70000):
 		if bi >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0
