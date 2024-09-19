@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
 	puzzles = []
 	solutions = []
-	for percent_filled in [0.85, 0.65, 0.35]:
+	for percent_filled in [0.85, ]:
 		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
 		try:
 			file = np.load(fname)
@@ -110,7 +110,7 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=12, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=4, repeat=5, mode=0).to(device)
 	model.printParamCount()
 
 	try:
