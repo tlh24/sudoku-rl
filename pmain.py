@@ -110,7 +110,8 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=5, repeat=5, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, \
+		n_heads=n_heads, n_layers=5, repeat=5, mode=0).to(device)
 	model.printParamCount()
 
 	try:
