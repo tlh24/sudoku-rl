@@ -119,7 +119,7 @@ class ResidualAttentionBlock(nn.Module):
 		elif torch.is_tensor(hcoo[layer % len(hcoo)]):
 			# must be a global / top-level token coordinate vec
 			# extract these tokens and pass to dense l1 attn
-			a2a = hcoo[len(hcoo)-1]
+			a2a = hcoo[layer % len(hcoo)]
 			a2len = a2a.shape[0]
 			q = q[:,a2a,:,:]
 			k = k[:,a2a,:,:]
