@@ -22,12 +22,13 @@ from l1attn_sparse_cuda import expandCoo
 import psgd
 import gmain
 import utils
+from sudoku_gen import Sudoku
 
 
 def encodeSudoku(puzz):
-	nodes, _ = sparse_encoding.puzzleToNodes(puzz)
+	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz)
 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
-	return benc, coo, a2a
+	return benc, coo, a2a, board_loc
 
 def encodeSudokuAll(N, percent_filled):
 	dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
@@ -39,8 +40,8 @@ def encodeSudokuAll(N, percent_filled):
 	sol_enc = np.zeros((N,111,32), dtype=np.float16)
 
 	for i in range(N):
-		puzz, coo, a2a = encodeSudoku(puzzles[i])
-		sol,_,_ = encodeSudoku(solutions[i])
+		puzz, coo, a2a, _ = encodeSudoku(puzzles[i])
+		sol,_,_,_ = encodeSudoku(solutions[i])
 		# fig,axs = plt.subplots(1, 2, figsize=(12,6))
 		# axs[0].imshow(puzz_enc.T)
 		# axs[1].imshow(sol_enc.T)
@@ -145,6 +146,10 @@ if __name__ == "__main__":
 			break
 
 	# validate!
+	_,_,_,board_loc = encodeSudoku(np.zeros((9,9)))
+	sudoku = Sudoku(9,60)
+	n_valid = 0
+	n_total = 0
 	for j in range(VALID_N // batch_size):
 		batch_indx = torch.arange(j*batch_size, (j+1)*batch_size)
 
@@ -162,4 +167,16 @@ if __name__ == "__main__":
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
 
+		# decode and check
+		for k in range(batch_size):
+			sol = sparse_encoding.decodeBoard(new_state_preds[k,:,:].squeeze(), board_loc)
+			sudoku.setMat(sol)
+			valid_cell = (sol > 0.95) * (sol < 9.05)
+			complete = np.prod(valid_cell)
+			if sudoku.checkIfValid() and complete > 0.5:
+				n_valid = n_valid + 1
+			n_total = n_total + 1
+
 		uu = uu + 1
+
+	print(f"Validation: vaild {n_valid} of {n_total}, {100.0*n_valid/n_total}")

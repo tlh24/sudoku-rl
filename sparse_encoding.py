@@ -203,7 +203,18 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None):
 					nb.addChild( board_nodes[x][y] )
 		bsets.addChild(nb)
 
-	return nodes, board_nodes
+	for n in nodes:
+		n.clearLoc()
+	i = 0
+	for n in nodes:
+		i = n.setLoc(i)
+
+	board_loc = np.zeros((SuN,SuN),dtype=int)
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			board_loc[x,y] = board_nodes[x][y].loc
+
+	return nodes, board_nodes, board_loc
 
 
 def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float, many_reward=False):
@@ -231,7 +242,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	nreward.setAxVal( Axes.R_AX, reward*5 )
 	nodes.append(nreward)
 	
-	nodes_b, board_nodes = puzzleToNodes(puzzl_mat, guess_mat, curs_pos)
+	nodes_b, board_nodes, _ = puzzleToNodes(puzzl_mat, guess_mat, curs_pos)
 	nodes.extend(nodes_b)
 
 	# add in at the end.
@@ -332,6 +343,13 @@ def encodeActionNodes(action_type, action_value):
 	aenc,_,_ = encodeNodes([na])
 	return aenc
 	
+def decodeBoard(benc, board_loc):
+	puzzle = np.zeros((SuN, SuN), dtype = int)
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			puzzle[x,y] = round(benc[board_loc[x,y], Axes.N_AX.value].item() )
+	return puzzle
+
 def decodeNodes(indent, benc, locs):
 	# prints the output; returns nothing.
 	posOffset = (SuN - 1) / 2.0
