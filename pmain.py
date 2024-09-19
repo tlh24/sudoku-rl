@@ -110,7 +110,7 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=4, repeat=5, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=5, repeat=5, mode=0).to(device)
 	model.printParamCount()
 
 	try:
@@ -126,6 +126,7 @@ if __name__ == "__main__":
 	optimizer = gmain.getOptimizer(optimizer_name, model)
 
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
+	hcoo.append('dense') # for dense attention.
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()

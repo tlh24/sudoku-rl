@@ -183,7 +183,7 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head) for _ in range(layers)])
 
-	# @torch.compile
+	@torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list):
 		for i in range(self.repeat): 
 			for j, layer in enumerate(self.resblocks):
