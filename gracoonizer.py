@@ -152,7 +152,7 @@ class Gracoonizer(nn.Module):
 		# if we load the state dict, then start all heads 'on'
 		# self.xfrmr.allHeadsOn()
    
-	def save_checkpoint(self, path:str=None):
+	def saveCheckpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
 		torch.save(self.state_dict(), path)

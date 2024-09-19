@@ -211,7 +211,7 @@ def train(args, memory_dict, model, train_loader, optimizer, hcoo, reward_loc, u
 				fname = "racoonizer_inv"
 			else: 
 				fname = "racoonizer"
-			model.save_checkpoint(f"checkpoints/{fname}_{uu//1000}.pth")
+			model.saveCheckpoint(f"checkpoints/{fname}_{uu//1000}.pth")
 
 		if batch_indx % 25 == 0:
 			updateMemory(memory_dict, pred_data)
@@ -306,7 +306,7 @@ def trainPolicy(rollouts_board, rollouts_reward, nn, memory_dict, model, qfun, h
 			updateMemory(memory_dict, pred_data)
 			
 		if uu % 1000 == 999: 
-			qfun.save_checkpoint(f"checkpoints/{name}_{uu//1000}.pth")
+			qfun.saveCheckpoint(f"checkpoints/{name}_{uu//1000}.pth")
 		
 	
 def expandActionNodes(action_nodes, model, qfun, hcoo, reward_loc, locs, time):

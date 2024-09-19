@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
 	puzzles = []
 	solutions = []
-	for percent_filled in [0.75, 0.5, 0.25]:
+	for percent_filled in [0.85, 0.65, 0.35]:
 		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
 		try:
 			file = np.load(fname)
@@ -110,8 +110,14 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=12, mode=0).to(device)
 	model.printParamCount()
+
+	try:
+		model.loadCheckpoint("checkpoints/pandaizer.pth")
+		print(colored("loaded model checkpoint", "blue"))
+	except Exception as error:
+		print(error)
 
 	if cmd_args.a:
 		optimizer_name = "adamw"
@@ -155,6 +161,10 @@ if __name__ == "__main__":
 		print(lloss)
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
+
+		if uu % 1000 == 999:
+			fname = "pandaizer"
+			model.saveCheckpoint(f"checkpoints/{fname}.pth")
 
 		if utils.switch_to_validation:
 			break

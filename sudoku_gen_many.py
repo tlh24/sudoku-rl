@@ -237,6 +237,7 @@ if __name__ == "__main__":
 	vizSatNetFile(f"satnet_both_0.65_filled_{N}.npz")
 	genSATNetPuzzlesParallel(N, 0.35) # 'hard'
 	vizSatNetFile(f"satnet_both_0.35_filled_{N}.npz")
+	# above corresponds to 13, 29, and 47 blanks.
 
 	#convertToTorch("satnet_both_0.75_filled_10000.npz")
 
