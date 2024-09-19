@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
 	puzzles = []
 	solutions = []
-	for percent_filled in [0.75, ]:
+	for percent_filled in [0.75, 0.5, 0.25]:
 		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
 		try:
 			file = np.load(fname)
@@ -140,9 +140,8 @@ if __name__ == "__main__":
 		def closure():
 			new_state_preds = model.forward(old_board, hcoo)
 			loss = torch.sum(\
-				torch.pow(\
-					new_state_preds[:,:,10:20] - new_board[:,:,10:20]\
-					, 2) )\
+					(new_state_preds[:,:,10:20] - new_board[:,:,10:20])**2\
+					)\
 				+ sum(\
 					[torch.sum(1e-4 * \
 						torch.rand_like(param,dtype=g_dtype) * param * param) \
@@ -177,9 +176,8 @@ if __name__ == "__main__":
 
 			new_state_preds = model.forward(old_board, hcoo)
 			loss = torch.sum(\
-				torch.pow(\
-					new_state_preds[:,:,10:20] - new_board[:,:,10:20]\
-					, 2) )
+				(new_state_preds[:,:,10:20] - new_board[:,:,10:20])**2 \
+				)
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)
 			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
