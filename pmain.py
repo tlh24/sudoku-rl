@@ -130,7 +130,7 @@ if __name__ == "__main__":
 
 		def closure():
 			new_state_preds = model.forward(old_board, hcoo)
-			loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2) + \
+			loss = torch.sum((new_state_preds[:,:,32+10:32+25] - new_board[:,:,10:25])**2) + \
 				sum( \
 				[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
 				# this was recommended by the psgd authors to break symmetries w a L2 norm on the weights.
@@ -160,7 +160,7 @@ if __name__ == "__main__":
 		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
 
 		new_state_preds = model.forward(old_board, hcoo)
-		loss = torch.sum((new_state_preds[:,:,33:64] - new_board[:,:,1:32])**2)
+		loss = torch.sum((new_state_preds[:,:,32+10:32+25] - new_board[:,:,10:25])**2)
 
 		lloss = loss.detach().cpu().item()
 		print('v',lloss)
