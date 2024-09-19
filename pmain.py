@@ -63,26 +63,35 @@ if __name__ == "__main__":
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
-	percent_filled = 0.25
-	VALID_N = DATA_N//10
-	TRAIN_N = DATA_N - VALID_N
 	batch_size = 64
 
-	fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
-	try:
-		file = np.load(fname)
-		puzzles = file["puzzles"]
-		solutions = file["solutions"]
-		coo = file["coo"]
-		a2a = file["a2a"]
-		coo = torch.from_numpy(coo)
-		a2a = torch.from_numpy(a2a)
-	except Exception as error:
-		print(error)
-		puzzles, solutions, coo, a2a = encodeSudokuAll(DATA_N, percent_filled)
+	puzzles = []
+	solutions = []
+	for percent_filled in [0.75, ]:
+		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
+		try:
+			file = np.load(fname)
+			puzzles_ = file["puzzles"]
+			solutions_ = file["solutions"]
+			coo = file["coo"]
+			a2a = file["a2a"]
+			coo = torch.from_numpy(coo)
+			a2a = torch.from_numpy(a2a)
+		except Exception as error:
+			print(error)
+			puzzles_, solutions_, coo, a2a = encodeSudokuAll(DATA_N, percent_filled)
 
-	puzzles = torch.from_numpy(puzzles)
-	solutions = torch.from_numpy(solutions)
+		puzzles_ = torch.from_numpy(puzzles_)
+		solutions_ = torch.from_numpy(solutions_)
+		puzzles.append(puzzles_)
+		solutions.append(solutions_)
+
+	puzzles = torch.cat(puzzles, dim=0)
+	solutions = torch.cat(solutions, dim=0)
+	assert(solutions.shape[0] == puzzles.shape[0])
+	DATA_N = puzzles.shape[0]
+	VALID_N = DATA_N//10
+	TRAIN_N = DATA_N - VALID_N
 
 	indx = torch.randperm(DATA_N)
 	puzzles_train = puzzles[indx[:-VALID_N],:,:]
@@ -101,7 +110,7 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=4, repeat=12, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=5, mode=0).to(device)
 	model.printParamCount()
 
 	if cmd_args.a:
@@ -130,9 +139,15 @@ if __name__ == "__main__":
 
 		def closure():
 			new_state_preds = model.forward(old_board, hcoo)
-			loss = torch.sum((new_state_preds[:,:,32+10:32+26] - new_board[:,:,10:26])**2) + \
-				sum( \
-				[torch.sum(1e-4 * torch.rand_like(param,dtype=g_dtype) * param * param) for param in model.parameters()])
+			loss = torch.sum(\
+				torch.abs(\
+					new_state_preds[:,:,10:20] - new_board[:,:,10:20]\
+					) )\
+				+ sum(\
+					[torch.sum(1e-4 * \
+						torch.rand_like(param,dtype=g_dtype) * param * param) \
+						for param in model.parameters() \
+					])
 				# this was recommended by the psgd authors to break symmetries w a L2 norm on the weights.
 			return loss
 		loss = optimizer.step(closure)
@@ -150,33 +165,37 @@ if __name__ == "__main__":
 	sudoku = Sudoku(9,60)
 	n_valid = 0
 	n_total = 0
-	for j in range(VALID_N // batch_size):
-		batch_indx = torch.arange(j*batch_size, (j+1)*batch_size)
+	with torch.no_grad():
+		for j in range(VALID_N // batch_size):
+			batch_indx = torch.arange(j*batch_size, (j+1)*batch_size)
 
-		old_board = puzzles_valid[batch_indx, :, :]
-		new_board = solutions_valid[batch_indx, :, :]
+			old_board = puzzles_valid[batch_indx, :, :]
+			new_board = solutions_valid[batch_indx, :, :]
 
-		old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
-		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
+			old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
+			new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
 
-		new_state_preds = model.forward(old_board, hcoo)
-		loss = torch.sum((new_state_preds[:,:,32+10:32+26] - new_board[:,:,10:26])**2)
+			new_state_preds = model.forward(old_board, hcoo)
+			loss = torch.sum(\
+				torch.abs(\
+					new_state_preds[:,:,10:20] - new_board[:,:,10:20]\
+					) )
+			lloss = loss.detach().cpu().item()
+			print('v',lloss)
+			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
+			args["fd_losslog"].flush()
 
-		lloss = loss.detach().cpu().item()
-		print('v',lloss)
-		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
-		args["fd_losslog"].flush()
+			# decode and check
+			for k in range(batch_size):
+				benc = new_state_preds[k,:,:].squeeze().cpu().numpy()
+				sol = sparse_encoding.decodeBoard(benc, board_loc)
+				sudoku.setMat(sol)
+				valid_cell = (sol > 0.95) * (sol < 9.05)
+				complete = np.prod(valid_cell)
+				if sudoku.checkIfValid() and complete > 0.5:
+					n_valid = n_valid + 1
+				n_total = n_total + 1
 
-		# decode and check
-		for k in range(batch_size):
-			sol = sparse_encoding.decodeBoard(new_state_preds[k,:,32:].squeeze(), board_loc)
-			sudoku.setMat(sol)
-			valid_cell = (sol > 0.95) * (sol < 9.05)
-			complete = np.prod(valid_cell)
-			if sudoku.checkIfValid() and complete > 0.5:
-				n_valid = n_valid + 1
-			n_total = n_total + 1
-
-		uu = uu + 1
+			uu = uu + 1
 
 	print(f"Validation: vaild {n_valid} of {n_total}, {100.0*n_valid/n_total}")
