@@ -223,6 +223,9 @@ def genSATNetPuzzlesParallel(N, pct_filled):
 		puzz,sol = res
 		puzzles[ind,:,:] = np.squeeze(puzz)
 		solutions[ind,:,:] = np.squeeze(sol)
+		if ind % 1000 == 999:
+			print(".", end="", flush=True)
+
 	np.savez(f'satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
 
 if __name__ == "__main__":
