@@ -101,7 +101,7 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=6, mode=0).to(device)
+	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, n_heads=n_heads, n_layers=8, repeat=10, mode=0).to(device)
 	model.printParamCount()
 
 	if cmd_args.a:
@@ -116,7 +116,7 @@ if __name__ == "__main__":
 	input_thread.start()
 
 	bi = TRAIN_N
-	for uu in range(70000):
+	for uu in range(200000):
 		if bi >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0
@@ -169,7 +169,7 @@ if __name__ == "__main__":
 
 		# decode and check
 		for k in range(batch_size):
-			sol = sparse_encoding.decodeBoard(new_state_preds[k,:,:].squeeze(), board_loc)
+			sol = sparse_encoding.decodeBoard(new_state_preds[k,:,32:].squeeze(), board_loc)
 			sudoku.setMat(sol)
 			valid_cell = (sol > 0.95) * (sol < 9.05)
 			complete = np.prod(valid_cell)
