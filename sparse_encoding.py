@@ -343,12 +343,14 @@ def encodeActionNodes(action_type, action_value):
 	aenc,_,_ = encodeNodes([na])
 	return aenc
 	
-def decodeBoard(benc, board_loc):
+def decodeBoard(benc, board_loc, argmax=True):
 	puzzle = np.zeros((SuN, SuN), dtype = int)
 	for x in range(SuN): # x = row
 		for y in range(SuN): # y = column
-			puzzle[x,y] = np.argmax(benc[board_loc[x,y], 11:20]) + 1
-			# puzzle[x,y] = round(benc[board_loc[x,y], Axes.N_AX.value].item() )
+			if argmax:
+				puzzle[x,y] = np.argmax(benc[board_loc[x,y], 11:20]) + 1
+			else:
+				puzzle[x,y] = round(benc[board_loc[x,y], Axes.N_AX.value].item() )
 	return puzzle
 
 def decodeNodes(indent, benc, locs):

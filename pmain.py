@@ -207,10 +207,11 @@ if __name__ == "__main__":
 				if sudoku.checkIfValid() and complete > 0.5:
 					n_valid = n_valid + 1
 				else:
-					obenc = old_boards[k,:,:].squeeze().cpu().numpy()
-					puz = sparse_encoding.decodeBoard(obenc, board_loc)
+					obenc = old_board[k,:,:].squeeze().cpu().numpy()
+					puz = sparse_encoding.decodeBoard(obenc, board_loc, argmax=False)
 					print('failed on this puzzle:')
 					sudoku.printSudoku("", puz)
+					print("sol:")
 					sudoku.printSudoku("", sol)
 				n_total = n_total + 1
 
