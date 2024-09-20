@@ -196,7 +196,7 @@ class Sudoku:
 						bgcol = "on_light_yellow"
 				if p == 0:
 					if color == "black":
-						color = "light_gray"
+						color = "light_grey"
 					if color == "red":
 						color = "light_red"
 					if color == "blue":
