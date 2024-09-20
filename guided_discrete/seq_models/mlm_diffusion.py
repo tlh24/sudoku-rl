@@ -68,12 +68,14 @@ class MLMDiffusionTransformer(nn.Module):
         time_embed = time_embed.unsqueeze(1).expand(-1, token_embed.size(1), -1)
         embed = self.dropout(self.LayerNorm(token_embed + time_embed))
 
+        # sequence_output is the output hiddens from the BERT encoder
         sequence_output = self.encoder(embed, encoder_attention_mask=attn_mask)[0]
+        # prediction_scores is the logits over the vocab tokens 
         prediction_scores = self.cls(sequence_output)
 
         out = {
             "logits": prediction_scores,
-            "sequence_outputs": sequence_output,
+            "sequence_output": sequence_output,
             "embeds": token_embed
         }
         return out 
@@ -114,7 +116,7 @@ class MLMDiffusion(BaseModel):
     ):
         super().__init__()
 
-        self.networks = hydra.utils.instantiate(network)
+        self.network = hydra.utils.instantiate(network)
         self.noise_schedule = hydra.utils.instantiate(noise_schedule)
         self.opt = hydra.utils.instantiate(optimizer, params=self.parameters())
         self.lr_scheduler = None 
@@ -139,10 +141,11 @@ class MLMDiffusion(BaseModel):
         timesteps = self.noise_schedule.timesteps 
         t = torch.randint(
             timesteps, 
-            size=(input_ids.shape[0]),
+            size=(input_ids.shape[0],),
             device=input_ids.device,
             dtype=torch.int64
         )
+        # with probability Beta_t convert input tokens to mask token 
         corrupt_ids, corrupt_mask = (
             self.noise_schedule.corrupt(input_ids, t, corrupt_mask)
         )
@@ -156,7 +159,7 @@ class MLMDiffusion(BaseModel):
         hiddens = model_output['sequence_output']
 
         loss_fct = nn.CrossEntropyLoss(reduction='none') # -100 index is padding token
-        nll = loss_fct(logits.view(-1, logits.shape[-1]), input_ids.view(-1))
+        nll = loss_fct(logits.view(-1, logits.shape[-1]), input_ids.view(-1).long())
         nll = nll.view(*input_ids.shape[:2])
 
         loss_mask = attn_mask * corrupt_mask
@@ -198,6 +201,132 @@ class MLMDiffusion(BaseModel):
                 tag = f"regression_mse_{t_lower}-{t_upper}"
                 out[tag] = regression_loss[t_mask].mean()
         return out 
+
+    def guidance_steps(
+        self,
+        model_output,
+        t,
+        attn_mask,
+        infill_mask,
+        guidance_layer="first",
+        step_size=0.1,
+        stability_coef=1e-2,
+        num_steps=5,
+    ):
+        kl_loss = torch.nn.KLDivLoss(log_target=True)
+
+        logits = model_output['logits']
+        if guidance_layer == "last":
+            h = model_output['sequence_output']
+        elif guidance_layer == 'first':
+            h = model_output['embeds']
+        else:
+            raise NotImplementedError()
+
+        delta = torch.nn.Parameter(torch.zeros_like(h), requires_grad=True)
+        optimizer = torch.optim.Adagrad([delta], lr=step_size)
+
+        with torch.enable_grad():
+            for _ in range(num_steps):
+                h_current = h + infill_mask.unsqueeze(-1)*delta 
+
+                if guidance_layer == "last":
+                    target_loss = self.network.guidance_score(
+                        None, t, attn_mask, sequence_output=h_current
+                    ).sum()
+                    new_logits = self.network.cls(h_current)
+                elif guidance_layer == 'first':
+                    out = self.network.forward(
+                        None, t, attn_mask, sequence_output=out['sequence_output']
+                    ).sum()
+                    new_logits = out['logits']
+                
+                kl = kl_loss(new_logits, logits)
+                loss = -target_loss + stability_coef*kl
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        
+        logits = self.network.cls(h + delta.data)
+        return logits 
+    
+    def sample(
+        self,
+        infill_seed, #sequence to complete, has [MASK] tokens 
+        infill_mask,
+        corrupt_mask,
+        num_samples,
+        guidance_kwargs=None
+    ):
+        '''
+        infill_mask: vector of booleans (of shape infill_seed) where True means that token can be replaced, False means keep the original token
+        corrupt_mask: vector of booleans where True means that the token can be corrupted, False means not 
+        '''
+        device = next(self.parameters()).device 
+        infill_mask = infill_mask[None, :]
+        corrupt_mask = corrupt_mask[None, :]
+        gt_vals = infill_seed[None]
+
+        indices = list(range(self.noise_schedule.timesteps))[::-1]
+
+        # corrupt the sequence based on the final timestep t
+        t = torch.tensor([indices[0]], device=device)
+        noisy_gt = self.noise_schedule.corrupt(gt_vals, t)[0]
+        noisy_gt = torch.where(corrupt_mask, noisy_gt, gt_vals)
+
+        shape = (num_samples, infill_seed.shape[0])
+        # x is tensor filled with all mask tokens 
+        x = self.noise_schedule.sample_prior(shape, device)
+        x = torch.where(infill_mask, x, noisy_gt)
+        attn_mask = torch.ones_like(infill_mask, dtype=torch.bool)
+        
+        return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
+        
+        traj = []
+        for i in tqdm.tqdm(indices):
+            t = torch.tensor([i] * shape[0], device=device)
+
+            with torch.no_grad():
+                model_output = self.network(x,t, attn_mask)
+            
+            logits = model_output['logits']
+
+            if guidance_kwargs is not None:
+                logits = self.guidance_steps(
+                    model_output, t, attn_mask, infill_mask,
+                    **guidance_kwargs
+                )
+            x = Categorical(logits=logits).sample()
+            clean_x = x.clone()
+
+            if i != indices[-1]:
+                x = self.noise_schedule.corrupt(x,t,infill_mask)[0]
+
+                noise_t = torch.tensor([i-1]*shape[0], device=device)
+                noisy_gt = self.noise_schedule.corrupt(gt_vals, noise_t[:1])[0]
+                noisy_gt = torch.where(corrupt_mask.bool(), noisy_gt, gt_vals)
+                x = torch.where(infill_mask, x, noisy_gt)
+            
+            pred_ids = torch.where(infill_mask.squeeze(-1), clean_x, infill_seed[None])
+
+            if guidance_kwargs is not None:
+                labels = self.network.guidance_score(pred_ids, t, attn_mask).cpu().numpy()
+                pred_ids = (pred_ids.cpu().numpy(), labels)
+            else:
+                pred_ids = pred_ids.cpu().numpy()
+            
+            traj.append(pred_ids)
+        
+        #todo: add return best option
+        samples = traj[-1][0]
+
+        return samples 
+
+
+
+        
+
 
 
 

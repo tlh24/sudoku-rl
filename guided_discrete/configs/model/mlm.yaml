@@ -11,7 +11,7 @@ model:
     target_channels: 0
 
   noise_schedule:
-    _target_: seq_models.schedule.noise_schedule.DiscreteCorruptionSchedule
+    _target_: seq_models.noise_schedule.DiscreteCorruptionSchedule
     vocab_file: ${vocab_file}
     timesteps: 64
     noise_schedule: "cosine"

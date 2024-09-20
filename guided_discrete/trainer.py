@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger 
 from pytorch_lightning.callbacks import Callback 
 
-from seq_models.sample import sample_model 
+from guided_discrete.sample import sample_model 
 
 class BaseModel(pl.LightningModule):
     def __init__(self):
@@ -29,6 +29,19 @@ class BaseModel(pl.LightningModule):
         self.log_dict(log_dict)
 
         return out['loss']
+
+    def validation_step(self, batch):
+        with torch.no_grad():
+            out = self.forward(
+                batch["seq"],
+                batch["corrupt_mask"],
+                batch["attn_mask"],
+                labels=batch["labels"] if "labels" in batch else None,
+                return_by_timestep=True
+            )
+        log_dict = {f"val_{k}":v for k,v in out.items()}
+        self.log_dict(log_dict)
+        return {"val_loss": out["loss"]}
     
     def configure_optimizers(self):
         config = {
@@ -45,7 +58,6 @@ class BaseModel(pl.LightningModule):
 
         return config 
 
-#TODO: finish this
 class SampleEvaluationCallback(Callback):
     def __init__(
         self,
@@ -53,23 +65,31 @@ class SampleEvaluationCallback(Callback):
     ):
         super().__init__()
         self.config = config
-        log_dir = os.path.join(self.config['exp_dir'], "samples" )
-        os.path.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, 'sample.txt')
-        self.log_file = log_file 
+        self.exp_dir = self.config['exp_dir']
+        self.vocab_file = self.config.vocab_file 
+        self.gt_data_file=None, #todo: change
+        self.num_samples = self.config.num_samples
+        self.sample_frequency = config.val_sample_frequency
+        self.guidance_kwargs = config.guidance_kwargs 
+        self.infill_dataset = config.infill_dataset 
     
     def on_validation_epoch_end(self, trainer, pl_module):
         if pl_module.current_epoch == 0:
-            return 
+            #return TODO: uncommment
+            pass  
         
         if pl_module.current_epoch % self.sample_frequency != 0:
             return 
         
         pl_module.eval()
+        sample_model(pl_module, self.num_samples, self.infill_dataset,self.vocab_file,\
+                     self.exp_dir, self.gt_data_file, self.guidance_kwargs)
+        print("We generated some samples")
+
 
 
 def get_trainer(config, num_train_batches):
-    os.makedirs(os.path.join(config.exp_dir, "models/best_by_vaid"), exist_ok=True)
+    os.makedirs(os.path.join(config.exp_dir, "models/best_by_valid"), exist_ok=True)
     os.makedirs(os.path.join(config.exp_dir, "models/best_by_train"), exist_ok=True)
 
     callbacks=[
@@ -86,12 +106,17 @@ def get_trainer(config, num_train_batches):
             mode="min"
         ),
         pl.callbacks.LearningRateMonitor(logging_interval='epoch'),
-        #TODO: add sample evaluation callback
+        SampleEvaluationCallback(
+            config,
+        )
     ]
+    if config.use_wandb:
+        logger = WandbLogger(project="guided_seq", dir=config['exp_dir'])
+    else:
+        logger = None 
 
-    wandb_logger = WandbLogger(project="guided_seq", dir=config['exp_dir'])
     accelerator, strategy = "cpu", None 
-    if torch.cuda_is_available():
+    if torch.cuda.is_available():
         accelerator = "gpu"
         strategy = "ddp"
     
@@ -100,9 +125,9 @@ def get_trainer(config, num_train_batches):
         gradient_clip_val=config['gradient_clip'],
         min_epochs=config['min_epochs'],
         max_epochs=config['max_epochs'],
-        check_val_every_n_epochs=1, 
+        check_val_every_n_epoch=1, 
         callbacks=callbacks,
-        logger=wandb_logger,
+        logger=logger,
         log_every_n_steps=min(200, num_train_batches),
         accelerator=accelerator,
         strategy=strategy,
