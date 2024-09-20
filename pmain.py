@@ -169,9 +169,9 @@ if __name__ == "__main__":
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
 
-		# if uu % 1000 == 999:
-		# 	fname = "pandaizer"
-		# 	model.saveCheckpoint(f"checkpoints/{fname}.pth")
+		if uu % 1000 == 999:
+			fname = "pandaizer"
+			model.saveCheckpoint(f"checkpoints/{fname}.pth")
 
 		if utils.switch_to_validation:
 			break
