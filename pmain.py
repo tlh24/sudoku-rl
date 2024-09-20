@@ -165,9 +165,9 @@ if __name__ == "__main__":
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
 
-		if uu % 1000 == 999:
-			fname = "pandaizer"
-			model.saveCheckpoint(f"checkpoints/{fname}.pth")
+		# if uu % 1000 == 999:
+		# 	fname = "pandaizer"
+		# 	model.saveCheckpoint(f"checkpoints/{fname}.pth")
 
 		if utils.switch_to_validation:
 			break
@@ -205,6 +205,12 @@ if __name__ == "__main__":
 				complete = np.prod(valid_cell)
 				if sudoku.checkIfValid() and complete > 0.5:
 					n_valid = n_valid + 1
+				else:
+					obenc = old_boards[k,:,:].squeeze().cpu().numpy()
+					puz = sparse_encoding.decodeBoard(obenc, board_loc)
+					print('failed on this puzzle:')
+					sudoku.printSudoku("", puz)
+					sudoku.printSudoku("", sol)
 				n_total = n_total + 1
 
 			uu = uu + 1
