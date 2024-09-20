@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
 	puzzles = []
 	solutions = []
-	for percent_filled in [0.85, ]:
+	for percent_filled in [0.85,0.65, 0.35]:
 		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
 		try:
 			file = np.load(fname)
@@ -111,7 +111,7 @@ if __name__ == "__main__":
 	args['fd_losslog'] = fd_losslog
 
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, \
-		n_heads=n_heads, n_layers=2, repeat=8, mode=0).to(device)
+		n_heads=4, n_layers=4, repeat=8, mode=0).to(device)
 	model.printParamCount()
 
 	try:
@@ -127,8 +127,9 @@ if __name__ == "__main__":
 	optimizer = gmain.getOptimizer(optimizer_name, model)
 
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
-	# hcoo.append('dense') # for dense attention.
-	hcoo = hcoo[0:2] # only the sparse / set-layers.
+	hcoo = hcoo[0:2] # sparse / set-layers 
+	hcoo.append('dense') # dense attention.
+	hcoo.append('self') # intra-token op
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
