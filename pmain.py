@@ -63,11 +63,12 @@ if __name__ == "__main__":
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
+	VALID_N = DATA_N//10
 	batch_size = 64
 
 	puzzles = []
 	solutions = []
-	for percent_filled in [0.85,0.65, 0.35]:
+	for percent_filled in [0.85,0.65,0.35]:
 		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
 		try:
 			file = np.load(fname)
@@ -86,18 +87,20 @@ if __name__ == "__main__":
 		puzzles.append(puzzles_)
 		solutions.append(solutions_)
 
-	puzzles = torch.cat(puzzles, dim=0)
-	solutions = torch.cat(solutions, dim=0)
-	assert(solutions.shape[0] == puzzles.shape[0])
-	DATA_N = puzzles.shape[0]
-	VALID_N = DATA_N//10
+	puzzles_train = list(map(lambda x: x[:-VALID_N,:,:], puzzles))
+	solutions_train = list(map(lambda x: x[:-VALID_N,:,:], solutions))
+	puzzles_valid = list(map(lambda x: x[-VALID_N:,:,:], puzzles))
+	solutions_valid = list(map(lambda x: x[-VALID_N:,:,:], solutions))
+	puzzles_train = torch.cat(puzzles_train, dim=0)
+	solutions_train = torch.cat(solutions_train, dim=0)
+	puzzles_valid = torch.cat(puzzles_valid, dim=0)
+	solutions_valid = torch.cat(solutions_valid, dim=0)
+
+	assert(solutions_train.shape[0] == puzzles_train.shape[0])
+	DATA_N = puzzles_train.shape[0]
+	VALID_N = puzzles_valid.shape[0]
 	TRAIN_N = DATA_N - VALID_N
 
-	indx = torch.randperm(DATA_N)
-	puzzles_train = puzzles[indx[:-VALID_N],:,:]
-	solutions_train = solutions[indx[:-VALID_N],:,:]
-	puzzles_valid = puzzles[indx[-VALID_N:],:,:]
-	solutions_valid = solutions[indx[-VALID_N:],:,:]
 	print(f'loaded {fname}')
 
 	device = torch.device('cuda:0')
