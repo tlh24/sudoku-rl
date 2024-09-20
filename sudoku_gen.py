@@ -199,9 +199,9 @@ class Sudoku:
 						color = "light_gray"
 					if color == "red":
 						color = "light_red"
-					if color == "blue"
+					if color == "blue":
 						color = "light_blue"
-					if color == "magenta"
+					if color == "magenta":
 						color = "light_magenta"
 				if bgcol is not None: 
 					print(colored(p, color, bgcol), end=" ")
