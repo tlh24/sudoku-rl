@@ -111,7 +111,7 @@ if __name__ == "__main__":
 	args['fd_losslog'] = fd_losslog
 
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, \
-		n_heads=4, n_layers=4, repeat=8, mode=0).to(device)
+		n_heads=4, n_layers=4, repeat=10, mode=0).to(device)
 	model.printParamCount()
 
 	try:

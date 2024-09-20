@@ -194,6 +194,15 @@ class Sudoku:
 				if curs_pos is not None: 
 					if int(curs_pos[0]) == i and int(curs_pos[1]) == j:
 						bgcol = "on_light_yellow"
+				if p == 0:
+					if color == "black":
+						color = "light_gray"
+					if color == "red":
+						color = "light_red"
+					if color == "blue"
+						color = "light_blue"
+					if color == "magenta"
+						color = "light_magenta"
 				if bgcol is not None: 
 					print(colored(p, color, bgcol), end=" ")
 				else: 
