@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
 	puzzles = []
 	solutions = []
-	for percent_filled in [0.85,0.65,0.35]:
+	for percent_filled in [0.85,0.75,0.65,0.5,0.35]:
 		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
 		try:
 			file = np.load(fname)
