@@ -317,21 +317,23 @@ def encodeNodes(nodes):
 		# 	ii = (20 - n.typ.value) + 31
 		benc[i, Axes.N_AX.value:32] = n.axval
 		# add in categorical encoding of value
+		def encode(x, is_clue): 
+			if v >= 0.6 and v <= 9.4:
+				benc[i,11:20] = 0.0
+				vi = round(v)
+				benc[i,10+vi] = 1.0
+			# if v > -0.5 and v < 0.5 and is_clue: 
+			# 	benc[i,11:20] = 1.0 # manually encode 'notes'
+					
 		ntv = n.typ.value
 		if ntv == Types.BOX.value:
 			v = n.axval[0]
-			if v >= 0.6 and v <= 9.4:
-				vi = round(v)
-				benc[i,10+vi] = 1.0
+			encode( v, True ) # if the clue is zero, set all logits to 1
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
-			if v >= 0.6 and v <= 9.4:
-				vi = round(v)
-				benc[i,10+vi] = 1.0
+			encode( v, False ) # if a guess is zero, do nothing to logits
 		if ntv == Types.GUESS_ACTION.value:
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
-			if v >= 0.6 and v <= 9.4:
-				vi = round(v)
-				benc[i,10+vi] = 1.0
+			encode( v, False )
 		
 	coo,a2a = nodesToCoo(nodes)
 	return benc, coo, a2a

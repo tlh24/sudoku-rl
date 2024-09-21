@@ -56,20 +56,53 @@ def encodeSudokuAll(N, percent_filled):
 	np.savez(f"satnet_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 
 	return puzz_enc, sol_enc, coo, a2a
+	
+def encodeSudokuSteps(N, percent_filled, n_steps):
+	dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
+	puzzles = dat['puzzles']
+	N = puzzles.shape[0]
+	
+	sudoku = Sudoku(9,60)
+
+	puzz_enc = np.zeros((N,111,32), dtype=np.float16)
+	sol_enc = np.zeros((N,111,32), dtype=np.float16)
+
+	for i in range(N):
+		puzz, coo, a2a, _ = encodeSudoku(puzzles[i])
+		sudoku.setMat(puzzles[i])
+		for s in range(n_steps): 
+			step,_ = sudoku.takeOneStep()
+			sudoku.setMat(step)
+		sol,_,_,_ = encodeSudoku(step)
+		puzz_enc[i,:,:] = puzz
+		sol_enc[i,:,:] = sol
+		# fig,axs = plt.subplots(1, 2, figsize=(12,6))
+		# axs[0].imshow(puzz.T)
+		# axs[1].imshow(sol.T)
+		# plt.show()
+		if i % 1000 == 999:
+			print(".", end='', flush=True)
+
+	np.savez(f"satnet_{n_steps}step_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
+
+	return puzz_enc, sol_enc, coo, a2a
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
 	parser.add_argument('-a', action='store_true', help='use AdamW as the optimizer (as opposed to PSGD)')
+	parser.add_argument('-c', action='store_true', help="clear, start fresh: don't load model")
+	parser.add_argument('-r', type=int, default=0, help='number of repeats or steps')
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
 	VALID_N = DATA_N//10
 	batch_size = 64
+	n_steps = cmd_args.r
 
 	puzzles = []
 	solutions = []
-	for percent_filled in [0.85,0.75,0.65,0.5,0.35]:
-		fname = f"satnet_enc_{percent_filled}_{DATA_N}.npz"
+	for percent_filled in [0.35,]:
+		fname = f"satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
 		try:
 			file = np.load(fname)
 			puzzles_ = file["puzzles"]
@@ -80,7 +113,7 @@ if __name__ == "__main__":
 			a2a = torch.from_numpy(a2a)
 		except Exception as error:
 			print(error)
-			puzzles_, solutions_, coo, a2a = encodeSudokuAll(DATA_N, percent_filled)
+			puzzles_, solutions_, coo, a2a = encodeSudokuSteps(DATA_N, percent_filled, 2) # FIXME - one step
 
 		puzzles_ = torch.from_numpy(puzzles_)
 		solutions_ = torch.from_numpy(solutions_)
@@ -110,18 +143,26 @@ if __name__ == "__main__":
 	torch.set_float32_matmul_precision('high')
 	torch.backends.cuda.matmul.allow_tf32 = True
 
-	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
+	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}_{n_steps}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
 	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, \
-		n_heads=4, n_layers=4, repeat=10, mode=0).to(device)
+		n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
 	model.printParamCount()
+	
+	hcoo = gmain.expandCoordinateVector(coo, a2a)
+	hcoo = hcoo[0:2] # sparse / set-layers 
+	hcoo.append('dense') # dense attention.
+	hcoo.append('self') # intra-token op
 
-	try:
-		model.loadCheckpoint("checkpoints/pandaizer.pth")
-		print(colored("loaded model checkpoint", "blue"))
-	except Exception as error:
-		print(error)
+	if cmd_args.c: 
+		print('not loading any model weights.')
+	else:
+		try:
+			model.loadCheckpoint("checkpoints/pandaizer.pth")
+			print(colored("loaded model checkpoint", "blue"))
+		except Exception as error:
+			print(error)
 
 	if cmd_args.a:
 		optimizer_name = "adamw"
@@ -129,16 +170,11 @@ if __name__ == "__main__":
 		optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = gmain.getOptimizer(optimizer_name, model)
 
-	hcoo = gmain.expandCoordinateVector(coo, a2a)
-	hcoo = hcoo[0:2] # sparse / set-layers 
-	hcoo.append('dense') # dense attention.
-	hcoo.append('self') # intra-token op
-
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
 
 	bi = TRAIN_N
-	for uu in range(200000):
+	for uu in range(50000):
 		if bi >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0
