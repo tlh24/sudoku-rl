@@ -83,6 +83,7 @@ def encodeSudokuSteps(N, percent_filled, n_steps):
 		if i % 1000 == 999:
 			print(".", end='', flush=True)
 
+	pdb.set_trace()
 	np.savez(f"satnet_{n_steps}step_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 
 	return puzz_enc, sol_enc, coo, a2a
@@ -91,7 +92,7 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
 	parser.add_argument('-a', action='store_true', help='use AdamW as the optimizer (as opposed to PSGD)')
 	parser.add_argument('-c', action='store_true', help="clear, start fresh: don't load model")
-	parser.add_argument('-r', type=int, default=0, help='number of repeats or steps')
+	parser.add_argument('-r', type=int, default=1, help='number of repeats or steps')
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
@@ -113,7 +114,7 @@ if __name__ == "__main__":
 			a2a = torch.from_numpy(a2a)
 		except Exception as error:
 			print(error)
-			puzzles_, solutions_, coo, a2a = encodeSudokuSteps(DATA_N, percent_filled, 2) # FIXME - one step
+			puzzles_, solutions_, coo, a2a = encodeSudokuSteps(DATA_N, percent_filled, n_steps) # FIXME - one step
 
 		puzzles_ = torch.from_numpy(puzzles_)
 		solutions_ = torch.from_numpy(solutions_)
