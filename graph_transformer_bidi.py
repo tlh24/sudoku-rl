@@ -14,32 +14,32 @@ class QuickGELU(nn.Module):
 	def forward(self, x: torch.Tensor):
 		return x * torch.sigmoid(1.702 * x)
 	  
-class LinearM(nn.Module): 
-	# with the bias merged -- used for PSGD optimizer.
-	def __init__(self, indim:int, outdim:int, initzeros:bool): 
-		super(LinearM, self).__init__()
-		scl = 0.005
-		if initzeros: 
-			self.w = torch.nn.Parameter( scl * torch.ones(outdim,indim+1,dtype=g_dtype))
-		else:
-			self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1,dtype=g_dtype))
-		with torch.no_grad(): 
-			self.w[:,-1] = 0.0 # bias starts at 0
-		
-	def forward(self, x):
-		return torch.einsum('oi,bhi -> bho', self.w[:,:-1], x) + self.w[:,-1]
-		
-class LinearNobias(nn.Module): 
-	def __init__(self, indim:int, outdim:int, initzeros:bool): 
-		super(LinearNobias, self).__init__()
-		scl = 0.02 / math.sqrt(2 * 9)
-		if initzeros: 
-			scl = 0.0
-		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim,dtype=g_dtype) )
-		
-	def forward(self, x):
-		return torch.einsum('oi,bhi -> bho', self.w[:, :-1], x)
-		# einsum is slower than mm (!)
+# class LinearM(nn.Module):
+# 	# with the bias merged -- used for PSGD optimizer.
+# 	def __init__(self, indim:int, outdim:int, initzeros:bool):
+# 		super(LinearM, self).__init__()
+# 		scl = 0.005
+# 		if initzeros:
+# 			self.w = torch.nn.Parameter( scl * torch.ones(outdim,indim+1,dtype=g_dtype))
+# 		else:
+# 			self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim+1,dtype=g_dtype))
+# 		with torch.no_grad():
+# 			self.w[:,-1] = 0.0 # bias starts at 0
+#
+# 	def forward(self, x):
+# 		return torch.einsum('oi,bhi -> bho', self.w[:,:-1], x) + self.w[:,-1]
+#
+# class LinearNobias(nn.Module):
+# 	def __init__(self, indim:int, outdim:int, initzeros:bool):
+# 		super(LinearNobias, self).__init__()
+# 		scl = 0.02 / math.sqrt(2 * 9)
+# 		if initzeros:
+# 			scl = 0.0
+# 		self.w = torch.nn.Parameter( scl * torch.randn(outdim, indim,dtype=g_dtype) )
+#
+# 	def forward(self, x):
+# 		return torch.einsum('oi,bhi -> bho', self.w[:, :-1], x)
+# 		# einsum is slower than mm (!)
 
 class ResidualAttentionBlock(nn.Module): 
 	def __init__(self, d_model: int, n_head: int):
@@ -49,10 +49,6 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
-		# self.wq = LinearM(d_model, n_head*d_model, init_zeros)
-		# 	# constant init works fine, just a bit slower.
-		# self.wv = LinearM(d_model, 2*n_head*d_model, init_zeros)
-		# self.fanout = LinearM(d_model, d_model * 1, False) # non-zero init
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.initWeights(self.wqv)
@@ -173,7 +169,7 @@ class ResidualAttentionBlock(nn.Module):
 		
 		
 class Transformer(nn.Module): 
-	def __init__(self, d_model:int, layers:int, repeat:int, n_head:int, init_zeros:bool):
+	def __init__(self, d_model:int, layers:int, repeat:int, n_head:int):
 		super().__init__()
 		self.d_model = d_model
 		self.n_head = n_head
