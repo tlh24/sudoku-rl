@@ -75,7 +75,6 @@ class ResidualAttentionBlock(nn.Module):
 	def attention(self, x:torch.Tensor, hcoo:list, layer:int, pas:int):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
-		# x is [batch, tokens, d_model]
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
 		width = x.shape[2]
@@ -95,7 +94,7 @@ class ResidualAttentionBlock(nn.Module):
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		
 		wk = self.wk.unsqueeze(0).unsqueeze(0)
-		k = k * wk # + bk # with bias to allow for centering.
+		k = k * wk
 		
 		# cycle through the coo vectors.  
 		if hcoo[layer % len(hcoo)] == 'dense':
@@ -156,7 +155,6 @@ class ResidualAttentionBlock(nn.Module):
 			coo,dst_mxlen = hcoo[layer % len(hcoo)] 
 			use_softmax = True 
 			b = self.l1a_s(vf,vb,q,k,coo,dst_mxlen,use_softmax)
-		ap = torch.zeros(ntok, ntok, n_head) # dummy.
 		
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
