@@ -67,7 +67,7 @@ class ResidualAttentionBlock(nn.Module):
 		
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
-			torch.nn.init.normal_(module.weight, mean=0.0, std=0.015) # FIXME
+			torch.nn.init.normal_(module.weight, mean=0.0, std=0.005) # FIXME
 			if module.bias is not None:
 					torch.nn.init.zeros_(module.bias)
 
