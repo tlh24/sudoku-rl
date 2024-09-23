@@ -182,6 +182,7 @@ class Transformer(nn.Module):
 		for i in range(self.repeat): 
 			for j, layer in enumerate(self.resblocks):
 				# linearly encode the repeat position on all tokens. 
-				x[:,:,0] = i*2
+				# x[:,:,0] = i*2 FIXME
 				x = layer(x,hcoo,j,i)
+			x[:,:,32:] = 0.0 # clear internal encoding
 		return x
