@@ -67,7 +67,7 @@ class ResidualAttentionBlock(nn.Module):
 		
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
-			torch.nn.init.normal_(module.weight, mean=0.0, std=0.005)
+			torch.nn.init.normal_(module.weight, mean=0.0, std=0.015) # FIXME
 			if module.bias is not None:
 					torch.nn.init.zeros_(module.bias)
 
@@ -181,7 +181,7 @@ class Transformer(nn.Module):
 		self.repeat = repeat
 		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head) for _ in range(layers)])
 
-	@torch.compile
+	# @torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list):
 		for i in range(self.repeat): 
 			for j, layer in enumerate(self.resblocks):

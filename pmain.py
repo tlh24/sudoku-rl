@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 from gracoonizer import Gracoonizer
 from sudoku_gen import Sudoku
 from plot_mmap import make_mmf, write_mmap
-from constants import *
 import sparse_encoding
 from l1attn_sparse_cuda import expandCoo
 # import psgd_20240912 as psgd
@@ -83,7 +82,6 @@ def encodeSudokuSteps(N, percent_filled, n_steps):
 		if i % 1000 == 999:
 			print(".", end='', flush=True)
 
-	pdb.set_trace()
 	np.savez(f"satnet_{n_steps}step_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 
 	return puzz_enc, sol_enc, coo, a2a
@@ -98,6 +96,7 @@ if __name__ == "__main__":
 	DATA_N = 100000
 	VALID_N = DATA_N//10
 	batch_size = 64
+	world_dim = 64
 	n_steps = cmd_args.r
 
 	puzzles = []
@@ -134,6 +133,7 @@ if __name__ == "__main__":
 	DATA_N = puzzles_train.shape[0]
 	VALID_N = puzzles_valid.shape[0]
 	TRAIN_N = DATA_N - VALID_N
+	n_tok = puzzles_train.shape[1]
 
 	print(f'loaded {fname}')
 
@@ -147,7 +147,7 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}_{n_steps}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	model = Gracoonizer(xfrmr_dim=xfrmr_dim, world_dim=world_dim, \
+	model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
 		n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
 	model.printParamCount()
 	
@@ -184,17 +184,17 @@ if __name__ == "__main__":
 		old_board = puzzles_train[indx, :, :]
 		new_board = solutions_train[indx, :, :]
 
-		old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
-		new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
+		old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
+		new_board = torch.cat((new_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
 
 		def closure():
 			new_state_preds = model.forward(old_board, hcoo)
 			loss = torch.sum(\
-					(new_state_preds[:,:,32:] - new_board[:,:,:32])**2\
+					(new_state_preds[:,:,32:64] - new_board[:,:,:32])**2\
 					)\
 				+ sum(\
 					[torch.sum(1e-4 * \
-						torch.rand_like(param,dtype=g_dtype) * param * param) \
+						torch.rand_like(param) * param * param) \
 						for param in model.parameters() \
 					])
 				# this was recommended by the psgd authors to break symmetries w a L2 norm on the weights.
@@ -230,7 +230,7 @@ if __name__ == "__main__":
 
 			new_state_preds = model.forward(old_board, hcoo)
 			loss = torch.sum(\
-				(new_state_preds[:,:,32:] - new_board[:,:,:32])**2 \
+				(new_state_preds[:,:,32:64] - new_board[:,:,:32])**2 \
 				)
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)
