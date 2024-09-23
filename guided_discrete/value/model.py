@@ -14,6 +14,7 @@ from supervised.utils import save_checkpoint
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import os 
 
 
 class TrainerConfig:
@@ -22,11 +23,18 @@ class TrainerConfig:
 	learning_rate = 3e-4
 	grad_norm_clip = 1.0
 	val_interval = 10
+	
 	def __init__(self, **kwargs):
 		for k,v in kwargs.items():
 			setattr(self, k, v)
+	
+	def __repr__(self):
+		attributes = vars(self)
+		return '\n'.join(f"{k}: {v}" for k, v in attributes.items())
+
+
 class Trainer:
-	def __init__(self, state, train_dataset, val_dataset, test_dataset, config, optimizer, logger):
+	def __init__(self, state, train_dataset, val_dataset, test_dataset, config, optimizer, logger, exp_dir=None):
 		self.state = state
 		self.train_dataset = train_dataset
 		self.val_dataset = val_dataset
@@ -39,6 +47,7 @@ class Trainer:
 		self.val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
 		self.test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
 		self.optimizer = optimizer
+		self.exp_dir = exp_dir
 
 	def train(self):
 		best_loss = float('inf')
@@ -87,7 +96,8 @@ class Trainer:
 				# Save the best model
 				if avg_val_loss < best_loss:
 					best_loss = avg_val_loss
-					save_checkpoint(f'epoch{epoch}_best.pth', self.state)
+					save_checkpoint(os.path.join(self.exp_dir, f'epoch{epoch}_best.pth'), self.state)
+					save_checkpoint(os.path.join(self.exp_dir, f'best.pth'), self.state)
 					print(f'New best model saved with loss {best_loss}')
 		print("Training completed.")
 
@@ -120,6 +130,10 @@ class GPTConfig:
 		self.C = self.f = self.create_v = self.tok_emb = None
 		for k,v in kwargs.items():
 			setattr(self, k, v)
+	
+	def __repr__(self):
+		attributes = vars(self)
+		return '\n'.join(f"{k}: {v}" for k, v in attributes.items())
 
 class SelfAttention(nn.Module):
 	"""

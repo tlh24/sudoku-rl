@@ -7,6 +7,7 @@ from pathlib import Path
 project_root = str(Path(__file__).resolve().parents[2])
 sys.path.append(project_root)
 
+from datetime import datetime
 import argparse 
 from model import GPTConfig, GPT, Trainer, TrainerConfig 
 import torch
@@ -14,11 +15,12 @@ import os
 from supervised.utils import set_seed, get_logger, restore_checkpoint
 from guided_discrete.value.dataset import get_one_hot_dataset
 
-work_dir = os.path.dirname(__file__)
-checkpoint_path = 'best.pth'
 
 def main(args=None):
- 
+    work_dir = os.path.join(os.path.dirname(__file__), 'results', datetime.now().strftime("%m/%d/%Y:%H:%M:%S"))  
+    os.makedirs(work_dir, exist_ok=True)
+
+    checkpoint_path = os.path.join(work_dir, 'best.pth')
     ###
     #Setup
     ###
@@ -50,6 +52,7 @@ def main(args=None):
                             n_recur=args.n_recur, n_layer=args.n_layer)
 
     model = GPT(model_conf)
+    logger.info(f"Configuration\n: {model_conf}")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -62,7 +65,8 @@ def main(args=None):
     initial_step = int(state['step'])
 
     tconf = TrainerConfig(num_epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr, val_interval = args.val_interval)
-    trainer = Trainer(state, train_dataset, val_dataset, test_dataset, tconf, optimizer, logger)
+    trainer = Trainer(state, train_dataset, val_dataset, test_dataset, tconf, optimizer, logger, exp_dir=work_dir)
+    logger.info(tconf)
 
     ###
     #Train model
@@ -75,8 +79,19 @@ def main(args=None):
     ###
     #Evaluate
     ###
-    eval_acc = trainer.evaluate()
-    print(f"Test Acc: {eval_acc:.4f}")
+    # load the best checkpoint 
+    model_conf = GPTConfig(vocab_size=9, block_size=81, n_head=args.n_head, n_embd=args.n_embd, num_classes=9,\
+                            n_recur=args.n_recur, n_layer=args.n_layer)
+
+    model = GPT(model_conf)
+    state = dict(optimizer=optimizer, model=model, step=0) 
+    state = restore_checkpoint(checkpoint_path, state, device)
+    tconf = TrainerConfig(num_epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.lr, val_interval = args.val_interval)
+    trainer = Trainer(state, train_dataset, val_dataset, test_dataset, tconf, optimizer, logger, exp_dir=work_dir)
+    eval_loss = trainer.evaluate()
+    print(f"Test loss: {eval_loss:.4f}")
+    logger.info(f"Test loss: {eval_loss:.4f}")
+    return eval_loss
     
     
     
@@ -85,14 +100,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=10000, help='Number of epochs.')
     parser.add_argument('--val_interval', type=int, default=1, help='Compute validation accuracy for how many number of epochs.')
-    parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
     parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate')
 
     parser.add_argument('--load_best', action='store_true')
     parser.add_argument('--evaluate', action='store_true')
 
     parser.add_argument('--n_layer', type=int, default=1, help='Number of sequential self-attention blocks.')
-    parser.add_argument('--n_recur', type=int, default=32, help='Number of recurrency of all self-attention blocks.')
+    parser.add_argument('--n_recur', type=int, default=8, help='Number of recurrency of all self-attention blocks.')
     parser.add_argument('--n_head', type=int, default=4, help='Number of heads in each self-attention block.')
     parser.add_argument('--n_embd', type=int, default=128, help='Vector embedding size.')
 
