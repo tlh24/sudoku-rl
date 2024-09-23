@@ -349,7 +349,10 @@ def decodeBoard(benc, board_loc, argmax=True):
 	for x in range(SuN): # x = row
 		for y in range(SuN): # y = column
 			if argmax:
-				puzzle[x,y] = np.argmax(benc[board_loc[x,y], 11:20]) + 1
+				if torch.sum(benc[board_loc[x,y], 11:20] > 0.5) > 0.5:
+					puzzle[x,y] = np.argmax(benc[board_loc[x,y], 11:20]) + 1
+				else:
+					puzzle[x,y] = 0
 			else:
 				puzzle[x,y] = round(benc[board_loc[x,y], Axes.N_AX.value].item() )
 	return puzzle
