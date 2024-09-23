@@ -121,13 +121,13 @@ class ValueDataset(Dataset):
         self.values = normalized_values
 
     def __len__(self):
-        return len(self.tens_dataset)
-
+        return self.num_samples
+    
     def __getitem__(self, idx):
         # returns (board_tensor, value_float)
         return (self.boards[idx], self.values[idx])
 
-def get_one_hot_dataset(dataset_name, is_noisy, eps_low, eps_high):
+def get_one_hot_dataset(dataset_name, is_noisy, eps_low, eps_high, num_samples=10000):
     '''
     Returns a (noisy) one_hot encoding of the board digits
         
@@ -135,8 +135,7 @@ def get_one_hot_dataset(dataset_name, is_noisy, eps_low, eps_high):
     eps_high: (float) Highest eps to be used in label smoothing 
     '''
     tens_dataset = get_dataset(dataset_name, "train")
-    value_dataset = ValueDataset(tens_dataset, 1000)
-    breakpoint()
+    value_dataset = ValueDataset(tens_dataset, num_samples)
     return OneHotNoisy(value_dataset, is_noisy, eps_low, eps_high)  
 
 
