@@ -189,7 +189,7 @@ if __name__ == "__main__":
 		def closure():
 			new_state_preds = model.forward(old_board, hcoo)
 			loss = torch.sum(\
-					(new_state_preds[:,:,32] - new_board[:,:,32])**2\
+					(new_state_preds[:,:,:32] - new_board[:,:,:32])**2\
 					)\
 				+ sum(\
 					[torch.sum(1e-4 * \
