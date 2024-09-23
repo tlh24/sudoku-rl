@@ -13,6 +13,18 @@ from constants import g_l1atten, SuN, g_dtype, token_cnt
 class QuickGELU(nn.Module):
 	def forward(self, x: torch.Tensor):
 		return x * torch.sigmoid(1.702 * x)
+
+class StraightThroughQuantize(torch.autograd.Function):
+	# see https://www.kaggle.com/code/peggy1502/learning-pytorch-2-new-autograd-functions/notebook
+	# and https://hassanaskary.medium.com/intuitive-explanation-of-straight-through-estimators-with-pytorch-implementation-71d99d25d9d0
+	@staticmethod
+	def forward(ctx, input):
+		y = torch.round(input*10.0) / 10.0
+		return y
+
+	@staticmethod
+	def backward(ctx, grad_output):
+		return grad_output
 	  
 # class LinearM(nn.Module):
 # 	# with the bias merged -- used for PSGD optimizer.
@@ -175,11 +187,15 @@ class Transformer(nn.Module):
 		self.n_head = n_head
 		self.layers = layers
 		self.repeat = repeat
-		self.resblocks = nn.ModuleList([ResidualAttentionBlock(d_model, n_head) for _ in range(layers)])
+		self.resblocks = nn.ModuleList(\
+			[ResidualAttentionBlock(d_model, n_head) \
+				for _ in range(layers)])
+		self.stq = StraightThroughQuantize()
 
 	# @torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list):
 		for i in range(self.repeat): 
+			x = self.stq.apply(x)
 			for j, layer in enumerate(self.resblocks):
 				# linearly encode the repeat position on all tokens. 
 				# x[:,:,0] = i*2 FIXME
