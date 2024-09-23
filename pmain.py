@@ -148,14 +148,14 @@ if __name__ == "__main__":
 	args['fd_losslog'] = fd_losslog
 
 	model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-		n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
+		n_heads=4, n_layers=3, repeat=n_steps, mode=0).to(device)
 	model.printParamCount()
 	
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 	hcoo = hcoo[0:2] # sparse / set-layers 
 	hcoo.append('dense') # dense attention.
 	# hcoo.insert(1, 'self')
-	hcoo.append('self') # intra-token op
+	# hcoo.append('self') # intra-token op
 
 	if cmd_args.c: 
 		print('not loading any model weights.')
