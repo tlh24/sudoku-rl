@@ -38,8 +38,7 @@ class Gracoonizer(nn.Module):
 				d_model = xfrmr_dim,
 				layers = n_layers,
 				n_head = self.n_head,
-				repeat = repeat,
-				init_zeros = g_zeroinit
+				repeat = repeat
 				)
 		elif mode == 1: #USE_NANOGPT:
 			model_args = dict(
