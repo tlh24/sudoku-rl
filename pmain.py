@@ -231,7 +231,7 @@ if __name__ == "__main__":
 
 			new_state_preds = model.forward(old_board, hcoo)
 			loss = torch.sum(\
-				(new_state_preds[:,:,32:64] - new_board[:,:,:32])**2 \
+				(new_state_preds[:,:,:32] - new_board[:,:,:32])**2 \
 				)
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)
