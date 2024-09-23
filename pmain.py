@@ -153,8 +153,8 @@ if __name__ == "__main__":
 	
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 	hcoo = hcoo[0:2] # sparse / set-layers 
-	# hcoo.append('dense') # dense attention.
-	hcoo.insert(1, 'self')
+	hcoo.append('dense') # dense attention.
+	# hcoo.insert(1, 'self')
 	hcoo.append('self') # intra-token op
 
 	if cmd_args.c: 
