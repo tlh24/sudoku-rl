@@ -7,21 +7,23 @@ project_name: guided_seq
 
 data_dir: /scratch/nvg7279/datasets/igfold_labeled_cleaned
 #/scratch/nvg7279/datasets/sabdab_and_poas
-train: rrn
-valid: rrn
+train: larger_satnet
+valid: larger_satnet
+#train: rrn
+#valid: rrn
 max_samples: 100000
 infill_dataset: rrn 
 
-target_cols: null #['sasa']
+target_cols: null 
 discr_batch_ratio: null
 
 vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/vocab.txt 
-vocab_size: 14
+vocab_size: 10
 use_alignment_tokens: True
 
 log_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs 
 exp_name: mlm_test
-exp_dir: ${log_dir}/${exp_name}
+exp_dir: ${log_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
 
 val_sample_frequency: 2
 num_samples: 256
@@ -38,8 +40,8 @@ min_seq_len: 81
 trim_strategy: "randomcrop"
 
 gradient_clip: 10.0
-min_epochs: 1000
-max_epochs: 1000
+min_epochs: 100
+max_epochs: 200
 early_stop_patience: 0
 batch_size: 128
 loader_workers: 4
@@ -50,6 +52,6 @@ use_wandb: false
 
 hydra:
   run:
-    dir: ${log_dir}
+    dir: ${exp_dir}
   sweep:
-    dir: ${log_dir}
+    dir: ${exp_dir}

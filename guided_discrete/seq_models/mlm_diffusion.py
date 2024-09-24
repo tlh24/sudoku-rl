@@ -88,7 +88,7 @@ class MLMDiffusionTransformer(nn.Module):
         sequence_output=None
     ):
         '''
-        Shoudl return shape (bs_, target_channels)
+        Should return shape (bs_, target_channels)
         '''
         # TODO: what is the shape of sequence_output? Why is regression head taking a mean over dim 1
         if sequence_output is None:
@@ -158,25 +158,27 @@ class MLMDiffusion(BaseModel):
         logits = model_output['logits']
         hiddens = model_output['sequence_output']
 
-        loss_fct = nn.CrossEntropyLoss(reduction='none') # -100 index is padding token
+        loss_fct = nn.CrossEntropyLoss(reduction='none') 
         nll = loss_fct(logits.view(-1, logits.shape[-1]), input_ids.view(-1).long())
         nll = nll.view(*input_ids.shape[:2])
 
-        loss_mask = attn_mask * corrupt_mask
+        loss_mask = attn_mask * corrupt_mask #for our case, equivalent to corrupt mask 
 
         denom = loss_mask.sum(dim=-1)
         denom[denom == 0] = 1
-
+        
+        # only consider the loss on tokens that were corrupted to [MASK] 
         nll = (nll * loss_mask).sum(dim=-1) / denom
         accuracy = ((logits.argmax(-1) == input_ids) * loss_mask).sum(dim=-1) / denom
         loss = nll.mean()
 
         out = {}
         out['loss'] = loss.mean()
-        out['nll'] = nll.mean()
         out['accuracy'] = accuracy.mean()
+        out['nll'] = nll.mean()
 
         if labels is not None:
+            raise ValueError() #this shouldn't happen for now 
             pred_labels = self.network.regression_head(hiddens.detach())
             regression_loss = (pred_labels - labels).pow(2)
             out["regression_mse"] = regression_loss.mean()
@@ -196,10 +198,11 @@ class MLMDiffusion(BaseModel):
 
             tag = f"accuracy_{t_lower}-{t_upper}"
             out[tag] = accuracy[t_mask].mean()
-
+            '''
             if labels is not None:
                 tag = f"regression_mse_{t_lower}-{t_upper}"
                 out[tag] = regression_loss[t_mask].mean()
+            '''
         return out 
 
     def guidance_steps(
@@ -229,7 +232,6 @@ class MLMDiffusion(BaseModel):
         with torch.enable_grad():
             for _ in range(num_steps):
                 h_current = h + infill_mask.unsqueeze(-1)*delta 
-
                 if guidance_layer == "last":
                     target_loss = self.network.guidance_score(
                         None, t, attn_mask, sequence_output=h_current
@@ -237,13 +239,17 @@ class MLMDiffusion(BaseModel):
                     new_logits = self.network.cls(h_current)
                 elif guidance_layer == 'first':
                     out = self.network.forward(
+                        None, t, attn_mask, token_embed=h_current
+                    )
+                    target_loss = self.network.guidance_score(
                         None, t, attn_mask, sequence_output=out['sequence_output']
                     ).sum()
                     new_logits = out['logits']
                 
                 kl = kl_loss(new_logits, logits)
-                loss = -target_loss + stability_coef*kl
-
+                loss = stability_coef*kl #TODO: add gradient of external verifier 
+                #loss = -target_loss + stability_coef*kl
+                
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -253,13 +259,14 @@ class MLMDiffusion(BaseModel):
     
     def sample(
         self,
-        infill_seed, #sequence to complete, has [MASK] tokens 
+        infill_seed, 
         infill_mask,
         corrupt_mask,
         num_samples,
         guidance_kwargs=None
     ):
         '''
+        infill_seed: sequence to complete, contains [MASK] token ids 
         infill_mask: vector of booleans (of shape infill_seed) where True means that token can be replaced, False means keep the original token
         corrupt_mask: vector of booleans where True means that the token can be corrupted, False means not 
         '''
@@ -270,18 +277,19 @@ class MLMDiffusion(BaseModel):
 
         indices = list(range(self.noise_schedule.timesteps))[::-1]
 
-        # corrupt the sequence based on the final timestep t
+        # corrupt the sequence based on the final timestep t only where corrupt_mask is True 
         t = torch.tensor([indices[0]], device=device)
         noisy_gt = self.noise_schedule.corrupt(gt_vals, t)[0]
         noisy_gt = torch.where(corrupt_mask, noisy_gt, gt_vals)
 
         shape = (num_samples, infill_seed.shape[0])
-        # x is tensor filled with all mask tokens 
+        # x is tensor filled with all mask tokens where infill mask is True 
         x = self.noise_schedule.sample_prior(shape, device)
         x = torch.where(infill_mask, x, noisy_gt)
+        #TODO: pdb and check that the initial hints are preserved 
         attn_mask = torch.ones_like(infill_mask, dtype=torch.bool)
         
-        return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
+        #return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
         
         traj = []
         for i in tqdm.tqdm(indices):
@@ -302,7 +310,6 @@ class MLMDiffusion(BaseModel):
 
             if i != indices[-1]:
                 x = self.noise_schedule.corrupt(x,t,infill_mask)[0]
-
                 noise_t = torch.tensor([i-1]*shape[0], device=device)
                 noisy_gt = self.noise_schedule.corrupt(gt_vals, noise_t[:1])[0]
                 noisy_gt = torch.where(corrupt_mask.bool(), noisy_gt, gt_vals)

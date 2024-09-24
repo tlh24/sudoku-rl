@@ -8,21 +8,23 @@ sys.path.append(ROOT_DIR)
 from sedd.sampling_utils import get_test_puzzles, evaluate_samples
 
 
-def sample_model(
+def test_solving(
     model,
     num_samples,
     infill_dataset: str, 
     vocab_file,
     exp_dir, 
-    gt_data_file=None,
     guidance_kwargs=None
 ):
+    '''
+    Generate conditional samples and test solution accuracy 
+    '''
     tokenizer = transformers.BertTokenizerFast(
         vocab_file=vocab_file,
         do_lower_case=False 
     )
     device = next(model.parameters()).device 
-    puzzles = get_test_puzzles(infill_dataset, num_samples, device)
+    puzzles = get_test_puzzles(infill_dataset, num_samples, device) #tensor of shape (num_samples, 81) values 0-8, -1 for incomplete
     for i, puzzle in enumerate(puzzles):
         list_digits = puzzle.tolist()
         list_chars = list(map(str, list_digits))
@@ -33,9 +35,11 @@ def sample_model(
         infill_seed = torch.Tensor(
             tokenizer.convert_tokens_to_ids(list_chars)
         ).long().to(device)
-
+        
         infill_mask = infill_seed == tokenizer.mask_token_id
-        corrupt_mask = torch.ones_like(infill_mask)
+        assert torch.sum(infill_mask.long()).detach().cpu() > 10
+        #corrupt_mask = torch.ones_like(infill_mask)
+        corrupt_mask = infill_seed == tokenizer.mask_token_id #TODO: check that we are only corrupting non-initial hints 
 
     with torch.no_grad():
         samples = model.sample(
@@ -48,5 +52,7 @@ def sample_model(
         samples = [tokenizer.decode(s) for s in samples]
         # evaluate and log how good the samples are 
         evaluate_samples(exp_dir, samples)
+
+
 
     
