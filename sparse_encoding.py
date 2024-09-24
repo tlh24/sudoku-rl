@@ -113,7 +113,7 @@ def sudokuActionNodes(action_type, action_value):
 			assert(False)
 	return na
 
-def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None):
+def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 	'''
 	Very simple version: encode the board as a set of box nodes
 	and set / set2 nodes.
@@ -202,6 +202,11 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None):
 				if b == bb:
 					nb.addChild( board_nodes[x][y] )
 		bsets.addChild(nb)
+
+	if top_node:
+		# gather-all node at the end.
+		nb = Node(Types.GUESS_ACTION)
+		nodes.append(nb)
 
 	for n in nodes:
 		n.clearLoc()
