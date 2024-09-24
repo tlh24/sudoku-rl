@@ -147,6 +147,7 @@ if __name__ == "__main__":
 	puzzles = []
 	solutions = []
 	values = []
+	# for percent_filled in [0.5,0.75]:
 	for percent_filled in [0.35,0.65,0.85]:
 		if cmd_args.v:
 			fname = f"satnet_value_{percent_filled}_{DATA_N}.npz"
