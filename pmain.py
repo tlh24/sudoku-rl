@@ -147,7 +147,7 @@ if __name__ == "__main__":
 	puzzles = []
 	solutions = []
 	values = []
-	for percent_filled in [0.35,]:
+	for percent_filled in [0.35,0.65,0.85]:
 		if cmd_args.v:
 			fname = f"satnet_value_{percent_filled}_{DATA_N}.npz"
 			try:
@@ -309,7 +309,8 @@ if __name__ == "__main__":
 			break
 
 	# validate!
-	_,_,_,board_loc = encodeSudoku(np.zeros((9,9)))
+	_,_,_,board_loc = encodeSudoku(np.zeros((9,9)), \
+		top_node = cmd_args.v)
 	sudoku = Sudoku(9,60)
 	n_valid = 0
 	n_total = 0
@@ -317,38 +318,54 @@ if __name__ == "__main__":
 		for j in range(VALID_N // batch_size):
 			batch_indx = torch.arange(j*batch_size, (j+1)*batch_size)
 
-			old_board = puzzles_valid[batch_indx, :, :]
-			new_board = solutions_valid[batch_indx, :, :]
+			if cmd_args.v:
+				old_board = puzzles_train[indx, :, :]
+				value = values_train[indx]
 
-			old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
-			new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
+				old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
+				value = value.to(args['device'])
 
-			new_state_preds = model.forward(old_board, hcoo)
-			loss = torch.sum(\
-				(new_state_preds[:,:,:32] - new_board[:,:,:32])**2 \
-				)
+				value_pred = model.forward(old_board, hcoo)
+				value_pred = torch.sum(value_pred[:,-1,10:20], dim=-1)
+				loss = torch.sum( (value - value_pred)**2 )
+
+				n_valid = n_valid + torch.sum(\
+					torch.abs(value - value_pred) < 0.4)
+				n_total = n_total + batch_size
+			else:
+				old_board = puzzles_valid[batch_indx, :, :]
+				new_board = solutions_valid[batch_indx, :, :]
+
+				old_board = torch.cat((old_board, torch.zeros_like(old_board)), dim=-1).float().to(args['device'])
+				new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
+
+				new_state_preds = model.forward(old_board, hcoo)
+				loss = torch.sum(\
+					(new_state_preds[:,:,:32] - new_board[:,:,:32])**2 \
+					)
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)
 			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 			args["fd_losslog"].flush()
 
-			# decode and check
-			for k in range(batch_size):
-				benc = new_state_preds[k,:,:].squeeze().cpu().numpy()
-				sol = sparse_encoding.decodeBoard(benc, board_loc)
-				sudoku.setMat(sol)
-				valid_cell = (sol > 0.95) * (sol < 9.05)
-				complete = np.prod(valid_cell)
-				if sudoku.checkIfValid() and complete > 0.5:
-					n_valid = n_valid + 1
-				else:
-					obenc = old_board[k,:,:].squeeze().cpu().numpy()
-					puz = sparse_encoding.decodeBoard(obenc, board_loc, argmax=True)
-					print('failed on this puzzle:')
-					sudoku.printSudoku("", puz)
-					print("sol:")
-					sudoku.printSudoku("", sol)
-				n_total = n_total + 1
+			if not cmd_args.v:
+				# decode and check
+				for k in range(batch_size):
+					benc = new_state_preds[k,:,:].squeeze().cpu().numpy()
+					sol = sparse_encoding.decodeBoard(benc, board_loc)
+					sudoku.setMat(sol)
+					valid_cell = (sol > 0.95) * (sol < 9.05)
+					complete = np.prod(valid_cell)
+					if sudoku.checkIfValid() and complete > 0.5:
+						n_valid = n_valid + 1
+					else:
+						obenc = old_board[k,:,:].squeeze().cpu().numpy()
+						puz = sparse_encoding.decodeBoard(obenc, board_loc, argmax=True)
+						print('failed on this puzzle:')
+						sudoku.printSudoku("", puz)
+						print("sol:")
+						sudoku.printSudoku("", sol)
+					n_total = n_total + 1
 
 			uu = uu + 1
 
