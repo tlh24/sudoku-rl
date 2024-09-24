@@ -176,7 +176,7 @@ if __name__ == "__main__":
 	input_thread.start()
 
 	bi = TRAIN_N
-	for uu in range(50000):
+	for uu in range(50):
 		if bi >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0
