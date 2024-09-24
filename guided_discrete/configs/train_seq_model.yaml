@@ -25,8 +25,9 @@ log_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs
 exp_name: mlm_test
 exp_dir: ${log_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
 
-val_sample_frequency: 2
-num_samples: 256
+val_sample_frequency: 5
+num_samples: 16
+num_solutions_generate: 1 #10 
 infill_seeds_fn: null #/home/nvg7279/src/seq-struct/infill_test_seeds.txt
 guidance_kwargs: null
 autoregressive_sample: False

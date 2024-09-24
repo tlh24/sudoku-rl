@@ -102,19 +102,19 @@ class SampleEvaluationCallback(Callback):
         self.sample_frequency = config.val_sample_frequency
         self.guidance_kwargs = config.guidance_kwargs 
         self.infill_dataset = config.infill_dataset 
+        self.num_solutions_generate = config.num_solutions_generate
     
     def on_validation_epoch_end(self, trainer, pl_module):
         if pl_module.current_epoch == 0:
             return 
             #return TODO: uncommment
-        
+             
         if pl_module.current_epoch % self.sample_frequency != 0:
             return 
         
         pl_module.eval()
-      
-        test_solving(pl_module, self.num_samples, self.infill_dataset,self.vocab_file,\
-                     self.exp_dir, self.guidance_kwargs)
+        test_solving(pl_module, self.num_samples, self.num_solutions_generate, self.infill_dataset, self.vocab_file,\
+                     self.exp_dir, pl_module.current_epoch, self.guidance_kwargs)
         print("We evaluated some solutions")
  
 

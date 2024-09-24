@@ -262,14 +262,19 @@ class MLMDiffusion(BaseModel):
         infill_seed, 
         infill_mask,
         corrupt_mask,
-        num_samples,
+        num_solutions_generate,
         guidance_kwargs=None
     ):
         '''
-        infill_seed: sequence to complete, contains [MASK] token ids 
-        infill_mask: vector of booleans (of shape infill_seed) where True means that token can be replaced, False means keep the original token
-        corrupt_mask: vector of booleans where True means that the token can be corrupted, False means not 
+        Given one starting board, generates num_solutions_generate many solutions and returns one solution (the best) 
+
+        infill_seed: sequence to complete, contains [MASK] token ids. Shape (81, ) 
+        infill_mask: vector of booleans (of shape infill_seed) where True means that token can be replaced, False means keep the original token. Shape (81, ) 
+        corrupt_mask: vector of booleans where True means that the token can be corrupted, False means not. Shape (81, ) 
+
+        For reference please refer to 2305.20009 Appendix section B Algo 1&2
         '''
+        assert len(infill_seed.shape) == 1, "only take on starting board of shape (81,)"
         device = next(self.parameters()).device 
         infill_mask = infill_mask[None, :]
         corrupt_mask = corrupt_mask[None, :]
@@ -282,8 +287,9 @@ class MLMDiffusion(BaseModel):
         noisy_gt = self.noise_schedule.corrupt(gt_vals, t)[0]
         noisy_gt = torch.where(corrupt_mask, noisy_gt, gt_vals)
 
-        shape = (num_samples, infill_seed.shape[0])
-        # x is tensor filled with all mask tokens where infill mask is True 
+        shape = (num_solutions_generate, infill_seed.shape[0])
+        
+        # x starts as tensor filled with all mask tokens where infill mask is True (rest are initial hints) 
         x = self.noise_schedule.sample_prior(shape, device)
         x = torch.where(infill_mask, x, noisy_gt)
         #TODO: pdb and check that the initial hints are preserved 
@@ -292,6 +298,7 @@ class MLMDiffusion(BaseModel):
         #return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
         
         traj = []
+        # iterate over diffusion timesteps 
         for i in tqdm.tqdm(indices):
             t = torch.tensor([i] * shape[0], device=device)
 
@@ -305,16 +312,21 @@ class MLMDiffusion(BaseModel):
                     model_output, t, attn_mask, infill_mask,
                     **guidance_kwargs
                 )
+            # generate a denoised sample based on my noisy sequence x 
             x = Categorical(logits=logits).sample()
             clean_x = x.clone()
 
             if i != indices[-1]:
+                # renoise x according to my "next" timestep t only where we don't have initial hints; 
+                # ensure that x has original hints tokens preserved with the noisy_gt step 
                 x = self.noise_schedule.corrupt(x,t,infill_mask)[0]
+                # noisy_gt is effectively useless but important thing is that all the initial hints are preserved 
                 noise_t = torch.tensor([i-1]*shape[0], device=device)
                 noisy_gt = self.noise_schedule.corrupt(gt_vals, noise_t[:1])[0]
                 noisy_gt = torch.where(corrupt_mask.bool(), noisy_gt, gt_vals)
                 x = torch.where(infill_mask, x, noisy_gt)
             
+            # replace the initial hints into the generated denoised sample 
             pred_ids = torch.where(infill_mask.squeeze(-1), clean_x, infill_seed[None])
 
             if guidance_kwargs is not None:
@@ -325,7 +337,7 @@ class MLMDiffusion(BaseModel):
             
             traj.append(pred_ids)
         
-        #todo: add return best option
+        #TODO: add return best option; don't just return the first sample generated
         samples = traj[-1][0]
 
         return samples 
