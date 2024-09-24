@@ -24,7 +24,7 @@ import utils
 from sudoku_gen import Sudoku
 
 
-def encodeSudoku(puzz, top_node):
+def encodeSudoku(puzz, top_node=False):
 	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
 	return benc, coo, a2a, board_loc
