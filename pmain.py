@@ -251,7 +251,7 @@ if __name__ == "__main__":
 
 	bi = TRAIN_N
 	for uu in range(50000):
-		if bi >= TRAIN_N:
+		if bi+batch_size >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0
 		indx = batch_indx[bi:bi+batch_size]
