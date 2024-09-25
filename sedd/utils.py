@@ -5,6 +5,7 @@ import torch
 import logging
 import re 
 import matplotlib.pyplot as plt 
+from omegaconf import OmegaConf
 
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'sudoku_trajs'))
 
@@ -125,6 +126,33 @@ def action_traj_idxs_unique(action_seq: np.ndarray) -> bool:
     
     return is_unique 
 
+def is_outlier(points, thresh=3.5):
+    """
+    Returns a boolean array with True if points are outliers and False 
+    otherwise.
+
+    Parameters:
+    -----------
+        points : An numobservations by numdimensions array of observations
+        thresh : The modified z-score to use as a threshold. Observations with
+            a modified z-score (based on the median absolute deviation) greater
+            than this value will be classified as outliers.
+
+    Returns:
+    --------
+        mask : A numobservations-length boolean array.
+    """
+    if len(points.shape) == 1:
+        points = points[:,None]
+    median = np.median(points, axis=0)
+    diff = np.sum((points - median)**2, axis=-1)
+    diff = np.sqrt(diff)
+    med_abs_deviation = np.median(diff)
+
+    modified_z_score = 0.6745 * diff / med_abs_deviation
+
+    return modified_z_score > thresh
+
 
 def save_loss_graph(logger_file):
     '''
@@ -139,23 +167,32 @@ def save_loss_graph(logger_file):
     training_loss_pattern = r"training_loss: (\d+\.\d+e\+\d+)"
     evaluation_loss_pattern = r"evaluation_loss: (\d+\.\d+e\+\d+)"
 
-    evaluation_losses = [float(x) for x in re.findall(evaluation_loss_pattern, content)]
-    training_losses = [float(x) for x in re.findall(training_loss_pattern, content)][:len(evaluation_losses)*2]
+    evaluation_losses = np.array([float(x) for x in re.findall(evaluation_loss_pattern, content)])
+    training_losses = np.array([float(x) for x in re.findall(training_loss_pattern, content)][:len(evaluation_losses)*2])
     
 
     #TODO: change to extract timestep from log 
     time_steps = np.arange(0, 50*(len(training_losses)), 50)
     eval_time_steps = np.arange(0, 50*(len(training_losses)), 100)
-    breakpoint()
+    
+    #Filter out outliers 
+    training_outlier_idxs = is_outlier(training_losses)
+    evaluation_outlier_idxs = is_outlier(evaluation_losses)
 
-    plt.plot(time_steps, training_losses, 'b-', label='Training Loss')
-    plt.plot(eval_time_steps, evaluation_losses, 'g-', label='Evaluation Loss')
+    plt.plot(time_steps[~training_outlier_idxs], training_losses[~training_outlier_idxs], 'b-', label='Training Loss')
+    plt.plot(eval_time_steps[~evaluation_outlier_idxs], evaluation_losses[~evaluation_outlier_idxs], 'g-', label='Evaluation Loss')
     plt.legend()
 
     plt.xlabel("Timestep")
     plt.ylabel("Score loss")
     plt.savefig(save_file_path)
 
+def load_config_from_run(load_dir='./'):
+    cfg_path = os.path.join(load_dir, "configs/normal_config.yaml")
+    cfg = OmegaConf.load(cfg_path)
+    return cfg
+
 
 if __name__ == "__main__":
-    save_loss_graph('experiments/09-03-2024-17:05/logs')
+    #save_loss_graph('experiments/09-04-2024-15:34/logs')
+    save_loss_graph('experiments/09-05-2024-13:15/logs')

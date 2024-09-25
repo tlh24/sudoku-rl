@@ -12,7 +12,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.nn.functional as F
 
-import data
+import data_utils as data 
 import losses
 import sampling
 import graph_lib
@@ -110,6 +110,7 @@ def _run(cfg):
             batch = next(train_iter)['input_ids'].to(device)
         else:
             batch = next(train_iter).to(device)
+        
         loss = train_step_fn(state, batch)
         # flag to see if there was movement ie a full batch got computed
         if step != state['step']:
@@ -172,10 +173,12 @@ def _run(cfg):
                     else:
                         output_boards = []
                         for i in range(len(sample)):
-                            seq = sample[i]
-                            #action_traj_idxs_unique(seq.cpu().numpy())
+                            seq = sample[i].cpu().detach().numpy()
+                            #action_traj_idxs_unique(seq)
                             assert seq.shape == (81,) or seq.shape == (1,81)
-                            output_boards.append(action_seq_to_board(seq))
+                            digit_seq = seq + 1
+                            output_boards.append(digit_seq.reshape((9,9)))
+                            #output_boards.append(action_seq_to_board(seq))
 
                         valid_results = [] 
                         
