@@ -112,8 +112,117 @@ def sudokuActionNodes(action_type, action_value):
 			print(action_type)
 			assert(False)
 	return na
-		
-def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float): 
+
+def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
+	'''
+	Very simple version: encode the board as a set of box nodes
+	and set / set2 nodes.
+	'''
+	if guess_mat is None:
+		guess_mat = np.zeros((9,9), dtype=int)
+	if curs_pos is None:
+		curs_pos = np.ones((2,), dtype=int) * -1
+
+	nodes = []
+	board_nodes = [[] for _ in range(SuN)]
+
+	posOffset = (SuN - 1) / 2.0
+
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			b = (x // SuH)*SuH + (y // SuH)
+			v = puzzl_mat[x,y]
+			nb = Node(Types.BOX)
+			nb.setAxVal( Axes.N_AX, v )
+			g = guess_mat[x,y]
+			nb.setAxVal( Axes.G_AX, g )
+
+			# think of these as named attributes, var.x, var.y etc
+			# the original encoding is var.pos[0], var.pos[1], var.pos[2]
+			# can do a bit of both by encoding the axes with integers
+			nb.setAxVal( Axes.X_AX, x - posOffset )
+			nb.setAxVal( Axes.Y_AX, y - posOffset )
+			nb.setAxVal( Axes.B_AX, b - posOffset )
+
+			highlight = 0
+			if x == curs_pos[0] and y == curs_pos[1]:
+				highlight = 2
+			nb.setAxVal( Axes.H_AX, highlight )
+
+			board_nodes[x].append(nb)
+
+	xsets = Node(Types.SET2)
+	xsets.setAxVal( Axes.N_AX, 2)
+	nodes.append(xsets)
+	# nboard.addChild(xsets)
+	for x in range(SuN):
+		nb = Node(Types.SET)
+		nb.setAxVal( Axes.N_AX, 1)
+		nb.setAxVal( Axes.X_AX, x - posOffset )
+		highlight = 0
+		if x == curs_pos[0] :
+			highlight = -1
+		nb.setAxVal( Axes.H_AX, highlight )
+		for y in range(SuN):
+			nb.addChild( board_nodes[x][y] )
+		xsets.addChild(nb)
+
+	ysets = Node(Types.SET2)
+	ysets.setAxVal( Axes.N_AX, 4)
+	nodes.append(ysets)
+	# nboard.addChild(ysets)
+	for y in range(SuN):
+		nb = Node(Types.SET)
+		nb.setAxVal( Axes.N_AX, 3)
+		nb.setAxVal( Axes.Y_AX, y - posOffset )
+		highlight = 0
+		if y == curs_pos[1] :
+			highlight = -1
+		nb.setAxVal( Axes.H_AX, highlight )
+		for x in range(SuN):
+			nb.addChild( board_nodes[x][y] )
+		ysets.addChild(nb)
+
+	bsets = Node(Types.SET2)
+	bsets.setAxVal( Axes.N_AX, 6)
+	nodes.append(bsets)
+	# nboard.addChild(bsets)
+	for b in range(SuN):
+		nb = Node(Types.SET)
+		nb.setAxVal( Axes.N_AX, 5)
+		nb.setAxVal( Axes.B_AX, b - posOffset )
+		highlight = 0
+		bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
+		if b == bc :
+			highlight = -1
+		nb.setAxVal( Axes.H_AX, highlight )
+		for x in range(SuN): # x = row
+			for y in range(SuN): # y = column
+				bb = (x // SuH)*SuH + (y // SuH)
+				if b == bb:
+					nb.addChild( board_nodes[x][y] )
+		bsets.addChild(nb)
+
+	if top_node:
+		# gather-all node at the end.
+		nb = Node(Types.GUESS_ACTION)
+		nodes.append(nb)
+
+	for n in nodes:
+		n.clearLoc()
+	i = 0
+	for n in nodes:
+		i = n.setLoc(i)
+
+	board_loc = np.zeros((SuN,SuN),dtype=int)
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			board_loc[x,y] = board_nodes[x][y].loc
+
+	return nodes, board_nodes, board_loc
+
+
+def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float, many_reward=False):
 	nodes = []
 	posOffset = (SuN - 1) / 2.0
 
@@ -133,91 +242,24 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 		ncursor.setAxVal( Axes.H_AX, 0.0 )
 	nodes.append(ncursor)
 	
-	# reward token (used for reward prediction)
+	# reward token (used for one-step reward prediction)
 	nreward = Node(Types.REWARD)
 	nreward.setAxVal( Axes.R_AX, reward*5 )
 	nodes.append(nreward)
 	
-	full_board = True
-	board_nodes = [[] for _ in range(SuN)]
-	if full_board: 
-		for x in range(SuN): # x = row
-			for y in range(SuN): # y = column
-				b = (x // SuH)*SuH + (y // SuH)
-				v = puzzl_mat[x,y]
-				nb = Node(Types.BOX)
-				nb.setAxVal( Axes.N_AX, v )
-				g = guess_mat[x,y]
-				nb.setAxVal( Axes.G_AX, g )
-				
-				# think of these as named attributes, var.x, var.y etc
-				# the original encoding is var.pos[0], var.pos[1], var.pos[2]
-				# can do a bit of both by encoding the axes with integers
-				nb.setAxVal( Axes.X_AX, x - posOffset )
-				nb.setAxVal( Axes.Y_AX, y - posOffset )
-				nb.setAxVal( Axes.B_AX, b - posOffset )
-				
-				highlight = 0
-				if x == curs_pos[0] and y == curs_pos[1]:
-					highlight = 2 
-				nb.setAxVal( Axes.H_AX, highlight )
-				
-				board_nodes[x].append(nb)
-		
-		# make the sets
-		# nboard = Node(Types.SET, 2) # node of the whole board
-		
-		xsets = Node(Types.SET2)
-		xsets.setAxVal( Axes.N_AX, 2)
-		nodes.append(xsets)
-		# nboard.addChild(xsets)
-		for x in range(SuN): 
-			nb = Node(Types.SET)
-			nb.setAxVal( Axes.N_AX, 1)
-			nb.setAxVal( Axes.X_AX, x - posOffset )
-			highlight = 0
-			if x == curs_pos[0] :
-				highlight = -1 
-			nb.setAxVal( Axes.H_AX, highlight )
-			for y in range(SuN): 
-				nb.addChild( board_nodes[x][y] )
-			xsets.addChild(nb)
-		
-		ysets = Node(Types.SET2)
-		ysets.setAxVal( Axes.N_AX, 4)
-		nodes.append(ysets)
-		# nboard.addChild(ysets)
-		for y in range(SuN): 
-			nb = Node(Types.SET)
-			nb.setAxVal( Axes.N_AX, 3)
-			nb.setAxVal( Axes.Y_AX, y - posOffset )
-			highlight = 0
-			if y == curs_pos[1] :
-				highlight = -1
-			nb.setAxVal( Axes.H_AX, highlight )
-			for x in range(SuN): 
-				nb.addChild( board_nodes[x][y] )
-			ysets.addChild(nb)
-			
-		bsets = Node(Types.SET2)
-		bsets.setAxVal( Axes.N_AX, 6)
-		nodes.append(bsets)
-		# nboard.addChild(bsets)
-		for b in range(SuN): 
-			nb = Node(Types.SET)
-			nb.setAxVal( Axes.N_AX, 5)
-			nb.setAxVal( Axes.B_AX, b - posOffset )
-			highlight = 0
-			bc = (curs_pos[0] // SuH)*SuH + (curs_pos[1] // SuH)
-			if b == bc :
-				highlight = -1
-			nb.setAxVal( Axes.H_AX, highlight )
-			for x in range(SuN): # x = row
-				for y in range(SuN): # y = column
-					bb = (x // SuH)*SuH + (y // SuH)
-					if b == bb: 
-						nb.addChild( board_nodes[x][y] )
-			bsets.addChild(nb)
+	nodes_b, board_nodes, _ = puzzleToNodes(puzzl_mat, guess_mat, curs_pos)
+	nodes.extend(nodes_b)
+
+	# add in at the end.
+	if many_reward:
+		axes = [Axes.X_AX, Axes.Y_AX]
+		dirs = [-1, 1]
+		for ax in axes:
+			for d in dirs:
+				nr = Node(Types.REWARD)
+				nr.setAxVal( Axes.R_AX, 0.0 ) # fill this in later.
+				nr.setAxVal( ax, d )
+				nodes.append(nr)
 	
 	# set the node indexes.
 	# some nodes are in the top-level list; others are just children.
@@ -226,13 +268,14 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	i = 0
 	for n in nodes: 
 		i = n.setLoc(i)
-	assert(i == token_cnt)
+	if i > token_cnt:
+		print(f'expect {token_cnt}, encoded {i} tokens')
+		pdb.set_trace()
 	
-	board_loc = torch.zeros((SuN,SuN),dtype=int)
-	if full_board:
-		for x in range(SuN): # x = row
-			for y in range(SuN): # y = column
-				board_loc[x,y] = board_nodes[x][y].loc
+	board_loc = np.zeros((SuN,SuN),dtype=int)
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			board_loc[x,y] = board_nodes[x][y].loc
 	cursor_loc = ncursor.loc
 	
 	return nodes, nreward.loc, (board_loc,cursor_loc)
@@ -270,7 +313,7 @@ def encodeNodes(nodes):
 		nodes_flat = n.flatten(nodes_flat)
 	count = len(nodes_flat)
 	assert(i == count)
-	benc = np.zeros((count, world_dim))
+	benc = np.zeros((count, 32))
 	for n in nodes_flat: 
 		i = n.loc # must be consistent with edges for coo
 		benc[i, n.typ.value] = 1.0 # categorical
@@ -279,24 +322,25 @@ def encodeNodes(nodes):
 		# 	ii = (20 - n.typ.value) + 31
 		benc[i, Axes.N_AX.value:32] = n.axval
 		# add in categorical encoding of value
+		def encode(x):
+			if v >= 0.6 and v <= 9.4:
+				benc[i,11:20] = 0.0
+				vi = round(v)
+				benc[i,10+vi] = 1.0
+					
 		ntv = n.typ.value
 		if ntv == Types.BOX.value:
 			v = n.axval[0]
-			if v >= 0.6 and v <= 9.4:
-				vi = round(v)
-				benc[i,10+vi] = 1.0
+			encode( v )
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
-			if v >= 0.6 and v <= 9.4:
-				vi = round(v)
-				benc[i,10+vi] = 1.0
+			encode( v )
+			benc[i, Axes.N_AX] = n.axval[0]/10.0 # FIXME primarily categorical!
 		if ntv == Types.GUESS_ACTION.value:
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
-			if v >= 0.6 and v <= 9.4:
-				vi = round(v)
-				benc[i,10+vi] = 1.0
+			encode( v )
 		
 	coo,a2a = nodesToCoo(nodes)
-	return torch.tensor(benc, dtype=g_dtype), coo, a2a
+	return benc, coo, a2a
 	
 def encodeActionNodes(action_type, action_value): 
 	# action nodes are at the beginning of the board encoding, 
@@ -305,12 +349,23 @@ def encodeActionNodes(action_type, action_value):
 	aenc,_,_ = encodeNodes([na])
 	return aenc
 	
+def decodeBoard(benc, board_loc, argmax=True):
+	puzzle = np.zeros((SuN, SuN), dtype = int)
+	for x in range(SuN): # x = row
+		for y in range(SuN): # y = column
+			if argmax:
+				if np.sum(benc[board_loc[x,y], 11:20] > 0.5) > 0.5:
+					puzzle[x,y] = np.argmax(benc[board_loc[x,y], 11:20]) + 1
+			else:
+				puzzle[x,y] = round(benc[board_loc[x,y], Axes.N_AX.value].item() )
+	return puzzle
+
 def decodeNodes(indent, benc, locs):
 	# prints the output; returns nothing.
 	posOffset = (SuN - 1) / 2.0
 	board_loc,cursor_loc = locs
-	puzzle = torch.zeros((SuN, SuN), dtype = int)
-	guess_mat = torch.zeros((SuN, SuN), dtype = int)
+	puzzle = np.zeros((SuN, SuN), dtype = int)
+	guess_mat = np.zeros((SuN, SuN), dtype = int)
 	xo = Axes.X_AX.value
 	yo = Axes.Y_AX.value
 	go = Axes.G_AX.value

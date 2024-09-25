@@ -12,7 +12,6 @@ work_dir = os.path.dirname(__file__)
 checkpoint_path = 'best.pth'
 
 def main(args=None):
- 
     ###
     #Setup
     ###
@@ -41,9 +40,9 @@ def main(args=None):
     #Build GPT model and trainer
     ###
     model_conf = GPTConfig(vocab_size=10, block_size=81, n_head=args.n_head, n_embd=args.n_embd, num_classes=9,\
-                            n_recur=args.n_recur, n_layer=args.n_layer)
+                    n_recur=args.n_recur, n_layer=args.n_layer)
 
-    model = GPT(model_conf)
+	  model = GPT(model_conf)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -70,9 +69,7 @@ def main(args=None):
     #Evaluate
     ###
     eval_acc = trainer.evaluate()
-    print(f"Test Acc: {eval_acc:.4f}")
-    
-    
+    print(f"Test Acc: {eval_acc:.4f}")  
     
 
 if __name__ == "__main__":

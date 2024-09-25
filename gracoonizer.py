@@ -38,8 +38,7 @@ class Gracoonizer(nn.Module):
 				d_model = xfrmr_dim,
 				layers = n_layers,
 				n_head = self.n_head,
-				repeat = repeat,
-				init_zeros = g_zeroinit
+				repeat = repeat
 				)
 		elif mode == 1: #USE_NANOGPT:
 			model_args = dict(
@@ -56,16 +55,12 @@ class Gracoonizer(nn.Module):
 			# simple MLP, as a control.
 			self.xfrmr = NetDenoise(token_cnt * world_dim)
 	
-	def forward(self, benc, hcoo, n, record): 
+	def forward(self, benc, hcoo):
 		'''
 		Given an input board, returns another board (whose shape is identical to the input board) 
 		'''
-		batch_size = benc.shape[0]
-		board_size = benc.shape[1]
-		if record is not None: 
-			record.append(actenc)
 		if self.mode == 0: 
-			y = self.xfrmr(benc,hcoo,n,record)
+			y = self.xfrmr(benc,hcoo)
 		elif self.mode == 1: 
 			y = self.xfrmr(benc)
 		else: 
@@ -149,14 +144,14 @@ class Gracoonizer(nn.Module):
 				plt.show()
 		return action
 		
-	def load_checkpoint(self, path:str=None):
+	def loadCheckpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
 		self.load_state_dict(torch.load(path,weights_only=True))
 		# if we load the state dict, then start all heads 'on'
 		# self.xfrmr.allHeadsOn()
    
-	def save_checkpoint(self, path:str=None):
+	def saveCheckpoint(self, path:str=None):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
 		torch.save(self.state_dict(), path)

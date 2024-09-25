@@ -175,6 +175,21 @@ class Sudoku:
 	
 	def makeMove(self, i, j, num):
 		self.mat[i, j] = num
+		
+	def takeOneStep(self): 
+		# given  the current map, take one trivial elimination step.  
+		out = np.array(self.mat) # deep copy
+		changes = 0
+		for i in range(self.N):
+			for j in range(self.N): 
+				if self.mat[i,j] == 0: 
+					possible = np.ones((self.N,))
+					for k in range(self.N):
+						possible[k] = self.checkIfSafe(i, j, k+1)
+					if np.sum(possible) == 1:
+						out[i,j] = np.argmax(possible) + 1
+						changes = changes+1
+		return out,changes
 
 	def setMat(self, mat): 
 		self.mat = mat.astype(np.int32) # must be int!  == comparisons! 
@@ -194,6 +209,15 @@ class Sudoku:
 				if curs_pos is not None: 
 					if int(curs_pos[0]) == i and int(curs_pos[1]) == j:
 						bgcol = "on_light_yellow"
+				if p == 0:
+					if color == "black":
+						color = "light_grey"
+					if color == "red":
+						color = "light_red"
+					if color == "blue":
+						color = "light_blue"
+					if color == "magenta":
+						color = "light_magenta"
 				if bgcol is not None: 
 					print(colored(p, color, bgcol), end=" ")
 				else: 
@@ -202,7 +226,7 @@ class Sudoku:
 		self.mat = puzzl_mat
 		if guess_mat is not None: 
 			self.mat = self.mat + guess_mat
-		print(f"{indent}Valid:", self.checkIfValid(), end=" ")
+		print(f"{indent}Valid:", self.checkIfValid())
 
 
 def generateInitialBoard(percent_filled=0.75, exact_num_filled=False):
@@ -432,8 +456,10 @@ if __name__ == "__main__":
 	sudokuf.printSudoku("", sudokuf.mat)
 	print("")
 
-	# check original Sudoku
+	# check original Sudoku (which frequently admits more than one solution)
 	sudoku = Sudoku(N, 81-25)
 	sudoku.fillValues()
 	sudoku.printSudoku("", sudoku.mat)
-	print("")
+	step,changes = sudoku.takeOneStep()
+	print(f"\none step: {changes} changes")
+	sudoku.printSudoku("", step)

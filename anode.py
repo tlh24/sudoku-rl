@@ -95,13 +95,13 @@ class ANode:
 				indx,cont = n.setIndex(indx,cont)
 		return indx,cont
 		
-	def setIndexRoot(self): 
+	def setIndexRoot(self, indx):
 		# call this from the root node. 
 		self.resetIndex()
-		indx = 0
 		indx,cont = self.setIndex(indx, False)
 		while(cont): 
 			indx,cont = self.setIndex(indx, False)
+		return indx
 	
 	def printGexfNode(self, fil): 
 		# this implementation is simpler, since it's a DAG (tree)
@@ -128,7 +128,7 @@ class ANode:
 			k.printGexfEdge(fil)
 		
 
-def outputGexf(node, fname): 
+def outputGexf(nodes, fname):
 	header = '''<?xml version="1.0" encoding="UTF-8"?>
 <gexf xmlns="http://gexf.net/1.3" version="1.3">
 <graph mode="static" defaultedgetype="directed" idtype="string">
@@ -142,11 +142,14 @@ def outputGexf(node, fname):
 <nodes> '''
 	fil = open(fname, 'w')
 	print(header, file=fil)
-	node.setIndexRoot()
-	node.printGexfNode(fil)
+	indx = 0
+	for node in nodes:
+		indx = node.setIndexRoot(indx)
+		node.printGexfNode(fil)
 	print('</nodes>',file=fil)
 	print('<edges>',file=fil)
-	node.printGexfEdge(fil)
+	for node in nodes:
+		node.printGexfEdge(fil)
 	footer = '''
 </edges>
 </graph>

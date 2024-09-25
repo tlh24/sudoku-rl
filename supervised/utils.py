@@ -61,6 +61,7 @@ class Sudoku_Dataset_SATNet(Dataset):
 		for k in data_to_path:
 			try:
 				with open(data_to_path[k], 'rb') as f:
+
 					data[k] = torch.load(f, weights_only=False)
 			except Exception as error:
 				print(f"could not find data file: {error}")
@@ -142,3 +143,4 @@ def save_checkpoint(ckpt_dir, state):
         'step': state['step']
     }
     torch.save(saved_state, ckpt_dir)
+
