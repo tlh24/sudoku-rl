@@ -12,7 +12,7 @@ import utils
 
 plot_rows = 1
 plot_cols = 1
-figsize = (7 , 4)
+figsize = (12 ,7)
 plt.ion()
 plt.rcParams['font.size'] = 18
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)

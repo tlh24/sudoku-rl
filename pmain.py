@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import glob # for file filtering
+import csv # for reading rnn
 import numpy as np
 import torch
 from torch import nn, optim
@@ -22,6 +23,9 @@ import psgd
 import gmain
 import utils
 from sudoku_gen import Sudoku
+
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# sys.path.append(os.path.join(current_dir, 'sedd'))
 
 
 def encodeSudoku(puzz, top_node=False):
@@ -128,7 +132,55 @@ def encodeSudokuValue(N, percent_filled):
 	np.savez(f"satnet_value_{percent_filled}_{N}.npz", puzzles=puzz_enc, value=value, coo=coo, a2a=a2a)
 
 	return puzz_enc, value, coo, a2a
+	
 
+def loadRnnCsv(csv_file): 
+	'''
+	Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81).  Empty cells are zero. 
+	'''
+	base_file = os.path.splitext(csv_file)[0]
+	npz_file = f"{base_file}.npz"
+	try:
+		file = np.load(npz_file)
+		puzz_enc = file["puzzles"]
+		sol_enc = file["solutions"]
+		coo = file["coo"]
+		a2a = file["a2a"]
+		coo = torch.from_numpy(coo)
+		a2a = torch.from_numpy(a2a)
+	except Exception as error:
+		print(error)
+		print("Reading %s" % csv_file)
+		with open(csv_file) as f:
+			puzzles, solutions = [], [] 
+			reader = csv.reader(f, delimiter=',')
+			for q,a in reader:
+				puzzle_digits = list(q)
+				puzzles.append(puzzle_digits)
+				solution_digits = list(map(int, list(a)))
+				solutions.append(solution_digits)
+		puzzles = np.stack(puzzles)
+		solutions = np.stack(solutions)
+		N = puzzles.shape[0]
+		puzzles = np.reshape(puzzles, (N,9,9))
+		solutions = np.reshape(solutions, (N,9,9))
+		
+		puzz_enc = np.zeros((N,111,32), dtype=np.float16)
+		sol_enc = np.zeros((N,111,32), dtype=np.float16)
+		
+		for i in range(N):
+			puzz, coo, a2a, _ = encodeSudoku(puzzles[i])
+			sol,_,_,_ = encodeSudoku(solutions[i])
+			puzz_enc[i,:,:] = puzz
+			sol_enc[i,:,:] = sol
+			if i % 1000 == 999:
+				print(".", end='', flush=True)
+
+		np.savez(npz_file, puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
+	
+	puzz_enc = torch.from_numpy(puzz_enc)
+	sol_enc = torch.from_numpy(sol_enc)
+	return puzz_enc, sol_enc, coo, a2a
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
@@ -136,6 +188,7 @@ if __name__ == "__main__":
 	parser.add_argument('-c', action='store_true', help="clear, start fresh: don't load model")
 	parser.add_argument('-v', action='store_true', help="train value function")
 	parser.add_argument('-r', type=int, default=1, help='number of repeats or steps')
+	parser.add_argument('--rrn-hard', action='store_true', help="use RRN hard dataset")
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
@@ -147,59 +200,66 @@ if __name__ == "__main__":
 	puzzles = []
 	solutions = []
 	values = []
-	# for percent_filled in [0.5,0.75]:
-	for percent_filled in [0.35,0.65,0.85]:
+	if not cmd_args.rrn_hard: 
+		for percent_filled in [0.35,0.65,0.85]:
+			if cmd_args.v:
+				fname = f"satnet_value_{percent_filled}_{DATA_N}.npz"
+				try:
+					file = np.load(fname)
+					puzzles_ = file["puzzles"]
+					values_ = file["value"]
+					coo = file["coo"]
+					a2a = file["a2a"]
+					coo = torch.from_numpy(coo)
+					a2a = torch.from_numpy(a2a)
+				except Exception as error:
+					print(error)
+					puzzles_, values_, coo, a2a = encodeSudokuValue(DATA_N, percent_filled)
+
+				puzzles_ = torch.from_numpy(puzzles_)
+				values_ = torch.from_numpy(values_)
+				puzzles.append(puzzles_)
+				values.append(values_)
+			else:
+				fname = f"satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
+				try:
+					file = np.load(fname)
+					puzzles_ = file["puzzles"]
+					solutions_ = file["solutions"]
+					coo = file["coo"]
+					a2a = file["a2a"]
+					coo = torch.from_numpy(coo)
+					a2a = torch.from_numpy(a2a)
+				except Exception as error:
+					print(error)
+					puzzles_, solutions_, coo, a2a = encodeSudokuSteps(DATA_N, percent_filled, n_steps)
+
+				puzzles_ = torch.from_numpy(puzzles_)
+				solutions_ = torch.from_numpy(solutions_)
+				puzzles.append(puzzles_)
+				solutions.append(solutions_)
+
+		def trainValSplit(y):
+			y_train = list(map(lambda x: x[:-VALID_N], y))
+			y_valid = list(map(lambda x: x[-VALID_N:], y))
+			y_train = torch.cat(y_train, dim=0)
+			y_valid = torch.cat(y_valid, dim=0)
+			return y_train, y_valid
+
+		puzzles_train, puzzles_valid = trainValSplit(puzzles)
 		if cmd_args.v:
-			fname = f"satnet_value_{percent_filled}_{DATA_N}.npz"
-			try:
-				file = np.load(fname)
-				puzzles_ = file["puzzles"]
-				values_ = file["value"]
-				coo = file["coo"]
-				a2a = file["a2a"]
-				coo = torch.from_numpy(coo)
-				a2a = torch.from_numpy(a2a)
-			except Exception as error:
-				print(error)
-				puzzles_, values_, coo, a2a = encodeSudokuValue(DATA_N, percent_filled)
-
-			puzzles_ = torch.from_numpy(puzzles_)
-			values_ = torch.from_numpy(values_)
-			puzzles.append(puzzles_)
-			values.append(values_)
+			values_train, values_valid = trainValSplit(values)
+			assert(values_train.shape[0] == puzzles_train.shape[0])
 		else:
-			fname = f"satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
-			try:
-				file = np.load(fname)
-				puzzles_ = file["puzzles"]
-				solutions_ = file["solutions"]
-				coo = file["coo"]
-				a2a = file["a2a"]
-				coo = torch.from_numpy(coo)
-				a2a = torch.from_numpy(a2a)
-			except Exception as error:
-				print(error)
-				puzzles_, solutions_, coo, a2a = encodeSudokuSteps(DATA_N, percent_filled, n_steps)
-
-			puzzles_ = torch.from_numpy(puzzles_)
-			solutions_ = torch.from_numpy(solutions_)
-			puzzles.append(puzzles_)
-			solutions.append(solutions_)
-
-	def trainValSplit(y):
-		y_train = list(map(lambda x: x[:-VALID_N], y))
-		y_valid = list(map(lambda x: x[-VALID_N:], y))
-		y_train = torch.cat(y_train, dim=0)
-		y_valid = torch.cat(y_valid, dim=0)
-		return y_train, y_valid
-
-	puzzles_train, puzzles_valid = trainValSplit(puzzles)
-	if cmd_args.v:
-		values_train, values_valid = trainValSplit(values)
-		assert(values_train.shape[0] == puzzles_train.shape[0])
+			solutions_train, solutions_valid = trainValSplit(solutions)
+			assert(solutions_train.shape[0] == puzzles_train.shape[0])
 	else:
-		solutions_train, solutions_valid = trainValSplit(solutions)
-		assert(solutions_train.shape[0] == puzzles_train.shape[0])
+		puzzles_train, solutions_train, coo, a2a = \
+			loadRnnCsv('rnn-hard/train.csv')
+		puzzles_valid, solutions_valid, _, _ = \
+			loadRnnCsv('rnn-hard/valid.csv')
+		fname = 'rnn-hard'
+		
 
 	TRAIN_N = puzzles_train.shape[0]
 	VALID_N = puzzles_valid.shape[0]
@@ -209,17 +269,15 @@ if __name__ == "__main__":
 
 	device = torch.device('cuda:0')
 	args = {"device": device}
-	# use export CUDA_VISIBLE_DEVICES=1
-	# to switch to another GPU
 	torch.set_float32_matmul_precision('high')
 	torch.backends.cuda.matmul.allow_tf32 = True
 
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}_{n_steps}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	if cmd_args.v:
+	if cmd_args.v or cmd_args.rrn_hard:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-			n_heads=4, n_layers=8, repeat=1, mode=0).to(device)
+			n_heads=4, n_layers=8, repeat=n_steps, mode=0).to(device)
 	else:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
 			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
@@ -285,7 +343,17 @@ if __name__ == "__main__":
 
 			def closure():
 				new_state_preds = model.forward(old_board, hcoo)
-				loss = torch.sum(\
+				if cmd_args.rrn_hard: 
+					loss = torch.nn.functional.cross_entropy( \
+						new_state_preds[:,:,10:20].permute((0,2,1)), 
+						new_board[:,:,10:20].permute(0,2,1), reduction='sum') \
+					+ sum(\
+						[torch.sum(1e-4 * \
+							torch.rand_like(param) * param * param) \
+							for param in model.parameters() \
+						])
+				else: 
+					loss = torch.sum(\
 						(new_state_preds[:,:,:32] - new_board[:,:,:32])**2\
 						)\
 					+ sum(\
@@ -341,9 +409,14 @@ if __name__ == "__main__":
 				new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
 
 				new_state_preds = model.forward(old_board, hcoo)
-				loss = torch.sum(\
-					(new_state_preds[:,:,:32] - new_board[:,:,:32])**2 \
-					)
+				if cmd_args.rrn_hard:
+					loss = torch.nn.functional.cross_entropy( \
+						new_state_preds[:,:,10:20].permute((0,2,1)), 
+						new_board[:,:,10:20].permute(0,2,1), reduction='sum')
+				else:
+					loss = torch.sum(\
+						(new_state_preds[:,:,:32] - new_board[:,:,:32])**2 \
+						)
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)
 			args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
@@ -359,13 +432,13 @@ if __name__ == "__main__":
 					complete = np.prod(valid_cell)
 					if sudoku.checkIfValid() and complete > 0.5:
 						n_valid = n_valid + 1
-					else:
-						obenc = old_board[k,:,:].squeeze().cpu().numpy()
-						puz = sparse_encoding.decodeBoard(obenc, board_loc, argmax=True)
-						print('failed on this puzzle:')
-						sudoku.printSudoku("", puz)
-						print("sol:")
-						sudoku.printSudoku("", sol)
+					# else:
+					# 	obenc = old_board[k,:,:].squeeze().cpu().numpy()
+					# 	puz = sparse_encoding.decodeBoard(obenc, board_loc, argmax=True)
+					# 	print('failed on this puzzle:')
+					# 	sudoku.printSudoku("", puz)
+					# 	print("sol:")
+					# 	sudoku.printSudoku("", sol)
 					n_total = n_total + 1
 
 			uu = uu + 1

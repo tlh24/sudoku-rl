@@ -191,14 +191,15 @@ class Transformer(nn.Module):
 			[ResidualAttentionBlock(d_model, n_head) \
 				for _ in range(layers)])
 		self.stq = StraightThroughQuantize()
+		self.out_proj = nn.Linear(d_model, d_model, bias=True)
 
 	# @torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list):
 		for i in range(self.repeat): 
-			x = self.stq.apply(x)
+			# x = self.stq.apply(x) # quantize FIXME
 			for j, layer in enumerate(self.resblocks):
 				# linearly encode the repeat position on all tokens. 
 				# x[:,:,0] = i*2 FIXME
 				x = layer(x,hcoo,j,i)
-			x[:,:,32:] = 0.0 # clear internal encoding
-		return x
+			# x[:,:,32:] = 0.0 # clear internal encoding FIXME
+		return self.out_proj(x)
