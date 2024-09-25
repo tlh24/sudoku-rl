@@ -226,7 +226,7 @@ class Sudoku:
 		self.mat = puzzl_mat
 		if guess_mat is not None: 
 			self.mat = self.mat + guess_mat
-		print(f"{indent}Valid:", self.checkIfValid(), end=" ")
+		print(f"{indent}Valid:", self.checkIfValid())
 
 
 def generateInitialBoard(percent_filled=0.75):
