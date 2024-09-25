@@ -19,11 +19,10 @@ model:
 
   optimizer:
     _target_: torch.optim.AdamW
-    lr: 1e-3
-    #5e-4
+    lr: 5e-4
 
   lr_scheduler:
-    _target_: transformers.get_constant_schedule_with_warmup
-    #_target_:  transformers.get_linear_schedule_with_warmup
+    #_target_: transformers.get_constant_schedule_with_warmup
+    _target_:  transformers.get_linear_schedule_with_warmup
     num_warmup_steps: 10
-    #num_training_steps: ${max_epochs}
+    num_training_steps: ${max_epochs}

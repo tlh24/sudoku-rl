@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 import hydra 
 from utils import (flatten_config, convert_to_dict)
 import wandb 
-from data_utils import get_dataloader
+from data_utils import get_loaders 
 
 
 
@@ -28,22 +28,23 @@ def main(config):
             config=log_config
         )
     pprint.PrettyPrinter(depth=4).pprint(convert_to_dict(config))
-    
-    #config.model.network.target_channels = len(config.target_cols)
+    if config.target_cols and len(config.target_cols) > 0:
+        raise NotImplementedError()
+        config.model.network.target_channels = len(config.target_cols)
     # this initializes a model (ex: MLMDiffusion model) based on the parameters in config
     model = hydra.utils.instantiate(config.model, _recursive_=False)
 
-    train_dl = get_dataloader(config, 'train')
-    valid_dl = get_dataloader(config, 'validation')
+    train_dl, valid_dl = get_loaders(config)
     
     trainer = get_trainer(config, len(train_dl))
-
-    trainer.fit(
-        model=model, 
-        train_dataloaders=train_dl,
-        val_dataloaders=valid_dl, 
-        ckpt_path=config.resume_ckpt
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        trainer.fit(
+            model=model, 
+            train_dataloaders=train_dl,
+            val_dataloaders=valid_dl, 
+            ckpt_path=config.resume_ckpt
+        )
 
 if __name__ == "__main__":
     main()

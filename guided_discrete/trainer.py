@@ -138,7 +138,6 @@ def get_trainer(config, num_train_batches):
         ),
         pl.callbacks.LearningRateMonitor(logging_interval='epoch'),
         LossLoggingCallback(config.exp_dir),
-        SampleEvaluationCallback(config)
         ]
 
     if config.use_wandb:
