@@ -147,18 +147,38 @@ class SampleEvaluationCallback(Callback):
 
 
 def get_trainer(config, num_train_batches):
-    os.makedirs(os.path.join(config.exp_dir, "models/best_by_valid"), exist_ok=True)
-    os.makedirs(os.path.join(config.exp_dir, "models/best_by_train"), exist_ok=True)
-    
+    '''
+    Returns a PL trainer for either evaluation or training mode 
+    '''
+            
+    if config.is_eval:
+        return pl.Trainer(
+            default_root_dir=config['exp_dir'],
+            devices=1,
+            enable_progress_bar=True,
+        )
+
+    # finds the save directory that it should save to 
+    sweep_iter = 0
+    while True:
+        save_valid_dir = os.path.join(config.exp_dir, f"models/best_by_valid_{sweep_iter}")
+        save_train_dir = os.path.join(config.exp_dir, f"models/best_by_train_{sweep_iter}")
+        if os.path.exists(save_train_dir):
+            sweep_iter += 1  
+        else:
+            os.makedirs(save_train_dir)
+            os.makedirs(save_valid_dir)
+            break 
+
     callbacks= [pl.callbacks.ModelCheckpoint(
             monitor='val_loss',
-            dirpath=os.path.join(config.exp_dir, "models/best_by_valid"),
+            dirpath=save_valid_dir,
             save_top_k=5,
             mode="min"
         ),
-         pl.callbacks.ModelCheckpoint(
+        pl.callbacks.ModelCheckpoint(
             monitor='train_loss',
-            dirpath=os.path.join(config.exp_dir, "models/best_by_train"),
+            dirpath=save_train_dir,
             save_top_k=5,
             mode="min"
         ),
@@ -167,7 +187,7 @@ def get_trainer(config, num_train_batches):
         ]
     if config.is_sudoku:
         callbacks.append(SampleEvaluationCallback(config))
-         
+        
 
     if config.use_wandb:
         logger = WandbLogger(project="guided_seq", dir=config['exp_dir'])

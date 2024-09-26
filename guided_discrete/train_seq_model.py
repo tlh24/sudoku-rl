@@ -35,6 +35,7 @@ def main(config):
     model = hydra.utils.instantiate(config.model, _recursive_=False)
     print(f"Number of params in the model: {count_parameters(model)}")
 
+    assert not config.is_eval, "Evaluation is_eval needs to be false in training mode"
     if config.is_sudoku:
         train_dl, valid_dl = get_dataloader(config, "train"), get_dataloader(config, "validation")
     else:

@@ -1,0 +1,7 @@
+eval_ckpt: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/mlm_test/2024-09-26_12-31-46/models/best_by_valid/epoch=9-step=8130.ckpt
+num_eval_samples: 128
+infill_dataset: larger_satnet
+is_eval: True   
+
+
+

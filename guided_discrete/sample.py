@@ -26,6 +26,7 @@ def test_solving(
 
 
     '''
+    model.eval()
     tokenizer = transformers.BertTokenizerFast(
         vocab_file=vocab_file,
         do_lower_case=False 
@@ -66,6 +67,6 @@ def test_solving(
     
     solutions = np.array(solutions) #(num_samples, 81)
     # evaluate and log how good the samples are 
-    evaluate_samples(exp_dir, solutions, epoch)
-
+    solve_rate = evaluate_samples(exp_dir, solutions, epoch)
+    return solve_rate
 
