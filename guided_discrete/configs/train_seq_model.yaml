@@ -6,28 +6,29 @@ trial_id: 0
 project_name: guided_seq
 
 data_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/data
-#/scratch/nvg7279/datasets/sabdab_and_poas
 train_fn: train_*.csv 
 val_fn: val_iid.csv
-#train: larger_satnet
-#valid: larger_satnet
-#train: rrn
-#valid: rrn
+train: larger_satnet
+valid: larger_satnet
 max_samples: 100000
-infill_dataset: rrn 
+infill_dataset: larger_satnet
+is_sudoku: True 
 
 target_cols: null 
 discr_batch_ratio: null
-
-vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/vocab.txt 
-vocab_size: 30
+#vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/alphabet_vocab.txt
+vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/sudoku_vocab.txt
+#vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/protein_vocab.txt 
+vocab_size: 10
+#vocab_size: 22
 use_alignment_tokens: True
 
 log_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs 
-exp_name: nos_test
+exp_name: mlm_test
+#exp_name: nos_test
 exp_dir: ${log_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
 
-val_sample_frequency: 5
+val_sample_frequency: 10000 #5
 num_samples: 16
 num_solutions_generate: 1 #10 
 infill_seeds_fn: null #/home/nvg7279/src/seq-struct/infill_test_seeds.txt
@@ -35,8 +36,7 @@ guidance_kwargs: null
 autoregressive_sample: False
 
 resume_ckpt: null
-#/scratch/nvg7279/logs/guided_protein_seq/var_length_test/models/best_by_valid/epoch=1-step=134.ckpt 
-#/scratch/nvg7279/logs/guided_protein_seq/test/models/best_by_valid/epoch=9-step=790.ckpt
+#resume_ckpt: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/nos_test/2024-09-25_19-57-16/models/best_by_train/epoch=7-step=4432.ckpt
 
 max_seq_len: 300
 min_seq_len: 128

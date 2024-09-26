@@ -2,13 +2,15 @@ import os
 import time 
 import torch 
 import wandb
+import numpy as np 
 
 import pytorch_lightning as pl 
 from pytorch_lightning.loggers import WandbLogger 
 from pytorch_lightning.callbacks import Callback 
+from pytorch_lightning.utilities import grad_norm 
 
 from guided_discrete.sample import test_solving 
-
+from collections import defaultdict
 class BaseModel(pl.LightningModule):
     def __init__(self):
         super().__init__()
@@ -60,6 +62,30 @@ class BaseModel(pl.LightningModule):
 
         return config 
 
+    def on_before_optimizer_step(self, optimizer):
+        
+        norms = self.get_gradient_norms()
+        self.log_dict(norms)
+
+    def get_gradient_norms(self):
+        '''
+        Returns a dictionary that contians all the layer norms and also 
+            the average of all the layers for each network (ex: LayerNorm vs cls vs embeddings vs encoder)
+        '''
+        norms = {}
+        network_norms = defaultdict(list)
+        for name, param in self.named_parameters():
+            if param.grad is None:
+                continue 
+            grad_norm_val = param.grad.norm().item()
+
+            network_name = name.split(".")[1]
+            network_norms[network_name].append(grad_norm_val)
+            norms[name] = param.grad.norm().item()
+        
+        for network_name in network_norms:
+            norms[f"{network_name}_avg"] = np.mean(network_norms[network_name])
+        return norms 
 class LossLoggingCallback(Callback):
     '''
     Write down train and val loss to text file 
@@ -139,6 +165,9 @@ def get_trainer(config, num_train_batches):
         pl.callbacks.LearningRateMonitor(logging_interval='epoch'),
         LossLoggingCallback(config.exp_dir),
         ]
+    if config.is_sudoku:
+        callbacks.append(SampleEvaluationCallback(config))
+         
 
     if config.use_wandb:
         logger = WandbLogger(project="guided_seq", dir=config['exp_dir'])
@@ -162,7 +191,9 @@ def get_trainer(config, num_train_batches):
         accelerator=accelerator,
         strategy=strategy,
         devices=config['ngpu'],
-        enable_progress_bar=True
+        enable_progress_bar=True,
+        #limit_train_batches=1, #OVERFIT TODO: delete
+        #limit_val_batches=1
     )
     return trainer 
 

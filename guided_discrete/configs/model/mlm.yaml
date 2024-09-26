@@ -6,9 +6,10 @@ model:
     _target_: seq_models.mlm_diffusion.MLMDiffusionTransformer
     vocab_size: ${vocab_size}
     dropout: 0.0
-    bert_config_name: "prajjwal1/bert-small"
+    bert_config_name: prajjwal1/bert-tiny #"prajjwal1/bert-small"
     discr_stop_grad: True
     target_channels: 0
+    num_hidden_layers: null #4 is MLM default for prajjwal1/bert-small  
 
   noise_schedule:
     _target_: seq_models.noise_schedule.DiscreteCorruptionSchedule
@@ -20,9 +21,8 @@ model:
   optimizer:
     _target_: torch.optim.AdamW
     lr: 5e-4
-
   lr_scheduler:
     #_target_: transformers.get_constant_schedule_with_warmup
     _target_:  transformers.get_linear_schedule_with_warmup
     num_warmup_steps: 10
-    num_training_steps: ${max_epochs}
+    num_training_steps: 10000
