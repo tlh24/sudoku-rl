@@ -21,19 +21,22 @@ from seq_models.net_utils import timestep_embedding
 
 class MLMDiffusionTransformer(nn.Module):
     def __init__(self,
-                 vocab_size, 
+                 vocab_size,
                  dropout=0,
                  bert_config_name='bert-base-uncased',
                  target_channels=2,
-                 discr_stop_grad=True):
+                 discr_stop_grad=True,
+                 num_hidden_layers=None):
         super().__init__()
 
         config = AutoConfig.from_pretrained(bert_config_name)
         config.hidden_dropout_prob = dropout 
         config.vocab_size = vocab_size 
+     
+        if num_hidden_layers is not None:
+            config.num_hidden_layers = num_hidden_layers
 
         self.target_channels = target_channels
-        self.dropout = dropout 
         self.vocab_size = vocab_size
         self.embeddings = BertEmbeddings(config)
         self.encoder = BertEncoder(config)
@@ -138,6 +141,14 @@ class MLMDiffusion(BaseModel):
         labels=None,
         return_by_timestep=False 
     ):
+        #TODO: remove debugging inference 
+        if not hasattr(self, '_forward_counter'):
+            self._forward_counter = 0
+        if self._forward_counter == 100 or self._forward_counter == 0:
+            pass 
+            #breakpoint()
+        self._forward_counter += 1
+
         timesteps = self.noise_schedule.timesteps 
         t = torch.randint(
             timesteps, 
@@ -149,7 +160,7 @@ class MLMDiffusion(BaseModel):
         corrupt_ids, corrupt_mask = (
             self.noise_schedule.corrupt(input_ids, t, corrupt_mask)
         )
-
+        
         model_output = self.network(
             corrupt_ids,
             t,
