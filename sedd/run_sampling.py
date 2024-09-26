@@ -36,7 +36,7 @@ def main(args):
     model, graph, noise = load_model_local('./',device, args.model_path, args.checkpoint_num)
     if args.evaluate:
         if args.dataset == "larger_satnet":
-            #test_dataset_sols = data.get_dataset(args.dataset, mode="test")
+            #test_dataset_sols = data.get_dataset(args.dataset, mode="test") #sols are tens 
             full_dataset_puzzles = LargerSatNetInitial()
             test_dataset_puzzles = Subset(full_dataset_puzzles, np.arange(int(0.9*len(full_dataset_puzzles)), len(full_dataset_puzzles)))
             
