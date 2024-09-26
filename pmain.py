@@ -4,7 +4,8 @@ import time
 import os
 import sys
 import threading
-from multiprocessing import Pool
+import multiprocessing
+import ctypes
 import glob # for file filtering
 import csv # for reading rrn
 import numpy as np
@@ -73,18 +74,9 @@ def encodeSudokuSteps(puzzle, n_steps):
 	for s in range(n_steps): 
 		step,_ = sudoku.takeOneStep()
 		sudoku.setMat(step)
-		step,_ = sudoku.hiddenSingles()
-		sudoku.setMat(step)
+		# step,_ = sudoku.hiddenSingles()
+		# sudoku.setMat(step)
 	sol_enc,_,_,_ = encodeSudoku(step)
-	# sudoku.printSudoku("", puzzle)
-	# sudoku.printSudoku("", step)
-	# fig,axs = plt.subplots(2, 2, figsize=(12,6))
-	# axs[0,0].imshow(puzz_enc.T)
-	# axs[0,1].imshow(sol_enc.T)
-	# axs[1,0].imshow(sol_enc.T - puzz_enc.T)
-	# plt.show()
-
-	# np.savez(f"satnet_{n_steps}step_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 
 	return puzz_enc, sol_enc, coo, a2a
 
@@ -133,27 +125,90 @@ def encodeSudokuValue(N, percent_filled):
 	
 g_puzzles = np.zeros((2,2))
 g_solutions = np.zeros((2,2))
+g_puzz_enc = np.zeros((2,2))
+g_sol_enc = np.zeros((2,2))
 gn_steps = 1
 
-def encodeSudokuInner(i): 
-	global g_puzzles
-	global g_solutions
-	global gn_steps
-	if n_steps < 32: 
-		puzz,sol,coo,a2a = encodeSudokuSteps(g_puzzles[i], gn_steps)
-	else: 
-		puzz,sol,coo,a2a = encodeSudoku(g_solutions[i])
-	return puzz, sol, coo, a2a
+def sharedToNp(shared_array, shape, dtype):
+	# np.frombuffer makes a view (not a copy) of the data.
+	return np.frombuffer(shared_array, dtype=dtype).reshape(shape)
+	
+def npToShared(arr):
+	# there is no float16 in ctypes -- just use ctypes.c_int16
+	if arr.dtype == np.float16: 
+		ctype = ctypes.c_int16
+	if arr.dtype == np.int8: 
+		ctype = ctypes.c_int8
+	shared_array = multiprocessing.RawArray(ctype, arr.size)
+	temp = np.frombuffer(shared_array, dtype=arr.dtype)
+	temp[:] = arr.flatten(order='C')
+	return shared_array
 
+def initProcess(s_puzzles, s_solutions, s_puzz_enc, s_sol_enc, N):
+	global g_puzzles, g_solutions, g_puzz_enc, g_sol_enc
+
+	g_puzzles = sharedToNp(s_puzzles, [N,9,9], np.int8)
+	g_solutions = sharedToNp(s_solutions, [N,9,9], np.int8)
+	g_puzz_enc = sharedToNp(s_puzz_enc, [N,111,32], np.float16)
+	g_sol_enc = sharedToNp(s_sol_enc, [N,111,32], np.float16)
+
+def worker( i ):
+	global g_puzzles, g_solutions, g_puzz_enc, g_sol_enc, gn_steps
+	
+	if gn_steps < 32: 
+		puzz,sol,_,_ = encodeSudokuSteps(g_puzzles[i], gn_steps)
+	else: 
+		puzz,_,_,_ = encodeSudoku(g_puzzles[i])
+		sol,_,_,_ = encodeSudoku(g_solutions[i])
+	g_puzz_enc[i,:,:] = puzz
+	g_sol_enc[i,:,:] = sol
+	return i
+	
+def processPuzzles(puzzles, solutions, n_steps): 
+	global gn_steps 
+	gn_steps = n_steps
+	
+	N = puzzles.shape[0]
+	puzz_enc = np.zeros((N,111,32), dtype=np.float16)
+	sol_enc = np.zeros((N,111,32), dtype=np.float16)
+	
+	s_puzzles = npToShared(puzzles)
+	s_solutions = npToShared(solutions)
+	s_puzz_enc = npToShared(puzz_enc)
+	s_sol_enc = npToShared(sol_enc)
+	
+	pool = multiprocessing.Pool( initializer=initProcess, \
+		initargs=(s_puzzles, s_solutions, s_puzz_enc, s_sol_enc, N)) 
+	chunksize = 32
+	for res in pool.imap_unordered(worker, range(N), chunksize):
+		if res % 1000 == 999: 
+			print('.', end='', flush=True)
+	# copy the shared arrays back to numpy.
+	puzz_enc_ = sharedToNp(s_puzz_enc, puzz_enc.shape, puzz_enc.dtype)
+	sol_enc_ = sharedToNp(s_sol_enc, sol_enc.shape, sol_enc.dtype)
+	puzz_enc = puzz_enc_
+	sol_enc = sol_enc_
+	
+	if True: # debug
+		sudoku = Sudoku(9,60)
+		for i in range(5): 
+			sudoku.printSudoku("", puzzles[i])
+			plt.rcParams['toolbar'] = 'toolbar2'
+			fig,axs = plt.subplots(2, 2, figsize=(12,6))
+			axs[0,0].imshow(puzz_enc[i].T)
+			axs[0,1].imshow(sol_enc[i].T)
+			axs[1,0].imshow(sol_enc[i].T - puzz_enc[i].T)
+			plt.show()
+		
+		_,coo,a2a,_ = encodeSudoku(puzzles[0])
+		
+	return puzz_enc, sol_enc, coo, a2a
 
 def loadRrnCsv(csv_file,n_steps): 
 	'''
 	Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81).  Empty cells are zero. 
 	'''
-	global g_puzzles
-	global g_solutions
-	global gn_steps 
-	gn_steps = n_steps
+	
 	base_file = os.path.splitext(csv_file)[0]
 	npz_file = f"{base_file}_{n_steps}.npz"
 	try:
@@ -178,24 +233,13 @@ def loadRrnCsv(csv_file,n_steps):
 		puzzles = np.stack(puzzles)
 		solutions = np.stack(solutions)
 		N = puzzles.shape[0]
-		g_puzzles = np.reshape(puzzles, (N,9,9))
-		g_solutions = np.reshape(solutions, (N,9,9))
+		puzzles = np.int8(puzzles)
+		solutions = np.int8(solutions)
+		puzzles = np.reshape(puzzles, (N,9,9))
+		solutions = np.reshape(solutions, (N,9,9))
 		
-		puzz_enc = np.zeros((N,111,32), dtype=np.float16)
-		sol_enc = np.zeros((N,111,32), dtype=np.float16)
-		
-		# pool = Pool() 
-		# chunksize = 8 
-		# for ind, res in enumerate(pool.imap_unordered(encodeSudokuInner, range(N), chunksize)):
-		# need to adopt this strategy: 
-		# https://stackoverflow.com/questions/76301413/sharing-a-large-numpy-array-across-python-multiprocessing-map
-		for ind in range(N): 
-			res = encodeSudokuInner(ind)
-			puzz, sol, coo, a2a = res
-			puzz_enc[ind,:,:] = puzz
-			sol_enc[ind,:,:] = sol
-			if ind % 1000 == 999:
-				print(".", end='', flush=True)
+		puzz_enc, sol_enc, coo, a2a = \
+			processPuzzles(puzzles, solutions, n_steps)
 
 		np.savez(npz_file, puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 	
@@ -224,9 +268,9 @@ if __name__ == "__main__":
 	if not cmd_args.rrn_hard: 
 		for percent_filled in [0.35,0.65,0.85]:
 			if cmd_args.v:
-				fname = f"satnet_value_{percent_filled}_{DATA_N}.npz"
+				npz_file = f"satnet_value_{percent_filled}_{DATA_N}.npz"
 				try:
-					file = np.load(fname)
+					file = np.load(npz_file)
 					puzzles_ = file["puzzles"]
 					values_ = file["value"]
 					coo = file["coo"]
@@ -242,9 +286,9 @@ if __name__ == "__main__":
 				puzzles.append(puzzles_)
 				values.append(values_)
 			else:
-				fname = f"satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
+				npz_file = f"satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
 				try:
-					file = np.load(fname)
+					file = np.load(npz_file)
 					puzzles_ = file["puzzles"]
 					solutions_ = file["solutions"]
 					coo = file["coo"]
@@ -253,14 +297,20 @@ if __name__ == "__main__":
 					a2a = torch.from_numpy(a2a)
 				except Exception as error:
 					print(error)
-					dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
+					dat = np.load(f'satnet_both_{percent_filled}_filled_{DATA_N}.npz')
 					puzzles_, solutions_, coo, a2a = \
-						encodeSudokuSteps(dat['puzzles'], n_steps)
+						processPuzzles(dat['puzzles'], dat['solutions'], n_steps)
+					np.savez(npz_file, puzzles=puzzles_, solutions=solutions_, coo=coo, a2a=a2a)
 
 				puzzles_ = torch.from_numpy(puzzles_)
 				solutions_ = torch.from_numpy(solutions_)
 				puzzles.append(puzzles_)
 				solutions.append(solutions_)
+		
+		puzzles_, solutions_, coo, a2a = \
+			loadRrnCsv('rrn-hard/train.csv', n_steps)
+		puzzles.append(puzzles_)
+		solutions.append(solutions_)
 
 		def trainValSplit(y):
 			y_train = list(map(lambda x: x[:-VALID_N], y))
@@ -281,14 +331,14 @@ if __name__ == "__main__":
 			loadRrnCsv('rrn-hard/train.csv', n_steps)
 		puzzles_valid, solutions_valid, _, _ = \
 			loadRrnCsv('rrn-hard/valid.csv', n_steps)
-		fname = 'rrn-hard'
+		npz_file = 'rrn-hard'
 		
 
 	TRAIN_N = puzzles_train.shape[0]
 	VALID_N = puzzles_valid.shape[0]
 	n_tok = puzzles_train.shape[1]
 
-	print(f'loaded {fname}; train/test {TRAIN_N} / {VALID_N}')
+	print(f'loaded {npz_file}; train/test {TRAIN_N} / {VALID_N}')
 
 	device = torch.device('cuda:0')
 	args = {"device": device}
@@ -298,9 +348,14 @@ if __name__ == "__main__":
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}_{n_steps}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 
-	if cmd_args.v or cmd_args.rrn_hard:
+	if cmd_args.v : # or cmd_args.rrn_hard:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
 			n_heads=4, n_layers=8, repeat=n_steps, mode=0).to(device)
+		# model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
+		# 	n_heads=4, n_layers=1, repeat=n_steps, mode=1).to(device)
+	elif cmd_args.rrn_hard: 
+		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
+			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
 	else:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
 			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
@@ -432,7 +487,7 @@ if __name__ == "__main__":
 				new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
 
 				new_state_preds = model.forward(old_board, hcoo)
-				if cmd_args.rrn_hard:
+				if cmd_args.rrn_hard and False: # FIXME
 					loss = torch.nn.functional.cross_entropy( \
 						new_state_preds[:,:,10:20].permute((0,2,1)), 
 						new_board[:,:,10:20].permute(0,2,1), reduction='sum')

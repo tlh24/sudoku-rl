@@ -139,6 +139,7 @@ class GPTConfig:
 	n_head: int = 12
 	n_embd: int = 768
 	dropout: float = 0.0
+	repeat: int = 1
 	bias: bool = False # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
 class GPT(nn.Module):
@@ -152,6 +153,7 @@ class GPT(nn.Module):
 		self.transformer = nn.ModuleDict(dict(
 			# wte = nn.Embedding(config.vocab_size, config.n_embd),
 					# weight, token embedding.
+			wte = nn.Linear(config.in_size, config.n_embd),
 			wpe = nn.Embedding(config.block_size, config.n_embd),
 			drop = nn.Dropout(config.dropout),
 			h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
@@ -201,15 +203,16 @@ class GPT(nn.Module):
 		pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
 
 		# forward the GPT model itself
-		# tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-		tok_emb = torch.cat((tok_emb, torch.zeros(b, t, self.config.n_embd - e, device=device)), -1)
+		tok_emb = self.transformer.wte(tok_emb) # token embeddings of shape (b, t, n_embd)
+		# tok_emb = torch.cat((tok_emb, torch.zeros(b, t, self.config.n_embd - e, device=device)), -1)
 		pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
 		x = self.transformer.drop(tok_emb + pos_emb)
 		# just add the position encoding??
-		for block in self.transformer.h:
-			x = block(x)
-		if not USE_L1A: 
-			x = self.transformer.ln_f(x)
+		for i in range(self.config.repeat): 
+			for block in self.transformer.h:
+				x = block(x)
+			if not USE_L1A: 
+				x = self.transformer.ln_f(x)
 		y = self.lm_head(x)
 
 		# if targets is not None:

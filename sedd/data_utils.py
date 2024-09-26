@@ -78,27 +78,27 @@ class LargerSatNet:
         item = item.astype(int)
         return item
 
-def read_rrn_csv(file_path, digit_offset=-1, replace_zero=-100):
-	'''
-	Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81) with empty cells and solutions
-	is (num_puzzles, 81) with no empty cells. Each sequence has values in [0,8] for filled digits and empty cells -100
-	'''
-	print("Reading %s..." % file_path)
-	with open(file_path) as f:
-		initial_puzzles, solutions = [], [] 
-		reader = csv.reader(f, delimiter=',')
-		for q,a in reader:
-			# convert to satnet format where empty cells have -100 and values in [0,8]
-			initial_board_digits = list(q)
-			initial_board_digits = [int(digit_char)+digit_offset if digit_char != "0" else replace_zero for digit_char in initial_board_digits]
-			initial_puzzles.append(initial_board_digits)
-			
-			solution_digits = list(map(int, list(a)))
-			# convert to zero index
-			solution_digits = [digit-1 for digit in solution_digits]
-			solutions.append(solution_digits)
-		
-		return np.stack(initial_puzzles), np.stack(solutions)
+def read_rrn_csv(file_path):
+    '''
+    Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81) with empty cells and solutions
+    is (num_puzzles, 81) with no empty cells. Each sequence has values in [0,8] for filled digits and empty cells -100
+    '''
+    print("Reading %s..." % file_path)
+    with open(file_path) as f:
+        initial_puzzles, solutions = [], [] 
+        reader = csv.reader(f, delimiter=',')
+        for q,a in reader:
+            # convert to satnet format where empty cells have -100 and values in [0,8]
+            initial_board_digits = list(q)
+            initial_board_digits = [int(digit_char)-1 if digit_char != "0" else -100 for digit_char in initial_board_digits]
+            initial_puzzles.append(initial_board_digits)
+            
+            solution_digits = list(map(int, list(a)))
+            # convert to zero index
+            solution_digits = [digit-1 for digit in solution_digits]
+            solutions.append(solution_digits)
+        
+        return np.stack(initial_puzzles), np.stack(solutions)
 
 class TensDataset:
     def __init__(self, tensor: torch.Tensor):
