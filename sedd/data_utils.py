@@ -67,15 +67,19 @@ class LargerSatNet:
     Returns solved puzzles as a 1d array. Each element in the array is digit in [0-8], corresponding to
     digits in [1,9]
     '''
-    def __init__(self):
+    def __init__(self, ret_tensor=False):
         with open(os.path.join(home_dir, 'data', 'easy_130k_solved.p'), 'rb') as file:
             self.data = pickle.load(file)
+        self.ret_tensor = ret_tensor 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         item = self.data[idx].flatten() - 1 #subtract 1 so we are zero indexed, i.e elemenets in [0,8] 
         item = item.astype(int)
+        if self.ret_tensor:
+            return torch.from_numpy(item)
+        
         return item
 
 def read_rrn_csv(file_path):
@@ -111,7 +115,6 @@ class TensDataset:
     def __getitem__(self, idx):
         return self.tensor[idx] 
 
-        
         
 
     
@@ -179,7 +182,7 @@ def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, cache_dir=N
             else:
                 return test_dataset
     elif dataset_path == 'larger_satnet':
-        dataset = LargerSatNet()
+        dataset = LargerSatNet(ret_tensor=True)
         indices = list(range(len(dataset)))
         test_dataset = torch.utils.data.Subset(dataset, indices[int(0.9*len(dataset)):])
         val_dataset = torch.utils.data.Subset(dataset, indices[int(0.8*len(dataset)):int(0.9*len(dataset))])

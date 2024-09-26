@@ -90,7 +90,7 @@ def num_constraints_violated(board_tensor):
 
     return total_pairs
 
-    
+
 class ValueDataset(Dataset):
     '''
     Given some dataset containing num_samples many tensors of completed sudoku puzzles,
@@ -126,17 +126,30 @@ class ValueDataset(Dataset):
     def __getitem__(self, idx):
         # returns (board_tensor, value_float)
         return (self.boards[idx], self.values[idx])
+    
+class ConstraintViolatedDataset(ValueDataset):
+    '''
+    Returns (board_tensor, number of constraints violated)
+    '''
+    def __init__(self, dataset, num_samples=100000):
+        super().__init__(dataset, num_samples)
 
-def get_one_hot_dataset(dataset_name, is_noisy, eps_low, eps_high, num_samples=10000):
+    def __getitem__(self, idx):
+        return (self.boards[idx], self.constraints_violated[idx])
+
+def get_one_hot_dataset(dataset_name, is_noisy, eps_low, eps_high, is_value=True, num_samples=10000, mode='train'):
     '''
     Returns a (noisy) one_hot encoding of the board digits
         
     eps_low: (float) The lowest eps to be used in label smoothing 
     eps_high: (float) Highest eps to be used in label smoothing 
     '''
-    tens_dataset = get_dataset(dataset_name, "train")
-    value_dataset = ValueDataset(tens_dataset, num_samples)
-    return OneHotNoisy(value_dataset, is_noisy, eps_low, eps_high)  
+    tens_dataset = get_dataset(dataset_name, mode)
+    if is_value:
+        dataset = ValueDataset(tens_dataset, num_samples)
+    else:
+        dataset = ConstraintViolatedDataset(tens_dataset, num_samples)
+    return OneHotNoisy(dataset, is_noisy, eps_low, eps_high)  
 
 
 if __name__ == "__main__":

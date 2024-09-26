@@ -17,8 +17,11 @@ from guided_discrete.value.dataset import get_one_hot_dataset
 
 
 def main(args=None):
-    work_dir = os.path.join(os.path.dirname(__file__), 'results', datetime.now().strftime("%m/%d/%Y:%H:%M:%S"))  
-    os.makedirs(work_dir, exist_ok=True)
+    #NOTE: must supply a directory if evaluating to get checkpoint path 
+    work_dir = 'results/09/22/2024:22:45:42'
+    if not args.evaluate:
+        work_dir = os.path.join(os.path.dirname(__file__), 'results', datetime.now().strftime("%m/%d/%Y:%H:%M:%S"))  
+        os.makedirs(work_dir, exist_ok=True)
 
     checkpoint_path = os.path.join(work_dir, 'best.pth')
     ###
@@ -38,7 +41,7 @@ def main(args=None):
     ###
     #Load Data
     ###
-    dataset = get_one_hot_dataset('rrn', True, 0.01, 0.1, 100000)
+    dataset = get_one_hot_dataset('rrn', True, 0.01, 0.1, is_value=True, num_samples=100000)
     indices = list(range(len(dataset)))
 
     test_dataset = torch.utils.data.Subset(dataset, indices[int(0.9 * len(dataset)):])
@@ -91,6 +94,10 @@ def main(args=None):
     eval_loss = trainer.evaluate()
     print(f"Test loss: {eval_loss:.4f}")
     logger.info(f"Test loss: {eval_loss:.4f}")
+
+    constraints_value_corr = trainer.evaluate_real()
+    print(f"Correlation between the num of constraints and the value score: {constraints_value_corr:.4f}")
+    logger.info(f"Correlation between the num of constraints and the value score: {constraints_value_corr:.4f}")
     return eval_loss
     
     

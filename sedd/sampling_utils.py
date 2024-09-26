@@ -78,3 +78,4 @@ def evaluate_samples(exp_dir, samples, epoch):
         
         print(f"Epoch: {epoch} Total boards correct: {num_valid}/{len(samples)}={num_valid/len(samples):.4f}\n")
         file.write(f"Epoch: {epoch} Total boards correct: {num_valid}/{len(samples)}={num_valid/len(samples):.4f}\n")
+    return num_valid/len(samples)
