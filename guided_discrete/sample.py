@@ -69,5 +69,3 @@ def test_solving(
     evaluate_samples(exp_dir, solutions, epoch)
 
 
-
-    

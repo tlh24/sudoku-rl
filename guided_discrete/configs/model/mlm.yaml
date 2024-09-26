@@ -6,10 +6,11 @@ model:
     _target_: seq_models.mlm_diffusion.MLMDiffusionTransformer
     vocab_size: ${vocab_size}
     dropout: 0.0
-    bert_config_name: prajjwal1/bert-tiny #"prajjwal1/bert-small"
+    bert_config_name: prajjwal1/bert-small #"prajjwal1/bert-small"
     discr_stop_grad: True
     target_channels: 0
     num_hidden_layers: null #4 is MLM default for prajjwal1/bert-small  
+    num_attention_heads: null 
 
   noise_schedule:
     _target_: seq_models.noise_schedule.DiscreteCorruptionSchedule

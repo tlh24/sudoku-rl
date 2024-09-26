@@ -10,7 +10,7 @@ train_fn: train_*.csv
 val_fn: val_iid.csv
 train: larger_satnet
 valid: larger_satnet
-max_samples: 100000
+max_samples: 140000
 infill_dataset: larger_satnet
 is_sudoku: True 
 
@@ -43,8 +43,8 @@ min_seq_len: 128
 trim_strategy: "randomcrop"
 
 gradient_clip: 10.0
-min_epochs: 1000
-max_epochs: 1000
+min_epochs: 50
+max_epochs: 100
 early_stop_patience: 0
 batch_size: 128
 loader_workers: 4
@@ -58,3 +58,10 @@ hydra:
     dir: ${exp_dir}
   sweep:
     dir: ${exp_dir}
+  sweeper:
+    params:
+      batch_size: 32,128
+      model.optimizer.lr: 1e-4,5e-4
+      model.network.num_hidden_layers: 1,4
+      model.network.dropout: 0.0,0.1,0.3
+

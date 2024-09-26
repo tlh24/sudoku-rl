@@ -26,7 +26,8 @@ class MLMDiffusionTransformer(nn.Module):
                  bert_config_name='bert-base-uncased',
                  target_channels=2,
                  discr_stop_grad=True,
-                 num_hidden_layers=None):
+                 num_hidden_layers=None,
+                 num_attention_heads=None):
         super().__init__()
 
         config = AutoConfig.from_pretrained(bert_config_name)
@@ -35,6 +36,8 @@ class MLMDiffusionTransformer(nn.Module):
      
         if num_hidden_layers is not None:
             config.num_hidden_layers = num_hidden_layers
+        if num_attention_heads is not None:
+            config.num_attention_heads = num_attention_heads 
 
         self.target_channels = target_channels
         self.vocab_size = vocab_size
