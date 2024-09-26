@@ -191,10 +191,12 @@ class Transformer(nn.Module):
 			[ResidualAttentionBlock(d_model, n_head) \
 				for _ in range(layers)])
 		self.stq = StraightThroughQuantize()
+		self.in_proj = nn.Linear(d_model, d_model, bias=True)
 		self.out_proj = nn.Linear(d_model, d_model, bias=True)
 
 	# @torch.compile
 	def forward(self, x:torch.Tensor, hcoo:list):
+		x = self.in_proj(x)
 		for i in range(self.repeat): 
 			# x = self.stq.apply(x) # quantize FIXME
 			for j, layer in enumerate(self.resblocks):

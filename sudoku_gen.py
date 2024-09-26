@@ -190,6 +190,43 @@ class Sudoku:
 						out[i,j] = np.argmax(possible) + 1
 						changes = changes+1
 		return out,changes
+		
+	def hiddenSingles(self): 
+		out = np.array(self.mat) # deep copy
+		poss = np.ones((self.N,self.N,self.N), dtype=np.int8)
+		changes = 0
+		for i in range(self.N):
+			for j in range(self.N): 
+				v = self.mat[i,j]
+				if v > 0: 
+					poss[i,:,v-1] = 0
+					poss[:,j,v-1] = 0
+					ii = (i//3) * 3
+					jj = (j//3) * 3
+					poss[ii:ii+3,jj:jj+3,v-1] = 0
+					poss[i,j,:] = 0
+		# search for hidden singles in the 27 sets
+		for v in range(self.N):
+			for i in range(self.N):
+				if np.sum(poss[i,:,v]) == 1: 
+					j = np.argmax(poss[i,:,v]).item()
+					out[i,j] = v+1
+					changes = changes+1
+			for j in range(self.N):
+				if np.sum(poss[:,j,v]) == 1: 
+					i = np.argmax(poss[:,j,v]).item()
+					out[i,j] = v+1
+					changes = changes+1
+			for b in range(self.N): 
+				ii = (b//3)*3
+				jj = (b%3)*3
+				if np.sum(poss[ii:ii+3,jj:jj+3,v]) == 1: 
+					k = np.argmax(poss[ii:ii+3,jj:jj+3,v].reshape((9,))).item()
+					ki = k//3
+					kj = k%3
+					out[ii+ki,jj+kj] = v+1
+					changes = changes+1
+		return out,changes
 
 	def setMat(self, mat): 
 		self.mat = mat.astype(np.int32) # must be int!  == comparisons! 
@@ -227,6 +264,11 @@ class Sudoku:
 		if guess_mat is not None: 
 			self.mat = self.mat + guess_mat
 		print(f"{indent}Valid:", self.checkIfValid())
+		# print the cannonical form
+		for i in range(self.N):
+			for j in range(self.N):
+				print(puzzl_mat[i,j], end="")
+		print(",")
 
 
 def generateInitialBoard(percent_filled=0.75, exact_num_filled=False):

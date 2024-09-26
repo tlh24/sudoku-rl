@@ -4,8 +4,9 @@ import time
 import os
 import sys
 import threading
+from multiprocessing import Pool
 import glob # for file filtering
-import csv # for reading rnn
+import csv # for reading rrn
 import numpy as np
 import torch
 from torch import nn, optim
@@ -60,33 +61,30 @@ def encodeSudokuAll(N, percent_filled):
 
 	return puzz_enc, sol_enc, coo, a2a
 	
-def encodeSudokuSteps(N, percent_filled, n_steps):
-	dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
-	puzzles = dat['puzzles']
-	N = puzzles.shape[0]
+def encodeSudokuSteps(puzzle, n_steps):
 	
 	sudoku = Sudoku(9,60)
 
-	puzz_enc = np.zeros((N,111,32), dtype=np.float16)
-	sol_enc = np.zeros((N,111,32), dtype=np.float16)
+	puzz_enc = np.zeros((111,32), dtype=np.float16)
+	sol_enc = np.zeros((111,32), dtype=np.float16)
 
-	for i in range(N):
-		puzz, coo, a2a, _ = encodeSudoku(puzzles[i])
-		sudoku.setMat(puzzles[i])
-		for s in range(n_steps): 
-			step,_ = sudoku.takeOneStep()
-			sudoku.setMat(step)
-		sol,_,_,_ = encodeSudoku(step)
-		puzz_enc[i,:,:] = puzz
-		sol_enc[i,:,:] = sol
-		# fig,axs = plt.subplots(1, 2, figsize=(12,6))
-		# axs[0].imshow(puzz.T)
-		# axs[1].imshow(sol.T)
-		# plt.show()
-		if i % 1000 == 999:
-			print(".", end='', flush=True)
+	puzz_enc, coo, a2a, _ = encodeSudoku(puzzle)
+	sudoku.setMat(puzzle)
+	for s in range(n_steps): 
+		step,_ = sudoku.takeOneStep()
+		sudoku.setMat(step)
+		step,_ = sudoku.hiddenSingles()
+		sudoku.setMat(step)
+	sol_enc,_,_,_ = encodeSudoku(step)
+	# sudoku.printSudoku("", puzzle)
+	# sudoku.printSudoku("", step)
+	# fig,axs = plt.subplots(2, 2, figsize=(12,6))
+	# axs[0,0].imshow(puzz_enc.T)
+	# axs[0,1].imshow(sol_enc.T)
+	# axs[1,0].imshow(sol_enc.T - puzz_enc.T)
+	# plt.show()
 
-	np.savez(f"satnet_{n_steps}step_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
+	# np.savez(f"satnet_{n_steps}step_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 
 	return puzz_enc, sol_enc, coo, a2a
 
@@ -133,13 +131,31 @@ def encodeSudokuValue(N, percent_filled):
 
 	return puzz_enc, value, coo, a2a
 	
+g_puzzles = np.zeros((2,2))
+g_solutions = np.zeros((2,2))
+gn_steps = 1
 
-def loadRnnCsv(csv_file): 
+def encodeSudokuInner(i): 
+	global g_puzzles
+	global g_solutions
+	global gn_steps
+	if n_steps < 32: 
+		puzz,sol,coo,a2a = encodeSudokuSteps(g_puzzles[i], gn_steps)
+	else: 
+		puzz,sol,coo,a2a = encodeSudoku(g_solutions[i])
+	return puzz, sol, coo, a2a
+
+
+def loadRrnCsv(csv_file,n_steps): 
 	'''
 	Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81).  Empty cells are zero. 
 	'''
+	global g_puzzles
+	global g_solutions
+	global gn_steps 
+	gn_steps = n_steps
 	base_file = os.path.splitext(csv_file)[0]
-	npz_file = f"{base_file}.npz"
+	npz_file = f"{base_file}_{n_steps}.npz"
 	try:
 		file = np.load(npz_file)
 		puzz_enc = file["puzzles"]
@@ -162,18 +178,23 @@ def loadRnnCsv(csv_file):
 		puzzles = np.stack(puzzles)
 		solutions = np.stack(solutions)
 		N = puzzles.shape[0]
-		puzzles = np.reshape(puzzles, (N,9,9))
-		solutions = np.reshape(solutions, (N,9,9))
+		g_puzzles = np.reshape(puzzles, (N,9,9))
+		g_solutions = np.reshape(solutions, (N,9,9))
 		
 		puzz_enc = np.zeros((N,111,32), dtype=np.float16)
 		sol_enc = np.zeros((N,111,32), dtype=np.float16)
 		
-		for i in range(N):
-			puzz, coo, a2a, _ = encodeSudoku(puzzles[i])
-			sol,_,_,_ = encodeSudoku(solutions[i])
-			puzz_enc[i,:,:] = puzz
-			sol_enc[i,:,:] = sol
-			if i % 1000 == 999:
+		# pool = Pool() 
+		# chunksize = 8 
+		# for ind, res in enumerate(pool.imap_unordered(encodeSudokuInner, range(N), chunksize)):
+		# need to adopt this strategy: 
+		# https://stackoverflow.com/questions/76301413/sharing-a-large-numpy-array-across-python-multiprocessing-map
+		for ind in range(N): 
+			res = encodeSudokuInner(ind)
+			puzz, sol, coo, a2a = res
+			puzz_enc[ind,:,:] = puzz
+			sol_enc[ind,:,:] = sol
+			if ind % 1000 == 999:
 				print(".", end='', flush=True)
 
 		np.savez(npz_file, puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
@@ -232,7 +253,9 @@ if __name__ == "__main__":
 					a2a = torch.from_numpy(a2a)
 				except Exception as error:
 					print(error)
-					puzzles_, solutions_, coo, a2a = encodeSudokuSteps(DATA_N, percent_filled, n_steps)
+					dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
+					puzzles_, solutions_, coo, a2a = \
+						encodeSudokuSteps(dat['puzzles'], n_steps)
 
 				puzzles_ = torch.from_numpy(puzzles_)
 				solutions_ = torch.from_numpy(solutions_)
@@ -255,10 +278,10 @@ if __name__ == "__main__":
 			assert(solutions_train.shape[0] == puzzles_train.shape[0])
 	else:
 		puzzles_train, solutions_train, coo, a2a = \
-			loadRnnCsv('rnn-hard/train.csv')
+			loadRrnCsv('rrn-hard/train.csv', n_steps)
 		puzzles_valid, solutions_valid, _, _ = \
-			loadRnnCsv('rnn-hard/valid.csv')
-		fname = 'rnn-hard'
+			loadRrnCsv('rrn-hard/valid.csv', n_steps)
+		fname = 'rrn-hard'
 		
 
 	TRAIN_N = puzzles_train.shape[0]
@@ -309,7 +332,7 @@ if __name__ == "__main__":
 	input_thread.start()
 
 	bi = TRAIN_N
-	for uu in range(50000):
+	for uu in range(150000):
 		if bi+batch_size >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0
@@ -343,7 +366,7 @@ if __name__ == "__main__":
 
 			def closure():
 				new_state_preds = model.forward(old_board, hcoo)
-				if cmd_args.rrn_hard: 
+				if cmd_args.rrn_hard and False: # FIXME
 					loss = torch.nn.functional.cross_entropy( \
 						new_state_preds[:,:,10:20].permute((0,2,1)), 
 						new_board[:,:,10:20].permute(0,2,1), reduction='sum') \
