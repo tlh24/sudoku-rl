@@ -39,11 +39,12 @@ def generatePuzzles(N=500000,S=9):
 
 # dumb global -- need it for multiprocessing.
 percent_filled = 0.75
-
 def generateSATNetPuzzles(_n):
 	'''
 	Generates 9x9 sudoku boards and their solutions. Adaped from https://github.com/Kyubyong/sudoku
+	NOTE: This returns one puzzle and its solution 
 	'''
+	assert _n is None or _n <= 1, "This only generates one puzzle"
 	def construct_puzzle_solution():
 		# Loop until we're able to fill all 81 cells with numbers, while
 		# satisfying the constraints above.
