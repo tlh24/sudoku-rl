@@ -636,11 +636,14 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 def expandCoordinateVector(coo, a2a):
 	# first half of heads are kids to parents
 	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
+	pdb.set_trace()
+	# NOTE TODO: the parents need intra-token attention.
 	# swap dst and src
 	coo_ = torch.zeros_like(coo) # type int32: indexes
 	coo_[:,0] = coo[:,1]
 	coo_[:,1] = coo[:,0]
 	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
+	# NOTE TODO: likewise, each kid needs an intra-tok option.
 	# and self attention (intra-token attention ops) -- either this or add a second MLP layer.
 	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
 	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
