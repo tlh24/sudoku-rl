@@ -36,7 +36,7 @@ def encodeSudoku(puzz, top_node=False):
 	return benc, coo, a2a, board_loc
 
 def encodeSudokuAll(N, percent_filled):
-	dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
+	dat = np.load(f'satnet/satnet_both_{percent_filled}_filled_{N}.npz')
 	puzzles = dat['puzzles']
 	solutions = dat['solutions']
 	N = puzzles.shape[0]
@@ -58,7 +58,7 @@ def encodeSudokuAll(N, percent_filled):
 		if i % 1000 == 999:
 			print(".", end='', flush=True)
 
-	np.savez(f"satnet_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
+	np.savez(f"satnet/satnet_enc_{percent_filled}_{N}.npz", puzzles=puzz_enc, solutions=sol_enc, coo=coo, a2a=a2a)
 
 	return puzz_enc, sol_enc, coo, a2a
 	
@@ -72,10 +72,10 @@ def encodeSudokuSteps(puzzle, n_steps):
 	puzz_enc, coo, a2a, _ = encodeSudoku(puzzle)
 	sudoku.setMat(puzzle)
 	for s in range(n_steps): 
-		step,_ = sudoku.takeOneStep()
-		sudoku.setMat(step)
-		# step,_ = sudoku.hiddenSingles()
+		# step,_ = sudoku.takeOneStep()
 		# sudoku.setMat(step)
+		step,_ = sudoku.hiddenSingles()
+		sudoku.setMat(step)
 	sol_enc,_,_,_ = encodeSudoku(step)
 
 	return puzz_enc, sol_enc, coo, a2a
@@ -84,7 +84,7 @@ def encodeSudokuValue(N, percent_filled):
 	# for each puzzle, replace one clue with another digit
 	# yielding two puzzles: one valid and one invalid
 	# which are a minimum edit distance away.
-	dat = np.load(f'satnet_both_{percent_filled}_filled_{N}.npz')
+	dat = np.load(f'satnet/satnet_both_{percent_filled}_filled_{N}.npz')
 	puzzles = dat['puzzles']
 	N = puzzles.shape[0]
 
@@ -119,7 +119,7 @@ def encodeSudokuValue(N, percent_filled):
 		value[i*2+0] = 1
 		value[i*2+1] = 0
 
-	np.savez(f"satnet_value_{percent_filled}_{N}.npz", puzzles=puzz_enc, value=value, coo=coo, a2a=a2a)
+	np.savez(f"satnet/satnet_value_{percent_filled}_{N}.npz", puzzles=puzz_enc, value=value, coo=coo, a2a=a2a)
 
 	return puzz_enc, value, coo, a2a
 	
@@ -189,7 +189,7 @@ def processPuzzles(puzzles, solutions, n_steps):
 	puzz_enc = puzz_enc_
 	sol_enc = sol_enc_
 	
-	if True: # debug
+	if False: # debug
 		sudoku = Sudoku(9,60)
 		for i in range(5): 
 			sudoku.printSudoku("", puzzles[i])
@@ -200,7 +200,7 @@ def processPuzzles(puzzles, solutions, n_steps):
 			axs[1,0].imshow(sol_enc[i].T - puzz_enc[i].T)
 			plt.show()
 		
-		_,coo,a2a,_ = encodeSudoku(puzzles[0])
+	_,coo,a2a,_ = encodeSudoku(puzzles[0])
 		
 	return puzz_enc, sol_enc, coo, a2a
 
@@ -268,7 +268,7 @@ if __name__ == "__main__":
 	if not cmd_args.rrn_hard: 
 		for percent_filled in [0.35,0.65,0.85]:
 			if cmd_args.v:
-				npz_file = f"satnet_value_{percent_filled}_{DATA_N}.npz"
+				npz_file = f"satnet/satnet_value_{percent_filled}_{DATA_N}.npz"
 				try:
 					file = np.load(npz_file)
 					puzzles_ = file["puzzles"]
@@ -286,7 +286,7 @@ if __name__ == "__main__":
 				puzzles.append(puzzles_)
 				values.append(values_)
 			else:
-				npz_file = f"satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
+				npz_file = f"satnet/satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
 				try:
 					file = np.load(npz_file)
 					puzzles_ = file["puzzles"]
@@ -297,7 +297,7 @@ if __name__ == "__main__":
 					a2a = torch.from_numpy(a2a)
 				except Exception as error:
 					print(error)
-					dat = np.load(f'satnet_both_{percent_filled}_filled_{DATA_N}.npz')
+					dat = np.load(f'satnet/satnet_both_{percent_filled}_filled_{DATA_N}.npz')
 					puzzles_, solutions_, coo, a2a = \
 						processPuzzles(dat['puzzles'], dat['solutions'], n_steps)
 					np.savez(npz_file, puzzles=puzzles_, solutions=solutions_, coo=coo, a2a=a2a)
@@ -358,7 +358,7 @@ if __name__ == "__main__":
 			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
 	else:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
+			n_heads=4, n_layers=12, repeat=n_steps, mode=0).to(device)
 	model.printParamCount()
 	
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
@@ -387,7 +387,7 @@ if __name__ == "__main__":
 	input_thread.start()
 
 	bi = TRAIN_N
-	for uu in range(150000):
+	for uu in range(100000):
 		if bi+batch_size >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0

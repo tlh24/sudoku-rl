@@ -20,6 +20,7 @@ class Node:
 		self.kids = []
 		self.parents = []
 		self.axval = np.zeros(7)
+		self.poss = np.zeros(9)
 
 	def addChild(self, node):
 		# kid is type `Node
@@ -28,6 +29,9 @@ class Node:
 
 	def setAxVal(self, ax, val):
 		self.axval[ax.value - Axes.N_AX.value] = val
+		
+	def setPoss(self, poss): 
+		self.poss = poss
 
 	def print(self, indent):
 		if self.refcnt < 1:
@@ -127,6 +131,10 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 	board_nodes = [[] for _ in range(SuN)]
 
 	posOffset = (SuN - 1) / 2.0
+	
+	sudoku = Sudoku(9,60)
+	sudoku.setMat(puzzl_mat)
+	poss = sudoku.genPoss()
 
 	for x in range(SuN): # x = row
 		for y in range(SuN): # y = column
@@ -136,6 +144,7 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 			nb.setAxVal( Axes.N_AX, v )
 			g = guess_mat[x,y]
 			nb.setAxVal( Axes.G_AX, g )
+			nb.setPoss( poss[x,y,:] )
 
 			# think of these as named attributes, var.x, var.y etc
 			# the original encoding is var.pos[0], var.pos[1], var.pos[2]
@@ -324,9 +333,9 @@ def encodeNodes(nodes):
 		# add in categorical encoding of value
 		def encode(x):
 			if v >= 0.6 and v <= 9.4:
-				benc[i,11:20] = 0.0
+				benc[i,10:20] = 0.0
 				vi = round(v)
-				benc[i,10+vi] = 1.0
+				benc[i,10+vi] = 4.0
 					
 		ntv = n.typ.value
 		if ntv == Types.BOX.value:
@@ -334,7 +343,9 @@ def encodeNodes(nodes):
 			encode( v )
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
 			encode( v )
-			benc[i, Axes.N_AX] = n.axval[0]/10.0 # FIXME primarily categorical!
+			# benc[i, Axes.N_AX] = n.axval[0]/10.0 # FIXME primarily categorical!
+			benc[i,11:20] = benc[i,11:20] + n.poss # NOTE 
+			# benc[i, Axes.N_AX.value] = 0.0
 		if ntv == Types.GUESS_ACTION.value:
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
 			encode( v )

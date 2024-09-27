@@ -191,10 +191,8 @@ class Sudoku:
 						changes = changes+1
 		return out,changes
 		
-	def hiddenSingles(self): 
-		out = np.array(self.mat) # deep copy
+	def genPoss(self): 
 		poss = np.ones((self.N,self.N,self.N), dtype=np.int8)
-		changes = 0
 		for i in range(self.N):
 			for j in range(self.N): 
 				v = self.mat[i,j]
@@ -205,6 +203,12 @@ class Sudoku:
 					jj = (j//3) * 3
 					poss[ii:ii+3,jj:jj+3,v-1] = 0
 					poss[i,j,:] = 0
+		return poss
+		
+	def hiddenSingles(self): 
+		out = np.array(self.mat) # deep copy
+		poss = self.genPoss()
+		changes = 0
 		# search for hidden singles in the 27 sets
 		for v in range(self.N):
 			for i in range(self.N):
