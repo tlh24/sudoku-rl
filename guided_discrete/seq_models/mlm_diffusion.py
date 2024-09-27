@@ -1,3 +1,8 @@
+import sys 
+import os 
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(ROOT_DIR)
+
 import tqdm 
 import hydra 
 import numpy as np 
@@ -18,7 +23,9 @@ from transformers.models.bert.modeling_bert import (
 from trainer import BaseModel
 from seq_models.regression import (RegressionHead)
 from seq_models.net_utils import timestep_embedding
-
+from guided_discrete.value.model import GPTConfig, GPT
+from supervised.utils import restore_checkpoint
+import logging 
 class MLMDiffusionTransformer(nn.Module):
     def __init__(self,
                  vocab_size,
@@ -86,32 +93,6 @@ class MLMDiffusionTransformer(nn.Module):
         }
         return out 
 
-    def get_labels(
-        self,
-        input_ids,
-        timesteps,
-        attn_mask=None,
-        sequence_output=None
-    ):
-        '''
-        Should return shape (bs_, target_channels)
-        '''
-        # TODO: what is the shape of sequence_output? Why is regression head taking a mean over dim 1
-        if sequence_output is None:
-            sequence_output = self.forward(input_ids, timesteps, attn_mask)['sequence_output']
-        return self.regression_head(sequence_output)
-
-    def guidance_score(
-        self,
-        input_ids,
-        timesteps, 
-        attn_mask=None,
-        sequence_output=None
-    ):
-        labels = self.get_labels(input_ids, timesteps, attn_mask, sequence_output)
-        return labels.sum(-1)
-    
-
 class MLMDiffusion(BaseModel):
     def __init__(
         self,
@@ -121,20 +102,37 @@ class MLMDiffusion(BaseModel):
         lr_scheduler
     ):
         super().__init__()
-
         self.network = hydra.utils.instantiate(network)
         self.noise_schedule = hydra.utils.instantiate(noise_schedule)
         self.opt = hydra.utils.instantiate(optimizer, params=self.parameters())
         self.lr_scheduler = None 
         if lr_scheduler:
             self.lr_scheduler = hydra.utils.instantiate(lr_scheduler, self.opt)
-        
+
+    def init_value_model(self):
+        device = 'cuda:0' #TODO: figure out which device to use 
+        #TODO: make this a parameter and compatible with hydra configs
+        checkpoint_path= '/home/justin/Desktop/Code/sudoku-rl/guided_discrete/value/results/09/22/2024:22:45:42/best.pth'
+
+        # load trained value function 
+        model_conf = GPTConfig(vocab_size=9, block_size=81, n_head=4, n_embd=128, num_classes=9,\
+                            n_recur=8, n_layer=1)
+        model = GPT(model_conf)
+        loaded_state = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(loaded_state['model'], strict=False)
+        model.to(device)
+        model.eval()
+        self.value_model = model 
+
     def freeze_for_discriminative(self):
+        '''
+        Freeze the network parameters and the value function parameters 
+        '''
         for _, p in enumerate(self.network.parameters()):
             p.requires_grad_(False)
         
-        for _, p in enumerate(self.network.regression_head.parameters()):
-            p.requires_grad_(True)
+        for _, p in enumerate(self.value_model.parameters()):
+            p.requires_grad_(False)
         
     def forward(
         self,
@@ -225,50 +223,65 @@ class MLMDiffusion(BaseModel):
         t,
         attn_mask,
         infill_mask,
-        guidance_layer="first",
+        guidance_layer="last",
         step_size=0.1,
-        stability_coef=1e-2,
+        stability_coef=1e-2, #1e-2
         num_steps=5,
     ):
+        logger = logging.getLogger(__name__)
+        logger.info("This is a log message from the model")
+        
+
         kl_loss = torch.nn.KLDivLoss(log_target=True)
 
         logits = model_output['logits']
         if guidance_layer == "last":
-            h = model_output['sequence_output']
+            hidden = model_output['sequence_output']
         elif guidance_layer == 'first':
-            h = model_output['embeds']
+            raise ValueError("Incorrect implementation for first")
+            hidden = model_output['embeds']
         else:
             raise NotImplementedError()
-
-        delta = torch.nn.Parameter(torch.zeros_like(h), requires_grad=True)
-        optimizer = torch.optim.Adagrad([delta], lr=step_size)
+        delta = torch.nn.Parameter(torch.zeros_like(hidden), requires_grad=True)
+        #optimizer = torch.optim.Adagrad([delta], lr=step_size)
+        optimizer = torch.optim.Adam([delta], lr=1e-3)
+        self.init_value_model() 
+        self.freeze_for_discriminative() # freeze network and value function parameters
 
         with torch.enable_grad():
             for _ in range(num_steps):
-                h_current = h + infill_mask.unsqueeze(-1)*delta 
+                #NOTE: value function depends on the unpertubed hint logits.... 
+                # needs to be some infill function 
+                grad_infill_mask = (infill_mask.detach() * 1.0).requires_grad_(True)
+                h_current = hidden + grad_infill_mask.unsqueeze(-1)*delta 
                 if guidance_layer == "last":
-                    target_loss = self.network.guidance_score(
-                        None, t, attn_mask, sequence_output=h_current
-                    ).sum()
-                    new_logits = self.network.cls(h_current)
+                    # calculate the value prediction. NOTE: Vocab must have [MASK] at id 0 
+                    new_logits = self.network.cls(h_current) #(batch_size, 81, vocab_size)
+                    new_logits_digits = new_logits[:, :, 1:]
+                    sampled_noisy_one_hot = F.gumbel_softmax(new_logits_digits, tau=0.1, hard=False)
+                    # need to replace all with the right hint encodings 
+                    value_device = self.value_model.pos_emb.device
+                    value_hat = self.value_model(sampled_noisy_one_hot.to(value_device))
                 elif guidance_layer == 'first':
-                    out = self.network.forward(
-                        None, t, attn_mask, token_embed=h_current
-                    )
-                    target_loss = self.network.guidance_score(
-                        None, t, attn_mask, sequence_output=out['sequence_output']
-                    ).sum()
-                    new_logits = out['logits']
+                    raise ValueError("Not correctly implemented for case first")
                 
-                kl = kl_loss(new_logits, logits)
-                loss = stability_coef*kl #TODO: add gradient of external verifier 
+                new_log_softmax = F.log_softmax(new_logits, dim=-1)
+                log_softmax = F.log_softmax(logits, dim=-1)
+                kl = kl_loss(new_log_softmax, log_softmax)
+                # NOTE: this should be zero 
+
+                print(f"KL: {kl}\n")
+                #kl = kl_loss(new_softmax, softmax)
+                loss = 1e-2 * kl 
+                #loss = stability_coef*kl
+                #loss = -value_hat + stability_coef*kl 
                 #loss = -target_loss + stability_coef*kl
                 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
         
-        logits = self.network.cls(h + delta.data)
+        logits = self.network.cls(hidden + delta.data) #NOTE: this is incorrect for case "first"
         return logits 
     
     def sample(
@@ -309,7 +322,7 @@ class MLMDiffusion(BaseModel):
         #TODO: pdb and check that the initial hints are preserved 
         attn_mask = torch.ones_like(infill_mask, dtype=torch.bool)
         
-        #return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
+        return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
         
         traj = []
         # iterate over diffusion timesteps 
@@ -332,22 +345,18 @@ class MLMDiffusion(BaseModel):
 
             if i != indices[-1]:
                 # renoise x according to my "next" timestep t only where we don't have initial hints; 
-                # ensure that x has original hints tokens preserved with the noisy_gt step 
+                # ensure that x has original hints tokens preserved with the infill_mask 
                 x = self.noise_schedule.corrupt(x,t,infill_mask)[0]
                 # noisy_gt is effectively useless but important thing is that all the initial hints are preserved 
                 noise_t = torch.tensor([i-1]*shape[0], device=device)
                 noisy_gt = self.noise_schedule.corrupt(gt_vals, noise_t[:1])[0]
                 noisy_gt = torch.where(corrupt_mask.bool(), noisy_gt, gt_vals)
                 x = torch.where(infill_mask, x, noisy_gt)
-            
+  
             # replace the initial hints into the generated denoised sample 
             pred_ids = torch.where(infill_mask.squeeze(-1), clean_x, infill_seed[None])
 
-            if guidance_kwargs is not None:
-                labels = self.network.guidance_score(pred_ids, t, attn_mask).cpu().numpy()
-                pred_ids = (pred_ids.cpu().numpy(), labels)
-            else:
-                pred_ids = pred_ids.cpu().numpy()
+            pred_ids = pred_ids.cpu().numpy()
             
             traj.append(pred_ids)
         
