@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import os 
-from dataset import get_one_hot_dataset
+from guided_discrete.value.dataset import get_one_hot_dataset
 
 
 class TrainerConfig:

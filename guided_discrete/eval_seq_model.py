@@ -13,7 +13,7 @@ import re
 import torch 
 
 # NOTE: You must change the config path to be the saved model config!
-@hydra.main(config_path="/home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/mlm_test/2024-09-26_12-31-46/.hydra", config_name="config")
+@hydra.main(config_path="/home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/mlm_test/2024-09-26_22-42-58/.hydra", config_name="config")
 def eval(config):
     # this initializes a model (ex: MLMDiffusion model) based on the parameters in config
     model = hydra.utils.instantiate(config.model, _recursive_=False)
@@ -42,9 +42,12 @@ def eval(config):
         raise ValueError("Received a ckpt path that does not exist in the usual saved folder location")
 
     print(f"Number of params in the model: {count_parameters(model)}")
+    
+    guidance_kwargs = {'return_best': False, 'return_best_logits': True}
+    #guidance_kwargs = None 
 
     solve_rate = test_solving(model, merged_config.num_eval_samples, 1, merged_config.infill_dataset, merged_config.vocab_file, model_exp_dir,0, 
-    guidance_kwargs=None)
+    guidance_kwargs=guidance_kwargs)
     print(f"Evaluted on {merged_config.num_eval_samples}, get solve rate: {solve_rate}")
 
 

@@ -216,6 +216,35 @@ class MLMDiffusion(BaseModel):
                 out[tag] = regression_loss[t_mask].mean()
             '''
         return out 
+    def infill_hints(
+            self,
+            one_hot_board: torch.Tensor, # one hot over digits 0-8 (batch_size, 81, 9)
+            orig_sequence: torch.Tensor, # sequence of ids (1, 81),
+            infill_mask, # sequence of booleans, True means can replace i.e non-given hint False means can't replace (1,81)
+            tokenizer
+    ):
+        '''
+        Take the original sequence and infill all of the initial hints (infill_mask=False) in the one hot board and return
+            modified one hot board 
+
+        NOTE: WARNING This assumes that the [MASK] token has id 0  
+        '''
+        assert tokenizer.convert_tokens_to_ids('[MASK]') == 0
+        infill_mask = infill_mask.to(one_hot_board.device)
+        
+
+        orig_sequence = torch.flatten(orig_sequence).to(one_hot_board.device)
+        orig_digits = orig_sequence - 1 # convert ids to digits 0-8
+        # hack: everywhere that orig_sequence had a mask, convert it to value 1 (this doesn't matter because we won't use orig_digits where it had mask)
+        orig_digits = torch.where(infill_mask, torch.ones_like(orig_digits), orig_digits)
+        orig_digits = orig_digits.expand(size=(one_hot_board.shape[:2]))
+
+        infill_mask = torch.flatten(infill_mask)
+        infill_mask = infill_mask[None, :, None]
+        infill_mask = infill_mask.expand_as(one_hot_board) 
+
+        infilled_one_hot_board = torch.where(infill_mask, one_hot_board, F.one_hot(orig_digits, num_classes=9))
+        return infilled_one_hot_board
 
     def guidance_steps(
         self,
@@ -223,14 +252,16 @@ class MLMDiffusion(BaseModel):
         t,
         attn_mask,
         infill_mask,
+        orig_ids, #sequence of token ids
+        tokenizer,
+        return_max_hidden=False, # boolean determines whether to return the best hidden found in search  
         guidance_layer="last",
-        step_size=0.1,
-        stability_coef=1e-2, #1e-2
-        num_steps=5,
+        step_size=1,
+        stability_coef=0.01, #1e-2
+        num_steps=1000,
     ):
         logger = logging.getLogger(__name__)
         logger.info("This is a log message from the model")
-        
 
         kl_loss = torch.nn.KLDivLoss(log_target=True)
 
@@ -244,44 +275,62 @@ class MLMDiffusion(BaseModel):
             raise NotImplementedError()
         delta = torch.nn.Parameter(torch.zeros_like(hidden), requires_grad=True)
         #optimizer = torch.optim.Adagrad([delta], lr=step_size)
-        optimizer = torch.optim.Adam([delta], lr=1e-3)
+        optimizer = torch.optim.Adam([delta], lr=1e-2)
+        #optimizer = torch.optim.AdamW([delta], lr=5e-3, weight_decay=1e-4)
+        #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=100, verbose=True)
+
         self.init_value_model() 
         self.freeze_for_discriminative() # freeze network and value function parameters
 
+        max_value = 0
+        max_hidden = hidden 
+
         with torch.enable_grad():
-            for _ in range(num_steps):
+            for iter in range(num_steps):
                 #NOTE: value function depends on the unpertubed hint logits.... 
                 # needs to be some infill function 
                 grad_infill_mask = (infill_mask.detach() * 1.0).requires_grad_(True)
                 h_current = hidden + grad_infill_mask.unsqueeze(-1)*delta 
+
                 if guidance_layer == "last":
                     # calculate the value prediction. NOTE: Vocab must have [MASK] at id 0 
                     new_logits = self.network.cls(h_current) #(batch_size, 81, vocab_size)
                     new_logits_digits = new_logits[:, :, 1:]
+                    #sampled_noisy_one_hot = F.gumbel_softmax(new_logits_digits, hard=True)
                     sampled_noisy_one_hot = F.gumbel_softmax(new_logits_digits, tau=0.1, hard=False)
-                    # need to replace all with the right hint encodings 
+                    # May need to replace with the right hint encodings 
+                    #NOTE: With like 95+% probability, infilled_one_hot.argmax(-1) is same as sampled_noisy_one_hot.argmax(-1), so we can ignore infilling step
                     value_device = self.value_model.pos_emb.device
+                    sampled_noisy_one_hot = sampled_noisy_one_hot.to(value_device)
+
+                    #infilled_one_hot = self.infill_hints(sampled_noisy_one_hot, orig_ids, infill_mask, tokenizer)
+                    #print(f"They are equal: {torch.equal(infilled_one_hot.argmax(-1), sampled_noisy_one_hot.argmax(-1))}")
+
                     value_hat = self.value_model(sampled_noisy_one_hot.to(value_device))
+                    if value_hat > max_value:
+                        max_value = value_hat 
+                        max_hidden = h_current  
+                    
                 elif guidance_layer == 'first':
                     raise ValueError("Not correctly implemented for case first")
                 
                 new_log_softmax = F.log_softmax(new_logits, dim=-1)
                 log_softmax = F.log_softmax(logits, dim=-1)
                 kl = kl_loss(new_log_softmax, log_softmax)
-                # NOTE: this should be zero 
 
-                print(f"KL: {kl}\n")
-                #kl = kl_loss(new_softmax, softmax)
-                loss = 1e-2 * kl 
-                #loss = stability_coef*kl
-                #loss = -value_hat + stability_coef*kl 
-                #loss = -target_loss + stability_coef*kl
+                #if iter % 10 == 0:
+                    #print(f"KL: {kl} Value: {value_hat} Delta mean squared {torch.mean(delta.data ** 2)} Max Value {max_value} \n")
+                loss = -value_hat + kl*stability_coef  
+                #loss = -value_hat 
                 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-        
-        logits = self.network.cls(hidden + delta.data) #NOTE: this is incorrect for case "first"
+                #scheduler.step(loss)
+        if return_max_hidden:
+            logits = self.network.cls(max_hidden)
+        else:
+            logits = self.network.cls(hidden + delta.data) #NOTE: this is incorrect for case "first"
         return logits 
     
     def sample(
@@ -290,6 +339,7 @@ class MLMDiffusion(BaseModel):
         infill_mask,
         corrupt_mask,
         num_solutions_generate,
+        tokenizer,
         guidance_kwargs=None
     ):
         '''
@@ -323,6 +373,7 @@ class MLMDiffusion(BaseModel):
         attn_mask = torch.ones_like(infill_mask, dtype=torch.bool)
         
         return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
+        return_best_logits = guidance_kwargs.pop("return_best_logits", False) if guidance_kwargs is not None else False 
         
         traj = []
         # iterate over diffusion timesteps 
@@ -335,10 +386,14 @@ class MLMDiffusion(BaseModel):
             logits = model_output['logits']
 
             if guidance_kwargs is not None:
-                logits = self.guidance_steps(
-                    model_output, t, attn_mask, infill_mask,
+                guided_logits = self.guidance_steps(
+                    model_output, t, attn_mask, infill_mask, gt_vals, tokenizer,return_best_logits,
                     **guidance_kwargs
                 )
+                diff_with_guidance = torch.mean((logits - guided_logits)**2)
+                print(f"Difference with guidance {diff_with_guidance}")
+                logits = guided_logits
+            
             # generate a denoised sample based on my noisy sequence x 
             x = Categorical(logits=logits).sample()
             clean_x = x.clone()

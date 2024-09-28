@@ -59,6 +59,7 @@ def test_solving(
                 infill_mask = infill_mask, 
                 corrupt_mask = corrupt_mask, 
                 num_solutions_generate = num_solutions_generate,
+                tokenizer = tokenizer,
                 guidance_kwargs = copy.deepcopy(guidance_kwargs)
             )
             solution = [tokenizer.decode(s) for s in solution_tokens] #solution sequence in vocab chars 
