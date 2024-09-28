@@ -43,11 +43,12 @@ def eval(config):
 
     print(f"Number of params in the model: {count_parameters(model)}")
     
-    guidance_kwargs = {'return_best': False, 'return_best_logits': True}
-    #guidance_kwargs = None 
+    #guidance_kwargs = {'return_best': False, 'return_best_logits': False, 'stability_coef': 0.01}
+    guidance_kwargs = None 
 
     solve_rate = test_solving(model, merged_config.num_eval_samples, 1, merged_config.infill_dataset, merged_config.vocab_file, model_exp_dir,0, 
     guidance_kwargs=guidance_kwargs)
+    print(f"Guidance kwargs", guidance_kwargs)
     print(f"Evaluted on {merged_config.num_eval_samples}, get solve rate: {solve_rate}")
 
 

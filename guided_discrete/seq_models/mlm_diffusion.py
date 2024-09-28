@@ -258,8 +258,9 @@ class MLMDiffusion(BaseModel):
         guidance_layer="last",
         step_size=1,
         stability_coef=0.01, #1e-2
-        num_steps=1000,
+        num_steps=25,
     ):
+        print(f"KL coef {stability_coef}")
         logger = logging.getLogger(__name__)
         logger.info("This is a log message from the model")
 
@@ -278,9 +279,6 @@ class MLMDiffusion(BaseModel):
         optimizer = torch.optim.Adam([delta], lr=1e-2)
         #optimizer = torch.optim.AdamW([delta], lr=5e-3, weight_decay=1e-4)
         #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=100, verbose=True)
-
-        self.init_value_model() 
-        self.freeze_for_discriminative() # freeze network and value function parameters
 
         max_value = 0
         max_hidden = hidden 
@@ -327,6 +325,7 @@ class MLMDiffusion(BaseModel):
                 loss.backward()
                 optimizer.step()
                 #scheduler.step(loss)
+        #breakpoint()
         if return_max_hidden:
             logits = self.network.cls(max_hidden)
         else:
@@ -340,7 +339,8 @@ class MLMDiffusion(BaseModel):
         corrupt_mask,
         num_solutions_generate,
         tokenizer,
-        guidance_kwargs=None
+        guidance_kwargs=None,
+        return_best=True 
     ):
         '''
         Given one starting board, generates num_solutions_generate many solutions and returns one solution (the best) 
@@ -351,6 +351,10 @@ class MLMDiffusion(BaseModel):
 
         For reference please refer to 2305.20009 Appendix section B Algo 1&2
         '''
+        assert tokenizer.convert_tokens_to_ids('[MASK]') == 0 #requires mask id to be 0
+        self.init_value_model() 
+        self.freeze_for_discriminative() # freeze network and value function parameters
+
         assert len(infill_seed.shape) == 1, "only take on starting board of shape (81,)"
         device = next(self.parameters()).device 
         infill_mask = infill_mask[None, :]
@@ -372,10 +376,13 @@ class MLMDiffusion(BaseModel):
         #TODO: pdb and check that the initial hints are preserved 
         attn_mask = torch.ones_like(infill_mask, dtype=torch.bool)
         
-        return_best = guidance_kwargs.pop("return_best", False) if guidance_kwargs is not None else False 
+        if guidance_kwargs is not None:
+            return_best = guidance_kwargs.pop("return_best", False)
+        
         return_best_logits = guidance_kwargs.pop("return_best_logits", False) if guidance_kwargs is not None else False 
         
         traj = []
+        
         # iterate over diffusion timesteps 
         for i in tqdm.tqdm(indices):
             t = torch.tensor([i] * shape[0], device=device)
@@ -410,15 +417,20 @@ class MLMDiffusion(BaseModel):
   
             # replace the initial hints into the generated denoised sample 
             pred_ids = torch.where(infill_mask.squeeze(-1), clean_x, infill_seed[None])
-
             pred_ids = pred_ids.cpu().numpy()
             
             traj.append(pred_ids)
         
-        #TODO: add return best option; don't just return the first sample generated
-        samples = traj[-1][0]
+        if return_best: #return the best of the final diffusion output
+            samples = traj[-1].to(self.value_model.pos_emb.device)
+            pred_boards = samples - 1
+            one_hot_pred_boards = F.one_hot(pred_boards, num_classes=9).float()
+            value_scores = self.value_model(one_hot_pred_boards).squeeze()
+            best_sample_index = torch.argmax(value_scores)
+            return samples[best_sample_index].cpu().numpy()
+        else:
+            return traj[-1][0]
 
-        return samples 
 
 
 
