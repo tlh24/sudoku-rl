@@ -307,10 +307,10 @@ if __name__ == "__main__":
 				puzzles.append(puzzles_)
 				solutions.append(solutions_)
 		
-		puzzles_, solutions_, coo, a2a = \
-			loadRrnCsv('rrn-hard/train.csv', n_steps)
-		puzzles.append(puzzles_)
-		solutions.append(solutions_)
+		# puzzles_, solutions_, coo, a2a = \
+		# 	loadRrnCsv('rrn-hard/train.csv', n_steps)
+		# puzzles.append(puzzles_)
+		# solutions.append(solutions_)
 
 		def trainValSplit(y):
 			y_train = list(map(lambda x: x[:-VALID_N], y))
@@ -358,7 +358,7 @@ if __name__ == "__main__":
 			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
 	else:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-			n_heads=4, n_layers=12, repeat=n_steps, mode=0).to(device)
+			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
 	model.printParamCount()
 	
 	hcoo = gmain.expandCoordinateVector(coo, a2a)

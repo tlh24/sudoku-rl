@@ -127,8 +127,8 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 		optimizer = optim.SGD(model.parameters(), lr=lr*1e-3)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
-			lr_params=0.02,lr_preconditioner=0.02, momentum=0.9,\
-			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=40, grad_clip_max_norm=5.0)
+			lr_params=0.01,lr_preconditioner=0.02, momentum=0.9,\
+			preconditioner_update_probability=0.1, exact_hessian_vector_product=False, rank_of_approximation=20, grad_clip_max_norm=5.0)
 		# grad clipping at 2 seems to slow things a bit
 	return optimizer 
 
