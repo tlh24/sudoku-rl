@@ -266,7 +266,7 @@ if __name__ == "__main__":
 	solutions = []
 	values = []
 	if not cmd_args.rrn_hard: 
-		for percent_filled in [0.35,]: # 
+		for percent_filled in [0.35,0.65]: # 
 			if cmd_args.v:
 				npz_file = f"satnet/satnet_value_{percent_filled}_{DATA_N}.npz"
 				try:
@@ -307,10 +307,10 @@ if __name__ == "__main__":
 				puzzles.append(puzzles_)
 				solutions.append(solutions_)
 		
-		# puzzles_, solutions_, coo, a2a = \
-		# 	loadRrnCsv('rrn-hard/train.csv', n_steps)
-		# puzzles.append(puzzles_)
-		# solutions.append(solutions_)
+		puzzles_, solutions_, coo, a2a = \
+			loadRrnCsv('rrn-hard/train.csv', n_steps)
+		puzzles.append(puzzles_)
+		solutions.append(solutions_)
 
 		def trainValSplit(y):
 			y_train = list(map(lambda x: x[:-VALID_N], y))
