@@ -189,11 +189,12 @@ def vizSatNetFile(file_name="satnet_both_0.75_filled_10000.npz"):
 	file = np.load(file_name)
 	puzzles = file["puzzles"]
 	sols = file["solutions"]
+	sudoku = Sudoku(9,60)
 
 	for i in range(5):
-		print(puzzles[i])
+		sudoku.printSudoku("",puzzles[i])
 		print(f"Num zeros {81-np.count_nonzero(puzzles[i])}")
-		print(sols[i])
+		sudoku.printSudoku("",sols[i])
 
 		print("\n")
 
@@ -226,17 +227,17 @@ def genSATNetPuzzlesParallel(N, pct_filled):
 		if ind % 1000 == 999:
 			print(".", end="", flush=True)
 
-	np.savez(f'satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
+	np.savez(f'satnet/satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
 
 if __name__ == "__main__":
 	# generatePuzzles()
 	N = 100000
 	genSATNetPuzzlesParallel(N, 0.85)
-	vizSatNetFile(f"satnet_both_0.85_filled_{N}.npz")
+	vizSatNetFile(f"satnet/satnet_both_0.85_filled_{N}.npz")
 	genSATNetPuzzlesParallel(N, 0.65)
-	vizSatNetFile(f"satnet_both_0.65_filled_{N}.npz")
+	vizSatNetFile(f"satnet/satnet_both_0.65_filled_{N}.npz")
 	genSATNetPuzzlesParallel(N, 0.35) # 'hard'
-	vizSatNetFile(f"satnet_both_0.35_filled_{N}.npz")
+	vizSatNetFile(f"satnet/satnet_both_0.35_filled_{N}.npz")
 	# above corresponds to 13, 29, and 47 blanks.
 	# = 84, 64, 41 percent filled.
 

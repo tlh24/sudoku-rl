@@ -72,10 +72,10 @@ def encodeSudokuSteps(puzzle, n_steps):
 	puzz_enc, coo, a2a, _ = encodeSudoku(puzzle)
 	sudoku.setMat(puzzle)
 	for s in range(n_steps): 
-		# step,_ = sudoku.takeOneStep()
-		# sudoku.setMat(step)
-		step,_ = sudoku.hiddenSingles()
+		step,_ = sudoku.takeOneStep()
 		sudoku.setMat(step)
+		# step,_ = sudoku.hiddenSingles()
+		# sudoku.setMat(step)
 	sol_enc,_,_,_ = encodeSudoku(step)
 
 	return puzz_enc, sol_enc, coo, a2a
@@ -266,7 +266,7 @@ if __name__ == "__main__":
 	solutions = []
 	values = []
 	if not cmd_args.rrn_hard: 
-		for percent_filled in [0.35,0.65,0.85]:
+		for percent_filled in [0.35,]: # 
 			if cmd_args.v:
 				npz_file = f"satnet/satnet_value_{percent_filled}_{DATA_N}.npz"
 				try:

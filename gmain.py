@@ -634,16 +634,37 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 	return boards,actions,rewards
 
 def expandCoordinateVector(coo, a2a):
-	# first half of heads are kids to parents
-	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
-	pdb.set_trace()
-	# NOTE TODO: the parents need intra-token attention.
+	# add [dst,dst] intra-token connections to the coordinate list. 
+	dst_set = set()
+	src_set = set()
+	for i in range(coo.shape[0]):
+		dst = coo[i,0].item()
+		src = coo[i,1].item()
+		dst_set.add(dst)
+		src_set.add(src)
+	
+	dst_arr = torch.tensor(list(dst_set), \
+		dtype=torch.int32).unsqueeze(-1).tile([1,2])
+	src_arr = torch.tensor(list(src_set), \
+		dtype=torch.int32).unsqueeze(-1).tile([1,2])
+	coo_dst = torch.cat([coo, dst_arr], axis=0)
+	
 	# swap dst and src
-	coo_ = torch.zeros_like(coo) # type int32: indexes
-	coo_[:,0] = coo[:,1]
-	coo_[:,1] = coo[:,0]
-	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
-	# NOTE TODO: likewise, each kid needs an intra-tok option.
+	coo_swap = torch.zeros_like(coo) # type int32: indexes
+	coo_swap[:,0] = coo[:,1]
+	coo_swap[:,1] = coo[:,0]
+	coo_src = torch.cat([coo_swap, src_arr], axis=0)
+	
+	# first half of heads are kids to parents
+	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo_dst)
+	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_src)
+	
+	# sort by src -- we don't have smart coalesced dst writes (yet)
+	_,indx = torch.sort(kids2parents[:,1])
+	kids2parents = kids2parents[indx,:]
+	_,indx = torch.sort(parents2kids[:,1])
+	parents2kids = parents2kids[indx,:]
+
 	# and self attention (intra-token attention ops) -- either this or add a second MLP layer.
 	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
 	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)

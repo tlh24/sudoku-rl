@@ -62,9 +62,11 @@ class Node:
 				k.clearLoc()
 	
 	def setLoc(self, i):
+		# breadth-first labelling. Must call until result does not change. 
 		if self.loc < 0: 
 			self.loc = i
 			i = i+1
+		else: 
 			for k in self.kids: 
 				i = k.setLoc(i)
 		return i
@@ -217,11 +219,7 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 		nb = Node(Types.GUESS_ACTION)
 		nodes.append(nb)
 
-	for n in nodes:
-		n.clearLoc()
-	i = 0
-	for n in nodes:
-		i = n.setLoc(i)
+	setLocAll(nodes)
 
 	board_loc = np.zeros((SuN,SuN),dtype=int)
 	for x in range(SuN): # x = row
@@ -230,6 +228,16 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 
 	return nodes, board_nodes, board_loc
 
+def setLocAll(node_list): 
+	for n in node_list: 
+		n.clearLoc()
+	i_old = -1
+	i = 0
+	while i_old < i: 
+		i_old = i
+		for n in node_list: 
+			i = n.setLoc(i)
+	return i
 
 def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float, many_reward=False):
 	nodes = []
@@ -272,11 +280,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	
 	# set the node indexes.
 	# some nodes are in the top-level list; others are just children.
-	for n in nodes: 
-		n.clearLoc()
-	i = 0
-	for n in nodes: 
-		i = n.setLoc(i)
+	i = setLocAll(nodes)
 	if i > token_cnt:
 		print(f'expect {token_cnt}, encoded {i} tokens')
 		pdb.set_trace()
@@ -291,8 +295,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	
 def nodesToCoo(nodes): 
 	# coo is [dst, src] -- see l1attnSparse
-	edges = [] # edges from kids to parents
-	# to get from parents to kids, switch dst and src. 
+	edges = [] # edges, parents <-- kids
 	a2a_set = set() # nodes that have no set relation, for a2a attention
 					# aka top-level nodes or objects.
 	for n in nodes: 
@@ -309,11 +312,7 @@ def nodesToCoo(nodes):
 def encodeNodes(nodes): 
 	# returns a matrix encoding of the nodes + coo vector
 	# redo the loc, jic
-	for n in nodes: 
-		n.clearLoc()
-	i = 0
-	for n in nodes: 
-		i = n.setLoc(i)
+	i = setLocAll(nodes)
 	# flatten the tree-list
 	for n in nodes: 
 		n.resetRefcnt()
@@ -463,7 +462,7 @@ if __name__ == "__main__":
 	benc,coo,a2a = encodeNodes(nodes)
 	print('benc shape:',benc.shape,'coo shape',coo.shape,"a2a shape",a2a.shape)
 	
-	im[0] = axs[0].imshow(benc.T.numpy())
+	im[0] = axs[0].imshow(benc.T)
 	plt.colorbar(im[0], ax=axs[0])
 	axs[0].set_title('board encoding')
 	
