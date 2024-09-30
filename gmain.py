@@ -647,13 +647,15 @@ def expandCoordinateVector(coo, a2a):
 		dtype=torch.int32).unsqueeze(-1).tile([1,2])
 	src_arr = torch.tensor(list(src_set), \
 		dtype=torch.int32).unsqueeze(-1).tile([1,2])
-	coo_dst = torch.cat([coo, dst_arr], axis=0)
+	# coo_dst = torch.cat([coo, dst_arr], axis=0)
+	coo_dst = coo
 	
 	# swap dst and src
 	coo_swap = torch.zeros_like(coo) # type int32: indexes
 	coo_swap[:,0] = coo[:,1]
 	coo_swap[:,1] = coo[:,0]
-	coo_src = torch.cat([coo_swap, src_arr], axis=0)
+	# coo_src = torch.cat([coo_swap, src_arr], axis=0)
+	coo_src = coo_swap
 	
 	# first half of heads are kids to parents
 	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo_dst)
@@ -726,7 +728,7 @@ if __name__ == '__main__':
 
 	hcoo,hcoo_m,reward_loc = getLayerCoordinateVectors()
 	
-	# allocate memory
+	# get refs to the memory-mapped files
 	memory_dict = getMemoryDict()
 	
 	# world model

@@ -347,6 +347,8 @@ if __name__ == "__main__":
 
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}_{n_steps}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
+	
+	memory_dict = gmain.getMemoryDict()
 
 	if cmd_args.v : # or cmd_args.rrn_hard:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
@@ -418,9 +420,17 @@ if __name__ == "__main__":
 
 			old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
 			new_board = torch.cat((new_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
+			
+			pred_data = {}
 
 			def closure():
 				new_state_preds = model.forward(old_board, hcoo)
+				
+				nonlocal pred_data
+				pred_data = {'old_board':old_board, \
+					'new_board':new_board, 'new_state_preds':new_state_preds,\
+					'rewards':None, 'reward_preds':None,'w1':None, 'w2':None}
+				
 				if cmd_args.rrn_hard and False: # FIXME
 					loss = torch.nn.functional.cross_entropy( \
 						new_state_preds[:,:,10:20].permute((0,2,1)), 
@@ -451,6 +461,9 @@ if __name__ == "__main__":
 		if uu % 1000 == 999:
 			fname = "pandaizer"
 			model.saveCheckpoint(f"checkpoints/{fname}.pth")
+			
+		if batch_indx % 25 == 0:
+			gmain.updateMemory(memory_dict, pred_data)
 
 		if utils.switch_to_validation:
 			break
