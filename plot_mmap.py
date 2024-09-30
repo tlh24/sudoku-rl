@@ -143,7 +143,7 @@ if __name__ == "__main__":
 			plotTensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
 			plotTensor(0, 1, new_board[i,:cl,:32].T - board[i,:cl,:32].T, f"(new_board -  board)[{i},:,:32]", -4.0, 4.0)
 			plotTensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
-			plotTensor(0, 2, (boardp[i,:cl,33:].T - new_board[i,:cl,1:32].T), f"(board_pred - new_board)[{i},:,:32]", -4.0, 4.0)
+			plotTensor(0, 2, (boardp[i,:cl,1:32].T - new_board[i,:cl,1:32].T), f"(board_pred - new_board)[{i},:,1:32]", -4.0, 4.0)
 			plotTensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
 			
 		if mode == 1: 

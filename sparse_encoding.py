@@ -344,7 +344,7 @@ def encodeNodes(nodes):
 			encode( v )
 			# benc[i, Axes.N_AX] = n.axval[0]/10.0 # FIXME primarily categorical!
 			# benc[i,11:20] = benc[i,11:20] + n.poss # NOTE 
-			# benc[i, Axes.N_AX.value] = 0.0
+			benc[i, Axes.N_AX] = 0.0
 		if ntv == Types.GUESS_ACTION.value:
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
 			encode( v )

@@ -246,6 +246,8 @@ def loadRrnCsv(csv_file,n_steps):
 	puzz_enc = torch.from_numpy(puzz_enc)
 	sol_enc = torch.from_numpy(sol_enc)
 	return puzz_enc, sol_enc, coo, a2a
+	
+pred_data = {}
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
@@ -389,6 +391,7 @@ if __name__ == "__main__":
 	input_thread.start()
 
 	bi = TRAIN_N
+	
 	for uu in range(100000):
 		if bi+batch_size >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
@@ -403,6 +406,7 @@ if __name__ == "__main__":
 			value = value.to(args['device'])
 
 			def closure():
+				global pred_data
 				value_pred = model.forward(old_board, hcoo)
 				value_pred = torch.sum(value_pred[:,-1,10:20], dim=-1) # sorta arbitrary
 				loss = torch.sum( (value - value_pred)**2 )\
@@ -420,13 +424,10 @@ if __name__ == "__main__":
 
 			old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
 			new_board = torch.cat((new_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
-			
-			pred_data = {}
 
 			def closure():
 				new_state_preds = model.forward(old_board, hcoo)
-				
-				nonlocal pred_data
+				global pred_data
 				pred_data = {'old_board':old_board, \
 					'new_board':new_board, 'new_state_preds':new_state_preds,\
 					'rewards':None, 'reward_preds':None,'w1':None, 'w2':None}
@@ -452,6 +453,8 @@ if __name__ == "__main__":
 					# this was recommended by the psgd authors to break symmetries w a L2 norm on the weights.
 				return loss
 			loss = optimizer.step(closure)
+			if uu % 25 == 0:
+				gmain.updateMemory(memory_dict, pred_data)
 
 		lloss = loss.detach().cpu().item()
 		print(lloss)
@@ -461,9 +464,6 @@ if __name__ == "__main__":
 		if uu % 1000 == 999:
 			fname = "pandaizer"
 			model.saveCheckpoint(f"checkpoints/{fname}.pth")
-			
-		if batch_indx % 25 == 0:
-			gmain.updateMemory(memory_dict, pred_data)
 
 		if utils.switch_to_validation:
 			break

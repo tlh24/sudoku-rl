@@ -144,8 +144,12 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict['fd_board'], pred_dict['old_board'].cpu())
 	write_mmap(memory_dict['fd_new_board'], pred_dict['new_board'].cpu())
 	write_mmap(memory_dict['fd_boardp'], pred_dict['new_state_preds'].cpu().detach())
-	write_mmap(memory_dict['fd_reward'], pred_dict['rewards'].cpu())
-	write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'].cpu().detach())
+	if 'rewards' in pred_dict: 
+		if pred_dict['rewards'] is not None: 
+			write_mmap(memory_dict['fd_reward'], pred_dict['rewards'].cpu())
+	if 'reward_preds' in pred_dict: 
+		if pred_dict['reward_preds'] is not None: 
+			write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'].cpu().detach())
 	if 'a1' in pred_dict and 'a2' in pred_dict:
 		if (pred_dict['a1'] is not None) and (pred_dict['a2'] is not None):
 			write_mmap(memory_dict['fd_attention'], torch.stack((pred_dict['a1'], pred_dict['a2']), 0))
