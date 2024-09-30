@@ -334,7 +334,7 @@ def encodeNodes(nodes):
 			if v >= 0.6 and v <= 9.4:
 				benc[i,10:20] = 0.0
 				vi = round(v)
-				benc[i,10+vi] = 4.0
+				benc[i,10+vi] = 1.0
 					
 		ntv = n.typ.value
 		if ntv == Types.BOX.value:
