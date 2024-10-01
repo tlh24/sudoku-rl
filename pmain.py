@@ -260,6 +260,10 @@ if __name__ == "__main__":
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	cmd_args = parser.parse_args()
 
+	if cmd_args.no_train:
+		print(colored('Not training the model', 'red'))
+		time.sleep(1)
+
 	DATA_N = 100000
 	VALID_N = DATA_N//10
 	batch_size = 64
