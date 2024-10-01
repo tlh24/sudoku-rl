@@ -563,13 +563,14 @@ if __name__ == "__main__":
 					complete = np.prod(valid_cell)
 					if sudoku.checkIfValid() and complete > 0.5:
 						n_valid = n_valid + 1
-					# else:
-					# 	obenc = old_board[k,:,:].squeeze().cpu().numpy()
-					# 	puz = sparse_encoding.decodeBoard(obenc, board_loc, argmax=True)
-					# 	print('failed on this puzzle:')
-					# 	sudoku.printSudoku("", puz)
-					# 	print("sol:")
-					# 	sudoku.printSudoku("", sol)
+					else:
+						if n_steps > 10:
+							obenc = old_board[k,:,:].squeeze().cpu().numpy()
+							puz = sparse_encoding.decodeBoard(obenc, board_loc, argmax=True)
+							print('failed on this puzzle:')
+							sudoku.printSudoku("", puz)
+							print("sol:")
+							sudoku.printSudoku("", sol)
 					n_total = n_total + 1
 
 			uu = uu + 1
