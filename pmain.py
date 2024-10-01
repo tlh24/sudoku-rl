@@ -388,6 +388,10 @@ if __name__ == "__main__":
 	else:
 		optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = gmain.getOptimizer(optimizer_name, model)
+	if not cmd_args.a:
+		optimizer.lr_params = 0.001
+		optimizer.momentum = 0.0
+		optimizer.lr_preconditioner = 0.02
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
@@ -483,6 +487,16 @@ if __name__ == "__main__":
 		if uu % 1000 == 999:
 			fname = "pandaizer"
 			model.saveCheckpoint(f"checkpoints/{fname}.pth")
+
+		# vary the momentum for psgd
+		if not cmd_args.a:
+			if uu == 2000:
+				optimizer.lr_params = 0.005
+			if uu == 5000:
+				optimizer.momentum = 0.8
+			if uu == 10000:
+				optimizer.momentum = 0.9
+
 
 		if utils.switch_to_validation:
 			break
