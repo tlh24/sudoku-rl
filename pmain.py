@@ -257,6 +257,7 @@ if __name__ == "__main__":
 	parser.add_argument('-v', action='store_true', help="train value function")
 	parser.add_argument('-r', type=int, default=1, help='number of repeats or steps')
 	parser.add_argument('--rrn-hard', action='store_true', help="use RRN hard dataset")
+	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	cmd_args = parser.parse_args()
 
 	DATA_N = 100000
@@ -463,14 +464,15 @@ if __name__ == "__main__":
 
 			# with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
 				# with record_function("model_training"):
-			if not cmd_args.a:
-				loss = optimizer.step(closure)
-			else:
-				optimizer.zero_grad()
-				loss = closure()
-				torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
-				loss.backward()
-				optimizer.step()
+			if not cmd_args.no_train:
+				if not cmd_args.a:
+					loss = optimizer.step(closure)
+				else:
+					optimizer.zero_grad()
+					loss = closure()
+					torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+					loss.backward()
+					optimizer.step()
 
 			if uu % 25 == 0:
 				# print(prof.key_averages( group_by_input_shape=True ).table( sort_by="cuda_time_total", row_limit=50))
@@ -491,7 +493,9 @@ if __name__ == "__main__":
 		# linear psgd warm-up
 		if not cmd_args.a:
 			if uu < 5000:
-				optimizer.lr_params = 0.005 * (uu / 5000) / n_steps
+				optimizer.lr_params = \
+					0.005 * (uu / 5000) / math.pow(n_steps, 1.3)
+					# made that scaling up
 
 		if utils.switch_to_validation:
 			break
