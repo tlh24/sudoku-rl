@@ -478,9 +478,9 @@ if __name__ == "__main__":
 					loss.backward()
 					optimizer.step()
 
-			if uu % 25 == 0:
-				# print(prof.key_averages( group_by_input_shape=True ).table( sort_by="cuda_time_total", row_limit=50))
-				gmain.updateMemory(memory_dict, pred_data)
+				if uu % 25 == 0:
+					# print(prof.key_averages( group_by_input_shape=True ).table( sort_by="cuda_time_total", row_limit=50))
+					gmain.updateMemory(memory_dict, pred_data)
 
 		duration = time.time() - time_start
 		avg_duration = 0.99 * avg_duration + 0.01 * duration
