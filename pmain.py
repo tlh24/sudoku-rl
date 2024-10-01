@@ -394,7 +394,7 @@ if __name__ == "__main__":
 	bi = TRAIN_N
 	avg_duration = 0.0
 	
-	for uu in range(100000):
+	for uu in range(60000):
 		time_start = time.time()
 		if bi+batch_size >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
