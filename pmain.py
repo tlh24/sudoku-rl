@@ -467,6 +467,7 @@ if __name__ == "__main__":
 				torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
 				loss.backward()
 				optimizer.step()
+
 			if uu % 25 == 0:
 				# print(prof.key_averages( group_by_input_shape=True ).table( sort_by="cuda_time_total", row_limit=50))
 				gmain.updateMemory(memory_dict, pred_data)
