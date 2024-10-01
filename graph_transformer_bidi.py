@@ -198,7 +198,7 @@ class Transformer(nn.Module):
 	def forward(self, x:torch.Tensor, hcoo:list):
 		# x = self.in_proj(x)
 		for i in range(self.repeat): 
-			x = self.stq.apply(x) # quantize FIXME
+			# x = self.stq.apply(x) # quantize FIXME
 			for j, layer in enumerate(self.resblocks):
 				# linearly encode the repeat position on all tokens. 
 				# x[:,:,0] = i*2 FIXME
