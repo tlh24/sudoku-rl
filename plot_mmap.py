@@ -127,7 +127,7 @@ if __name__ == "__main__":
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
 			if u % 2 == 0 or True: 
-				err = torch.sum((boardp[:,:,33:] - new_board[:,:,1:32])**2, [1,2])
+				err = torch.sum((boardp[:,:,1:32] - new_board[:,:,1:32])**2, [1,2])
 				i = torch.argmax(err).item()
 				maxerr = err[i]
 				sumerr = torch.sum(err)
