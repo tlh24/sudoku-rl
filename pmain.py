@@ -392,8 +392,10 @@ if __name__ == "__main__":
 	input_thread.start()
 
 	bi = TRAIN_N
+	avg_duration = 0.0
 	
 	for uu in range(100000):
+		time_start = time.time()
 		if bi+batch_size >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
 			bi = 0
@@ -457,8 +459,11 @@ if __name__ == "__main__":
 			if uu % 25 == 0:
 				gmain.updateMemory(memory_dict, pred_data)
 
+		duration = time.time() - time_start
+		avg_duration = 0.99 * avg_duration + 0.01 * duration
+
 		lloss = loss.detach().cpu().item()
-		print(lloss)
+		print(lloss, "\t", avg_duration)
 		args["fd_losslog"].write(f'{uu}\t{lloss}\t0.0\n')
 		args["fd_losslog"].flush()
 
