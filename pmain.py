@@ -389,9 +389,9 @@ if __name__ == "__main__":
 		optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = gmain.getOptimizer(optimizer_name, model)
 	if not cmd_args.a:
-		optimizer.lr_params = 0.001
-		optimizer.momentum = 0.0
-		optimizer.lr_preconditioner = 0.02
+		optimizer.lr_params = 0.0001
+		optimizer.momentum = 0.4
+		optimizer.lr_preconditioner = 0.01
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
