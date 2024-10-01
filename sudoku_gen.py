@@ -164,6 +164,8 @@ class Sudoku:
 		return False
 
 	def removeKDigits(self):
+		# this does not check if the removed digits can be inferred,
+		# or if removal results in more than one solution.
 		count = self.K
 		while (count != 0):
 			i = self.randomGenerator(self.N) - 1
@@ -177,7 +179,8 @@ class Sudoku:
 		self.mat[i, j] = num
 		
 	def takeOneStep(self): 
-		# given  the current map, take one trivial elimination step.  
+		# given  the current map, take one trivial elimination step.
+		# ie: fill all cells where there is only one option.
 		out = np.array(self.mat) # deep copy
 		changes = 0
 		for i in range(self.N):

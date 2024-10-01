@@ -672,6 +672,8 @@ def expandCoordinateVector(coo, a2a):
 	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_src)
 	
 	# sort by src -- we don't have smart coalesced dst writes (yet)
+	# random permutation is, as expected, usually worse
+	# (but not by too much)
 	_,indx = torch.sort(kids2parents[:,1])
 	kids2parents = kids2parents[indx,:]
 	_,indx = torch.sort(parents2kids[:,1])
