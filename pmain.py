@@ -72,10 +72,10 @@ def encodeSudokuSteps(puzzle, n_steps):
 	puzz_enc, coo, a2a, _ = encodeSudoku(puzzle)
 	sudoku.setMat(puzzle)
 	for s in range(n_steps): 
-		step,_ = sudoku.takeOneStep()
-		sudoku.setMat(step)
-		# step,_ = sudoku.hiddenSingles()
+		# step,_ = sudoku.takeOneStep()
 		# sudoku.setMat(step)
+		step,_ = sudoku.hiddenSingles()
+		sudoku.setMat(step)
 	sol_enc,_,_,_ = encodeSudoku(step)
 
 	return puzz_enc, sol_enc, coo, a2a
@@ -363,7 +363,7 @@ if __name__ == "__main__":
 			n_heads=4, n_layers=4, repeat=n_steps, mode=0).to(device)
 	else:
 		model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-			n_heads=4, n_layers=6, repeat=n_steps, mode=0).to(device)
+			n_heads=12, n_layers=12, repeat=n_steps, mode=0).to(device)
 	model.printParamCount()
 	
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
