@@ -390,8 +390,8 @@ if __name__ == "__main__":
 	optimizer = gmain.getOptimizer(optimizer_name, model)
 	if not cmd_args.a:
 		optimizer.lr_params = 0.0
-		optimizer.momentum = 0.4
-		optimizer.lr_preconditioner = 0.01
+		optimizer.momentum = 0.87
+		optimizer.lr_preconditioner = 0.015
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
@@ -492,10 +492,10 @@ if __name__ == "__main__":
 		if not cmd_args.a:
 			if uu < 5000:
 				optimizer.lr_params = 0.005 * (uu / 5000)
-			if uu == 5000:
-				optimizer.momentum = 0.8
-			if uu == 10000:
-				optimizer.momentum = 0.9
+			# if uu == 5000:
+			# 	optimizer.momentum = 0.8
+			# if uu == 10000:
+			# 	optimizer.momentum = 0.9
 
 
 		if utils.switch_to_validation:
