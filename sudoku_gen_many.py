@@ -1,6 +1,6 @@
 '''
 Generates N sudoku maps with some positions blank and some filled. 
-Saves the tensor of maps as a torch file named puzzles_{N}.pt
+Saves the tensor of maps as a torch file named puzzles_{N}.pth
 '''
 import math
 import torch
@@ -35,7 +35,7 @@ def generatePuzzles(N=500000,S=9):
 	for ind, res in enumerate(pool.imap_unordered(makePuzzle, range(N), chunksize)):
 		x[ind, :, :] = res
     
-	torch.save(x, f'puzzles_{S}_{N}.pt')
+	torch.save(x, f'puzzles_{S}_{N}.pth')
 
 # dumb global -- need it for multiprocessing.
 percent_filled = 0.75
@@ -181,8 +181,8 @@ def savePuzzles():
 
 	puzzles_tens = torch.from_numpy(puzzles)
 	solutions_tens = torch.from_numpy(solutions)
-	torch.save(puzzles_tens, "satnet_puzzles_100k.pt")
-	torch.save(solutions_tens, "satnet_sols_100k.pt")
+	torch.save(puzzles_tens, "satnet_puzzles_100k.pth")
+	torch.save(solutions_tens, "satnet_sols_100k.pth")
 
 
 def vizSatNetFile(file_name="satnet_both_0.75_filled_10000.npz"):
@@ -207,7 +207,7 @@ def convertToTorch(np_satnet_file):
 	puzzles = file["puzzles"]
 	sols = file["solutions"]
 	puzzles_tens, sols_tens = torch.from_numpy(puzzles), torch.from_numpy(sols)
-	new_filename = os.path.splitext(np_satnet_file)[0] + '.pt'
+	new_filename = os.path.splitext(np_satnet_file)[0] + '.pth'
 	puzzle_filename = new_filename.replace("both", "puzzle")
 	sol_filename = new_filename.replace("both", "sol")
 	torch.save(puzzles_tens, puzzle_filename)

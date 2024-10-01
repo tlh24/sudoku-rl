@@ -529,11 +529,11 @@ def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 		# in these files, the board is the state resulting from the action.
 		# likewise for reward, which is updated through rollouts.
 		# parent indexes the board prior the action.
-		torch.save(rollouts_board, f'rollouts/rollouts_board_{n}.pt')
-		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{n}.pt')
-		torch.save(rollouts_reward_pred, f'rollouts/rollouts_reward_pred_{n}.pt')
-		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pt')
-		torch.save(rollouts_parent, f'rollouts/rollouts_parent_{n}.pt')
+		torch.save(rollouts_board, f'rollouts/rollouts_board_{n}.pth')
+		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{n}.pth')
+		torch.save(rollouts_reward_pred, f'rollouts/rollouts_reward_pred_{n}.pth')
+		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pth')
+		torch.save(rollouts_parent, f'rollouts/rollouts_parent_{n}.pth')
 
 def moveValueDataset(puzzles, hcoo, bs, nn):
 	''' for training the 'mouseizer':
@@ -542,9 +542,9 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		then calculate the value of random moves from random positions
 		as the discrete derivative of this '''
 	try:
-		boards = torch.load(f'rollouts/move_boards.pt',weights_only=True)
-		actions = torch.load(f'rollouts/move_actions.pt',weights_only=True)
-		rewards = torch.load(f'rollouts/move_rewards.pt',weights_only=True)
+		boards = torch.load(f'rollouts/move_boards.pth',weights_only=True)
+		actions = torch.load(f'rollouts/move_actions.pth',weights_only=True)
+		rewards = torch.load(f'rollouts/move_rewards.pth',weights_only=True)
 		nn = 0
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
@@ -631,9 +631,9 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 						axs[k//2+1,k%2].imshow(dif.T.cpu().numpy())
 				plt.show()
 
-		torch.save(boards, 'rollouts/move_boards.pt')
-		torch.save(actions, 'rollouts/move_actions.pt')
-		torch.save(rewards, 'rollouts/move_rewards.pt')
+		torch.save(boards, 'rollouts/move_boards.pth')
+		torch.save(actions, 'rollouts/move_actions.pth')
+		torch.save(rewards, 'rollouts/move_rewards.pth')
 
 	return boards,actions,rewards
 
@@ -719,7 +719,7 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	try: 
-		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
+		puzzles = torch.load(f'puzzles_{SuN}_500000.pth',weights_only=True)
 	except Exception as error:
 		print(colored(f"could not load puzzles {error}", "red"))
 		print(colored("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing", "blue"))
@@ -844,11 +844,11 @@ if __name__ == '__main__':
 		rollouts_parent = torch.zeros(duration, bs*nfiles, dtype=int)
 		
 		for i in range(nfiles): 
-			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt',weights_only=True)
-			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt',weights_only=True)
-			r_rewardp = torch.load(f'rollouts/rollouts_reward_pred_{i}.pt',weights_only=True)
-			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt',weights_only=True)
-			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt',weights_only=True)
+			r_board = torch.load(f'rollouts/rollouts_board_{i}.pth',weights_only=True)
+			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pth',weights_only=True)
+			r_rewardp = torch.load(f'rollouts/rollouts_reward_pred_{i}.pth',weights_only=True)
+			r_action = torch.load(f'rollouts/rollouts_action_{i}.pth',weights_only=True)
+			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pth',weights_only=True)
 			
 			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
 			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward
@@ -857,7 +857,7 @@ if __name__ == '__main__':
 				lin = torch.arange(bs)
 				rollouts_parent_board[j,lin+bs*i,:,:] = \
 					r_board[r_parent[j,lin],lin,:,:] 
-			print(f"loaded rollouts/board - reward - action {i} .pt")
+			print(f"loaded rollouts/board - reward - action {i} .pth")
 			
 			# pdb.set_trace()
 			# for j in range(bs//2): 
