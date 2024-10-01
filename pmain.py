@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from torch import nn, optim
 import torch.nn.functional as F
+from torch.profiler import profile, record_function, ProfilerActivity
 import pdb
 from termcolor import colored
 import matplotlib.pyplot as plt
@@ -455,8 +456,19 @@ if __name__ == "__main__":
 						])
 					# this was recommended by the psgd authors to break symmetries w a L2 norm on the weights.
 				return loss
-			loss = optimizer.step(closure)
+
+			# with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+				# with record_function("model_training"):
+			if not cmd_args.a:
+				loss = optimizer.step(closure)
+			else:
+				optimizer.zero_grad()
+				loss = closure()
+				torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+				loss.backward()
+				optimizer.step()
 			if uu % 25 == 0:
+				# print(prof.key_averages( group_by_input_shape=True ).table( sort_by="cuda_time_total", row_limit=50))
 				gmain.updateMemory(memory_dict, pred_data)
 
 		duration = time.time() - time_start

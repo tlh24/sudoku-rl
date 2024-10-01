@@ -156,7 +156,7 @@ class Gracoonizer(nn.Module):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
 		torch.save(self.state_dict(), path)
-		print(f"saved checkpoint to {path}")
+		print(colored(f"saved checkpoint to {path}", 'blue'))
 
 	def printParamCount(self):
 		trainable_params = sum(
