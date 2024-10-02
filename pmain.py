@@ -238,6 +238,17 @@ def loadRrnCsv(csv_file,n_steps):
 		solutions = np.int8(solutions)
 		puzzles = np.reshape(puzzles, (N,9,9))
 		solutions = np.reshape(solutions, (N,9,9))
+
+		# sudoku = Sudoku(9,60)
+		# puzz = puzzles[10]
+		# sudoku.printSudoku("",puzz)
+		# sudoku.setMat(puzz)
+		# for i in range(10):
+		# 	step,changes = sudoku.hiddenSingles()
+		# 	sudoku.setMat(step)
+		# 	print(f'changes:{changes}')
+		# 	sudoku.printSudoku("",step)
+		# exit()
 		
 		puzz_enc, sol_enc, coo, a2a = \
 			processPuzzles(puzzles, solutions, n_steps)

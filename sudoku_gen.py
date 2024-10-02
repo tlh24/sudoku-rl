@@ -233,6 +233,13 @@ class Sudoku:
 					kj = k%3
 					out[ii+ki,jj+kj] = v+1
 					changes = changes+1
+		# add in 'more obvious' singles (cough...just a more obvious axis)
+		for i in range(self.N):
+			for j in range(self.N):
+				if np.sum(poss[i,j,:]) == 1:
+					v = np.argmax(poss[i,j,:]).item()
+					out[i,j] = v+1
+					changes = changes+1
 		return out,changes
 
 	def setMat(self, mat): 
@@ -512,3 +519,13 @@ if __name__ == "__main__":
 	step,changes = sudoku.takeOneStep()
 	print(f"\none step: {changes} changes")
 	sudoku.printSudoku("", step)
+
+	print("puzzle du jour")
+	digit_string = "230000010000030782000520030823000090000600240000200050000002879002070364040000020"
+	digit_list = [int(char) for char in digit_string]
+	puzz = np.array(digit_list).reshape(9, 9)
+	sudoku.setMat(puzz)
+	sudoku.printSudoku("",puzz)
+	step, changes = sudoku.hiddenSingles()
+	print(f'changes:{changes}')
+	sudoku.printSudoku("",step)
