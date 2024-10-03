@@ -104,19 +104,6 @@ def getDataLoaders(puzzles):
 
 	return train_dataloader, test_dataloader
 
-def getMemoryDict():
-	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
-	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
-	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
-	fd_reward = make_mmf("reward.mmap", [batch_size, reward_dim])
-	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, reward_dim])
-	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
-	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
-	memory_dict = {'fd_board':fd_board, 'fd_new_board':fd_new_board, 'fd_boardp':fd_boardp,
-					 'fd_reward': fd_reward, 'fd_rewardp': fd_rewardp, 'fd_attention': fd_attention,
-					  'fd_wqkv':fd_wqkv }
-	return memory_dict
-
 
 def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	if optimizer_name == "adam": 
@@ -132,6 +119,19 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 		# grad clipping at 2 seems to slow things a bit
 	return optimizer 
 
+	
+def getMemoryDict(prefix=""):
+	fd_board = make_mmf(f"{prefix}board.mmap", [batch_size, token_cnt, world_dim])
+	fd_new_board = make_mmf(f"{prefix}new_board.mmap", [batch_size, token_cnt, world_dim])
+	fd_boardp = make_mmf(f"{prefix}boardp.mmap", [batch_size, token_cnt, world_dim])
+	fd_reward = make_mmf(f"{prefix}reward.mmap", [batch_size, reward_dim])
+	fd_rewardp = make_mmf(f"{prefix}rewardp.mmap", [batch_size, reward_dim])
+	fd_attention = make_mmf(f"{prefix}attention.mmap", [2, token_cnt, token_cnt, n_heads])
+	fd_wqkv = make_mmf(f"{prefix}wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
+	memory_dict = {'fd_board':fd_board, 'fd_new_board':fd_new_board, 'fd_boardp':fd_boardp,
+					 'fd_reward': fd_reward, 'fd_rewardp': fd_rewardp, 'fd_attention': fd_attention,
+					  'fd_wqkv':fd_wqkv }
+	return memory_dict
 
 def updateMemory(memory_dict, pred_dict): 
 	'''

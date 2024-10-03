@@ -507,7 +507,7 @@ if __name__ == "__main__":
 		if not cmd_args.a:
 			if uu < 5000:
 				optimizer.lr_params = \
-					0.01 * (uu / 5000) / math.pow(n_steps, 1.0)
+					0.0075 * (uu / 5000) / math.pow(n_steps, 1.0)
 					# made that scaling up
 
 		if utils.switch_to_validation:
@@ -524,8 +524,8 @@ if __name__ == "__main__":
 			batch_indx = torch.arange(j*batch_size, (j+1)*batch_size)
 
 			if cmd_args.v:
-				old_board = puzzles_train[indx, :, :]
-				value = values_train[indx]
+				old_board = puzzles_valid[indx, :, :]
+				value = values_valid[indx]
 
 				old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
 				value = value.to(args['device'])
