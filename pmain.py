@@ -156,7 +156,7 @@ def initProcess(s_puzzles, s_solutions, s_puzz_enc, s_sol_enc, N):
 def worker( i ):
 	global g_puzzles, g_solutions, g_puzz_enc, g_sol_enc, gn_steps
 	
-	if gn_steps < 32: 
+	if gn_steps < 32 and False: # FIXME
 		puzz,sol,_,_ = encodeSudokuSteps(g_puzzles[i], gn_steps)
 	else: 
 		puzz,_,_,_ = encodeSudoku(g_puzzles[i])
@@ -284,74 +284,68 @@ if __name__ == "__main__":
 	puzzles = []
 	solutions = []
 	values = []
-	if not cmd_args.rrn_hard: 
-		for percent_filled in [0.35,0.65]: # 
-			if cmd_args.v:
-				npz_file = f"satnet/satnet_value_{percent_filled}_{DATA_N}.npz"
-				try:
-					file = np.load(npz_file)
-					puzzles_ = file["puzzles"]
-					values_ = file["value"]
-					coo = file["coo"]
-					a2a = file["a2a"]
-					coo = torch.from_numpy(coo)
-					a2a = torch.from_numpy(a2a)
-				except Exception as error:
-					print(error)
-					puzzles_, values_, coo, a2a = encodeSudokuValue(DATA_N, percent_filled)
+	for percent_filled in []: # 0.35, 0.65, 0.85
+		if cmd_args.v:
+			npz_file = f"satnet/satnet_value_{percent_filled}_{DATA_N}.npz"
+			try:
+				file = np.load(npz_file)
+				puzzles_ = file["puzzles"]
+				values_ = file["value"]
+				coo = file["coo"]
+				a2a = file["a2a"]
+				coo = torch.from_numpy(coo)
+				a2a = torch.from_numpy(a2a)
+			except Exception as error:
+				print(error)
+				puzzles_, values_, coo, a2a = encodeSudokuValue(DATA_N, percent_filled)
 
-				puzzles_ = torch.from_numpy(puzzles_)
-				values_ = torch.from_numpy(values_)
-				puzzles.append(puzzles_)
-				values.append(values_)
-			else:
-				npz_file = f"satnet/satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
-				try:
-					file = np.load(npz_file)
-					puzzles_ = file["puzzles"]
-					solutions_ = file["solutions"]
-					coo = file["coo"]
-					a2a = file["a2a"]
-					coo = torch.from_numpy(coo)
-					a2a = torch.from_numpy(a2a)
-				except Exception as error:
-					print(error)
-					dat = np.load(f'satnet/satnet_both_{percent_filled}_filled_{DATA_N}.npz')
-					puzzles_, solutions_, coo, a2a = \
-						processPuzzles(dat['puzzles'], dat['solutions'], n_steps)
-					np.savez(npz_file, puzzles=puzzles_, solutions=solutions_, coo=coo, a2a=a2a)
+			puzzles_ = torch.from_numpy(puzzles_)
+			values_ = torch.from_numpy(values_)
+			puzzles.append(puzzles_)
+			values.append(values_)
+		else:
+			npz_file = f"satnet/satnet_{n_steps}step_enc_{percent_filled}_{DATA_N}.npz"
+			try:
+				file = np.load(npz_file)
+				puzzles_ = file["puzzles"]
+				solutions_ = file["solutions"]
+				coo = file["coo"]
+				a2a = file["a2a"]
+				coo = torch.from_numpy(coo)
+				a2a = torch.from_numpy(a2a)
+			except Exception as error:
+				print(error)
+				dat = np.load(f'satnet/satnet_both_{percent_filled}_filled_{DATA_N}.npz')
+				puzzles_, solutions_, coo, a2a = \
+					processPuzzles(dat['puzzles'], dat['solutions'], n_steps)
+				np.savez(npz_file, puzzles=puzzles_, solutions=solutions_, coo=coo, a2a=a2a)
 
-				puzzles_ = torch.from_numpy(puzzles_)
-				solutions_ = torch.from_numpy(solutions_)
-				puzzles.append(puzzles_)
-				solutions.append(solutions_)
-		
-		if True: 
-			puzzles_, solutions_, coo, a2a = \
-				loadRrnCsv('rrn-hard/train.csv', n_steps)
+			puzzles_ = torch.from_numpy(puzzles_)
+			solutions_ = torch.from_numpy(solutions_)
 			puzzles.append(puzzles_)
 			solutions.append(solutions_)
-
-		def trainValSplit(y):
-			y_train = list(map(lambda x: x[:-VALID_N], y))
-			y_valid = list(map(lambda x: x[-VALID_N:], y))
-			y_train = torch.cat(y_train, dim=0)
-			y_valid = torch.cat(y_valid, dim=0)
-			return y_train, y_valid
-
-		puzzles_train, puzzles_valid = trainValSplit(puzzles)
-		if cmd_args.v:
-			values_train, values_valid = trainValSplit(values)
-			assert(values_train.shape[0] == puzzles_train.shape[0])
-		else:
-			solutions_train, solutions_valid = trainValSplit(solutions)
-			assert(solutions_train.shape[0] == puzzles_train.shape[0])
-	else:
-		puzzles_train, solutions_train, coo, a2a = \
+	
+	if True: 
+		puzzles_, solutions_, coo, a2a = \
 			loadRrnCsv('rrn-hard/train.csv', n_steps)
-		puzzles_valid, solutions_valid, _, _ = \
-			loadRrnCsv('rrn-hard/valid.csv', n_steps)
-		npz_file = 'rrn-hard'
+		puzzles.append(puzzles_)
+		solutions.append(solutions_)
+		npz_file = 'rrn-hard/train.csv'
+
+	def trainValSplit(y):
+		y_train = list(map(lambda x: x[:-VALID_N], y))
+		y_valid = list(map(lambda x: x[-VALID_N:], y))
+		y_train = torch.cat(y_train, dim=0)
+		y_valid = torch.cat(y_valid, dim=0)
+		return y_train, y_valid
+
+	puzzles_train, puzzles_valid = trainValSplit(puzzles)
+	if cmd_args.v:
+		values_train, values_valid = trainValSplit(values)
+		assert(values_train.shape[0] == puzzles_train.shape[0])
+	else:
+		solutions_train, solutions_valid = trainValSplit(solutions)
+		assert(solutions_train.shape[0] == puzzles_train.shape[0])
 		
 
 	TRAIN_N = puzzles_train.shape[0]
@@ -406,7 +400,7 @@ if __name__ == "__main__":
 	optimizer = gmain.getOptimizer(optimizer_name, model)
 	if not cmd_args.a:
 		optimizer.lr_params = 0.0
-		optimizer.momentum = 0.86
+		optimizer.momentum = 0.9
 		optimizer.lr_preconditioner = 0.015
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
@@ -415,7 +409,7 @@ if __name__ == "__main__":
 	bi = TRAIN_N
 	avg_duration = 0.0
 	
-	for uu in range(60000):
+	for uu in range(200000):
 		time_start = time.time()
 		if bi+batch_size >= TRAIN_N:
 			batch_indx = torch.randperm(TRAIN_N)
@@ -456,7 +450,7 @@ if __name__ == "__main__":
 					'new_board':new_board, 'new_state_preds':new_state_preds,\
 					'rewards':None, 'reward_preds':None,'w1':None, 'w2':None}
 				
-				if cmd_args.rrn_hard and False: # FIXME
+				if True: # FIXME
 					loss = torch.nn.functional.cross_entropy( \
 						new_state_preds[:,:,10:20].permute((0,2,1)), 
 						new_board[:,:,10:20].permute(0,2,1), reduction='sum') \
@@ -513,7 +507,7 @@ if __name__ == "__main__":
 		if not cmd_args.a:
 			if uu < 5000:
 				optimizer.lr_params = \
-					0.005 * (uu / 5000) / math.pow(n_steps, 1.3)
+					0.01 * (uu / 5000) / math.pow(n_steps, 1.0)
 					# made that scaling up
 
 		if utils.switch_to_validation:
@@ -551,7 +545,7 @@ if __name__ == "__main__":
 				new_board = torch.cat((new_board, torch.zeros_like(new_board)), dim=-1).float().to(args['device'])
 
 				new_state_preds = model.forward(old_board, hcoo)
-				if cmd_args.rrn_hard and False: # FIXME
+				if True: # FIXME
 					loss = torch.nn.functional.cross_entropy( \
 						new_state_preds[:,:,10:20].permute((0,2,1)), 
 						new_board[:,:,10:20].permute(0,2,1), reduction='sum')

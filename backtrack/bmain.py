@@ -99,7 +99,7 @@ class BoardTree():
 		self.curs_pos = curs_pos
 		self.digit = digit
 		if value > 0:
-			# make a list of possibilities.
+			# not an end, make a list of (totally naive) possibilities.
 			r,c = np.where(puzz == 0)
 			indx = np.zeros((r.shape[0],2))
 			indx[:,0] = r
@@ -121,12 +121,14 @@ class BoardTree():
 		u = np.where(self.possible[:,3] == 0)
 		u = u[0]
 		ind = np.random.randint(0,u.shape[0])
+		# this step should be replaced with a policy
+		# which emits a weighting over all possible moves. 
 		# ind = 0
 		indx = u[ind]
 		r = self.possible[indx,0]
 		c = self.possible[indx,1]
 		d = self.possible[indx,2]
-		kid_puzz = np.array(self.puzz)
+		kid_puzz = np.array(self.puzz) # deep copy
 		kid_puzz[r,c] = d
 		sudoku.setMat(kid_puzz)
 		if sudoku.checkIfValid():
@@ -135,10 +137,11 @@ class BoardTree():
 			value = -1
 		node = BoardTree(kid_puzz, value, [r,c], d)
 		self.kids.append((indx, node))
-		self.possible[indx,3] = value
+		self.possible[indx,3] = value # redundant but ok
 		return node, value
 
 	def hasPoss(self):
+		# determine if there are untested kids ( value +1 or -1)
 		return np.sum(self.possible[:,3] == 0) > 0
 	def isDone(self):
 		return np.sum(self.puzz == 0) == 0
@@ -226,10 +229,10 @@ def generateBacktrack(puzzles, N):
 	v = list(map(lambda r: r[2], results))
 	d = list(map(lambda r: r[3], results))
 
-	x = np.concatenate(x, axis=0)
-	c = np.concatenate(c, axis=0)
-	v = np.concatenate(v, axis=0)
-	d = np.concatenate(d, axis=0)
+	x = np.concatenate(x, axis=0) # the board state
+	c = np.concatenate(c, axis=0) # the cursor position
+	v = np.concatenate(v, axis=0) # the value, [-1, 1]
+	d = np.concatenate(d, axis=0) # the digit
 
 	return x,c,v,d
 
@@ -248,8 +251,9 @@ if __name__ == "__main__":
 	world_dim = 64
 	n_steps = cmd_args.r
 
-	dat = np.load(f'../satnet_both_0.85_filled_{DATA_N}.npz')
+	dat = np.load(f'../satnet/satnet_both_0.85_filled_{DATA_N}.npz')
 	puzzles = dat['puzzles']
+	puzzles = puzzles.astype(np.int8)
 	sudoku = Sudoku(9,60)
 	sudoku.printSudoku("",puzzles[0])
 	bt = BoardTree(puzzles[0], 0.01, [0,0], 0)
