@@ -55,20 +55,22 @@ class BoardTree():
 					np.tile(digits, (len(indx),1)), \
 					np.zeros((len(digits)*len(indx),1)) ], axis=1)
 			indx = indx.astype(np.int8) # save 8x memory
-			# index is hence r,c,digit,value
+			# possible is hence r,c,digit,value
+			indx = np.random.shuffle(indx) # as we have no prior preference
 			self.possible = indx
 		else:
 			self.possible = None # dead-end
 		self.kids = [] # tuple mapping index to object
+		
+	def valueKids(self, value_fn): 
+		value_indx, value_digit = value_fn(self.puzz)
+		# returns sorted in descending order
+		self.possible = np.zeros((value_indx.shape[0],4)).astype(np.int8)
+		self.possible[:,:2] = value_indx.astype(np.int8)
+		self.possible[:,2] = value_digit.astype(np.int8)
 
-	def getKid(self, sudoku):
-		u = np.where(self.possible[:,3] == 0)
-		u = u[0]
-		ind = np.random.randint(0,u.shape[0])
-		# this step should be replaced with a policy
-		# which emits a weighting over all possible moves. 
-		# ind = 0
-		indx = u[ind]
+	def getKid(self, sudoku, value_fn):
+		indx = len(self.kids) # get the next (ranked) kid
 		r = self.possible[indx,0]
 		c = self.possible[indx,1]
 		d = self.possible[indx,2]
@@ -80,7 +82,9 @@ class BoardTree():
 		else:
 			value = -1
 		node = BoardTree(kid_puzz, value, [r,c], d)
-		self.kids.append((indx, node))
+		if value_fn is not None: 
+			node.valueKids(value_fn)
+		self.kids.append(node)
 		self.possible[indx,3] = value # redundant but ok
 		return node, value
 
@@ -90,47 +94,53 @@ class BoardTree():
 	def isDone(self):
 		return np.sum(self.puzz == 0) == 0
 
-	def solve(self, sudoku, k):
+	def solve(self, sudoku, k, value_fn, debug=False):
 		found = False
 		while self.hasPoss() and (not found) and k > 0:
-			node,value = self.getKid(sudoku)
+			node,value = self.getKid(sudoku, value_fn)
 			k = k-1
 			while value < 0 and self.hasPoss():
-				node,value = self.getKid(sudoku)
+				node,value = self.getKid(sudoku, value_fn)
 				k = k-1
 			if value > 0 and node.isDone():
-				# print('solution!')
-				print('.', end='', flush=True)
-				# sudoku.printSudoku("", node.puzz, curs_pos=node.curs_pos)
+				if debug: 
+					print('solution!')
+					sudoku.printSudoku("", node.puzz, curs_pos=node.curs_pos)
+				else: 
+					print('.', end='', flush=True)
 				found = True
 				return True,k
 			elif value > 0:
 				# found a 1-step working option, dfs!
-				# print('progress:')
-				# sudoku.printSudoku("", node.puzz, curs_pos=node.curs_pos)
-				found,k = node.solve(sudoku,k)
+				if debug:
+					print('progress:')
+					sudoku.printSudoku("", node.puzz, curs_pos=node.curs_pos)
+				found,k = node.solve(sudoku, k, value_fn, debug)
 		# could not find an option, backtrack.
 		if not found:
-			# print('backtracking from')
-			# sudoku.printSudoku("", self.puzz, curs_pos=self.curs_pos)
+			if debug:
+				print('backtracking from')
+				sudoku.printSudoku("", self.puzz, curs_pos=self.curs_pos)
+			# if there is no solution from this node, set value accordingly
+			self.value = -1
 			return False,k
 		else:
 			return True,k
 
 	def count(self):
 		n = len(self.kids)
-		for (_,kid) in self.kids:
+		for kid in self.kids:
 			n = n + kid.count()
 		return n
 
 	def flat(self, x, c, v, d, indx):
-		for _,kid in self.kids:
+		for kid in self.kids:
 			x[indx,:,:] = kid.puzz
 			c[indx,:] = kid.curs_pos
 			v[indx] = kid.value
 			d[indx] = kid.digit
 			indx = indx+1
-		for _,kid in self.kids:
+		for kid in self.kids:
 			indx = kid.flat(x,c,v,d,indx)
 		return indx
 
@@ -215,10 +225,10 @@ if __name__ == "__main__":
 	puzzles = dat['puzzles']
 	puzzles = puzzles.astype(np.int8)
 	sudoku = Sudoku(9,60)
-	sudoku.printSudoku("",puzzles[0])
-	bt = BoardTree(puzzles[0], 0.01, [0,0], 0)
-	bt.solve(sudoku, 100)
-	x,c,v,d = bt.flatten()
+	# sudoku.printSudoku("",puzzles[0])
+	# bt = BoardTree(puzzles[0], 0.01, [0,0], 0)
+	# bt.solve(sudoku, 100)
+	# x,c,v,d = bt.flatten()
 
 	npz_file = f'satnet_backtrack_0.85.npz'
 	try:
@@ -268,10 +278,6 @@ if __name__ == "__main__":
 			n_heads=8, n_layers=9, repeat=n_steps, mode=0).to(device)
 	model.printParamCount()
 	
-	hcoo = gmain.expandCoordinateVector(coo, a2a)
-	hcoo = hcoo[0:2] # sparse / set-layers
-	hcoo.append('self') # intra-token op
-
 	if cmd_args.c: 
 		print('not loading any model weights.')
 	else:
@@ -280,6 +286,55 @@ if __name__ == "__main__":
 			print(colored("loaded model checkpoint", "blue"))
 		except Exception as error:
 			print(error)
+	
+	hcoo = gmain.expandCoordinateVector(coo, a2a)
+	hcoo = hcoo[0:2] # sparse / set-layers
+	hcoo.append('self') # intra-token op
+	
+	# make a new value-based BoardTree
+	def valueFn(puzz): 
+		benc = benc_train[0].clone()
+		benc[30:, 10:20] = 0 # erase the old encoding
+		puzz_flat = torch.from_numpy(np.reshape(puzz, (81,)))
+		puzz_flat = puzz_flat.int()
+		m = torch.arange(81)
+		benc[m+30, puzz_flat[m]+10] = 1
+		possible = torch.zeros(81, 10)
+		indx = torch.where(puzz_flat == 0)
+		possible[indx[0], 1:] = 1
+		with torch.no_grad(): 
+			benc_ = torch.cat((benc, torch.zeros(n_tok,world_dim-32)), dim=-1).float().to(args['device'])
+			benc_ = benc_.unsqueeze(0) # leading batch dim
+			preds = model.forward(benc_, hcoo)
+		preds = preds.detach().cpu().squeeze()
+		preds = preds[30:, 10:20]
+		preds = (np.clip(preds, -1, 1) + 1)/2
+		preds = preds * possible
+		_, glob_indx = torch.sort(preds.flatten(), descending=True)
+		sorted_coords = torch.unravel_index(glob_indx, preds.shape)
+		# print(puzz)
+		# plt.rcParams['toolbar'] = 'toolbar2'
+		# fig,axs = plt.subplots(1,2,figsize=(12,6))
+		# axs[0].imshow(benc.numpy().T)
+		# axs[1].imshow(preds.numpy().T)
+		# plt.show()
+		# pdb.set_trace()
+		# for i in range(3): 
+		# 	row = sorted_coords[0][i] // 9
+		# 	col = sorted_coords[0][i] % 9
+		# 	print(row, col, sorted_coords[1][i])
+		n = int(torch.sum(possible).item())
+		c = torch.zeros((n,2), dtype=torch.int8)
+		d = torch.zeros((n,), dtype=torch.int8)
+		c[:,0] = sorted_coords[0][:n] // 9
+		c[:,1] = sorted_coords[0][:n] % 9
+		d = sorted_coords[1][:n]
+		return c.numpy(), d.numpy()
+		
+	bt = BoardTree(puzzles[11], 0.1, [0,0], 0)
+	bt.valueKids(valueFn)
+	bt.solve(sudoku, 100, valueFn, debug=True)
+	exit()
 
 	if cmd_args.a:
 		optimizer_name = "adamw"
@@ -306,21 +361,23 @@ if __name__ == "__main__":
 		value = value_train[indx]
 
 		old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
-		mask = mask.float().to(args['device'])
+		mask = torch.cat((mask, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
 		value = value.float().to(args['device'])
 
 		def closure():
 			new_state_preds = model.forward(old_board, hcoo)
 			global pred_data
 			pred_data = {'old_board':old_board, \
-				'new_board':mask*value[:,None,None], 'new_state_preds':new_state_preds,\
+				'new_board':mask*value[:,None,None], \
+					'new_state_preds':new_state_preds,\
 				'rewards':None, 'reward_preds':None,'w1':None, 'w2':None}
+			# mask*value[:,None,None]
 			
 			loss = torch.sum(\
-				(torch.sum(new_state_preds[:,:,:32] * mask, dim=[1,2]) \
+				(torch.sum(new_state_preds * mask, dim=[1,2]) \
 					- value)**2 )
 			+ sum(\
-				[torch.sum(1e-6 * \
+				[torch.sum(1e-5 * \
 					torch.rand_like(param) * param * param) \
 					for param in model.parameters() \
 				])
@@ -344,6 +401,7 @@ if __name__ == "__main__":
 
 		if uu % 25 == 0:
 			# print(prof.key_averages( group_by_input_shape=True ).table( sort_by="cuda_time_total", row_limit=50))
+			global pred_data
 			gmain.updateMemory(memory_dict, pred_data)
 
 		duration = time.time() - time_start
