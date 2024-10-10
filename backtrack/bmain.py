@@ -31,6 +31,37 @@ import gmain
 import utils
 from sudoku_gen import Sudoku
 
+def printPoss(indent, poss):
+	for pi in range(27):
+		print(indent, end="")
+		for pj in range(27):
+			i = pi // 3
+			j = pj // 3
+			d = (pi % 3) * 3 + pj % 3
+			k = i // 3 + j // 3
+			p = poss[i,j,d]
+			attr = ["bold","reverse"]
+			if p <= 0: 
+				p = -1*p
+				attr = []
+			if p > 0: 
+				color = "blue" if k % 2 == 0 else "red"
+				light = "light_" if (i*27 + j) % 2 == 0 else ""
+				print(colored(d+1, color, attrs=attr), end="")
+			else:
+				color = "cyan" if k % 2 == 0 else "magenta"
+				light = "light_" if (i*27 + j) % 2 == 0 else ""
+				print(colored('`', f"{light}{color}"), end="")
+			# breaks
+			if pj % 3 == 2: 
+				print("", end=" ")
+			if pj == 26: 
+				print("")
+			# 	if pi % 3 == 2: 
+			# 		for s in range(9): 
+			# 			print("   ", end="")
+			# 		print("")
+
 
 def encodeSudoku(puzz, top_node=False):
 	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
@@ -93,38 +124,50 @@ def canGuess(poss):
 	# see if we have options
 	return np.sum(poss == 0) > 0
 	
-def solve(poss, sudoku):
+def solve(poss, k, sudoku, record, debug=False):
 	# input is always valid. 
 	guesses = np.zeros((9,9,9), dtype=np.int8)
 	rem = np.zeros((9,9,9), dtype=np.int8)
-	while canGuess(poss + guesses + rem):
+	while canGuess(poss + guesses + rem) and k > 0:
 		guess = poss2guess(poss + guesses + rem)
 		poss2 = np.array(poss + guesses + guess) # no rem in inheritance! 
+		k = k-1
 		if checkValid(poss2): 
 			if checkDone(poss2): 
-				print("solved!")
-				sudoku.printSudoku("", poss2puzz(poss2))
-				return True, poss2
+				if debug: 
+					print("solved!")
+					sudoku.printSudoku("", poss2puzz(poss2))
+				record.append((poss, guesses + guess))
+				return True, poss2, k
 			else: # not done, recurse
-				print("progress:")
-				sel = np.argwhere(guess == 1)
-				sel = sel[0]
-				sudoku.printSudoku("", poss2puzz(poss2), curs_pos=sel[:2])
+				if debug: 
+					print("progress:")
+					sel = np.argwhere(guess == 1)
+					sel = sel[0]
+					sudoku.printSudoku("", poss2puzz(poss2), curs_pos=sel[:2])
 				rem = np.zeros((9,9,9), dtype=np.int8) # reset: different branch 
-				valid,ret = solve(poss2, sudoku)
+				valid,ret,k = solve(poss2, k, sudoku, record, debug)
 				if valid:
-					return valid, ret #TODO
+					record.append((poss, guesses + guess))
+					return valid, ret, k
 				else:
-					print("backtracking 1: removing")
 					guesses = guesses - guess
 					rem = rem - ret - guess
-					sudoku.printSudoku("", poss2puzz(-1*rem))
+					if debug: 
+						print("backtracking 1: removing")
+						sudoku.printSudoku("", poss2puzz(-1*rem))
 		else: 
-			print("removing guess")
+			if debug: 
+				print("removing guess")
 			guesses = guesses - guess
-	print("backtracking 2: can't guess")
-	sudoku.printSudoku("", poss2puzz(-1*rem))
-	return False, -1*rem
+		
+	if debug: 
+		print("backtracking 2: can't guess; poss:")
+		sudoku.printSudoku("", poss2puzz(poss))
+		print("rem: ")
+		sudoku.printSudoku("", poss2puzz(-1*rem))
+	record.append((poss, guesses))
+	return False, -1*rem, k
 
 
 class BoardTree():
@@ -334,54 +377,54 @@ if __name__ == "__main__":
 	rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 	resource.setrlimit(resource.RLIMIT_NOFILE, (8*2048, rlimit[1]))
 
-	DATA_N = 100000
-	VALID_N = DATA_N//10
 	batch_size = 64
 	world_dim = 64
 	n_steps = cmd_args.r
 
-	dat = np.load(f'../satnet/satnet_both_0.65_filled_{DATA_N}.npz')
-	puzzles = dat['puzzles']
-	puzzles = puzzles.astype(np.int8)
+	dat = np.load(f'../satnet/satnet_both_0.85_filled_100000.npz')
+	puzzles = dat["puzzles"]
 	sudoku = Sudoku(9,60)
-	sudoku.printSudoku("",puzzles[11])
-
-	_,sol = solve(puzz2poss(puzzles[11]), sudoku)
-	sudoku.printSudoku("", poss2puzz(sol))
-	
-	# bt = BoardTree(puzzles[0], 0.01, [0,0], 0)
-	# bt.solve(sudoku, 100)
-	# x,c,v,d = bt.flatten()
 
 	npz_file = f'satnet_backtrack_0.85.npz'
 	try:
 		file = np.load(npz_file)
-		benc = file["benc"]
-		mask = file["mask"]
-		value = file["value"]
-		coo = file["coo"]
-		a2a = file["a2a"]
-		coo = torch.from_numpy(coo)
+		poss_all = file["poss_all"]
+		guess_all = file["guess_all"]
+		print(f"number of supervised examples: {poss_all.shape[0]}")
 	except Exception as error:
-		print(error)
-		puzzles,benc,mask,value,coo,a2a = generateBacktrack(puzzles, 8000)
-		np.savez(npz_file, \
-			puzzles=puzzles, benc=benc, mask=mask, value=value, coo=coo, a2a=a2a)
+		record = []
+		for i in range(16000): 
+			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, sudoku, record, False)
+			if i % 100 == 99: 
+				print(".", end="", flush=True)
+			# print("solve() result:")
+			# sudoku.printSudoku("", poss2puzz(sol))
+		
+		n = len(record)
+		print(f"number of supervised examples: {n}")
+		poss_all = np.zeros((n,9,9,9), dtype=np.int8)
+		guess_all = np.zeros((n,9,9,9), dtype=np.int8)
+		for i,(poss,guess) in enumerate(record):
+			# sudoku.printSudoku("r ",poss2puzz(poss))
+			# printPoss("", guess)
+			poss_all[i] = poss
+			guess_all[i] = guess
+		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
+	
+	DATA_N = poss_all.shape[0]
+	VALID_N = DATA_N//10
 
 	def trainValSplit(y):
 		y_train = torch.tensor(y[:-VALID_N])
 		y_valid = torch.tensor(y[-VALID_N:])
 		return y_train, y_valid
 
-	benc_train, benc_valid = trainValSplit(benc)
-	mask_train, mask_valid = trainValSplit(mask)
-	value_train, value_valid = trainValSplit(value)
-	assert(mask_train.shape[0] == benc_train.shape[0])
-	assert(value_train.shape[0] == benc_train.shape[0])
+	poss_train, poss_valid = trainValSplit(poss_all)
+	guess_train, guess_valid = trainValSplit(guess_all)
+	assert(guess_train.shape[0] == poss_train.shape[0])
 
-	TRAIN_N = benc_train.shape[0]
-	VALID_N = benc_valid.shape[0]
-	n_tok = benc_train.shape[1]
+	TRAIN_N = poss_train.shape[0]
+	VALID_N = poss_valid.shape[0]
 
 	print(f'loaded {npz_file}; train/test {TRAIN_N} / {VALID_N}')
 
@@ -409,60 +452,71 @@ if __name__ == "__main__":
 			print(colored("loaded model checkpoint", "blue"))
 		except Exception as error:
 			print(error)
+			
+	# null encoding that will be replaced. 
+	benc, coo, a2a, board_loc = encodeSudoku(puzzles[0])
+	n_tok = benc.shape[0]
+	benc = torch.from_numpy(benc).float()
+	benc = torch.tile(benc.unsqueeze(0), (batch_size,1,1) )
+	benc = torch.cat((benc, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1)
+	benc = benc.to(device)
+	benc_new = benc.clone()
+	benc_mask = torch.zeros_like(benc)
+	# the meat of the ecoding will be replaced by (clipped) poss. 
 	
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 	hcoo = hcoo[0:2] # sparse / set-layers
 	hcoo.append('self') # intra-token op
 	
-	# make a new value-based BoardTree
-	def valueFn(puzz): 
-		benc = benc_train[0].clone()
-		benc[30:, 10:20] = 0 # erase the old encoding
-		puzz_flat = torch.from_numpy(np.reshape(puzz, (81,)))
-		puzz_flat = puzz_flat.int()
-		m = torch.arange(81)
-		benc[m+30, puzz_flat[m]+10] = 1
-		possible = torch.zeros(81, 10)
-		indx = torch.where(puzz_flat == 0)
-		possible[indx[0], 1:] = 1
-		with torch.no_grad(): 
-			benc_ = torch.cat((benc, torch.zeros(n_tok,world_dim-32)), dim=-1).float().to(args['device'])
-			benc_ = benc_.unsqueeze(0) # leading batch dim
-			preds = model.forward(benc_, hcoo)
-		preds = preds.detach().cpu().squeeze()
-		preds = preds[30:, 10:20]
-		preds = (np.clip(preds, -1, 1) + 1)/2
-		preds = preds * possible
-		_, glob_indx = torch.sort(preds.flatten(), descending=True)
-		sorted_coords = torch.unravel_index(glob_indx, preds.shape)
-		# print(puzz)
-		# plt.rcParams['toolbar'] = 'toolbar2'
-		# fig,axs = plt.subplots(1,2,figsize=(12,6))
-		# axs[0].imshow(benc.numpy().T)
-		# axs[1].imshow(preds.numpy().T)
-		# plt.show()
-		# pdb.set_trace()
-		# for i in range(3): 
-		# 	row = sorted_coords[0][i] // 9
-		# 	col = sorted_coords[0][i] % 9
-		# 	print(row, col, sorted_coords[1][i])
-		n = int(torch.sum(possible).item())
-		c = torch.zeros((n,2), dtype=torch.int8)
-		d = torch.zeros((n,), dtype=torch.int8)
-		c[:,0] = sorted_coords[0][:n] // 9
-		c[:,1] = sorted_coords[0][:n] % 9
-		d = sorted_coords[1][:n]
-		return c.numpy(), d.numpy()
-		
-	stats = []
-	for i in range(2,3): 
-		sudoku.printSudoku("", puzzles[i])
-		bt = BoardTree(puzzles[i], 0.1, [0,0], 0)
-		bt.valueKids(valueFn)
-		solved,k = bt.solve(sudoku, 300, None, debug=True)
-		stats.append((solved,300-k))
-	print(stats)
-	exit()
+# 	# make a new value-based BoardTree
+# 	def valueFn(puzz): 
+# 		benc = benc_train[0].clone()
+# 		benc[30:, 10:20] = 0 # erase the old encoding
+# 		puzz_flat = torch.from_numpy(np.reshape(puzz, (81,)))
+# 		puzz_flat = puzz_flat.int()
+# 		m = torch.arange(81)
+# 		benc[m+30, puzz_flat[m]+10] = 1
+# 		possible = torch.zeros(81, 10)
+# 		indx = torch.where(puzz_flat == 0)
+# 		possible[indx[0], 1:] = 1
+# 		with torch.no_grad(): 
+# 			benc_ = torch.cat((benc, torch.zeros(n_tok,world_dim-32)), dim=-1).float().to(args['device'])
+# 			benc_ = benc_.unsqueeze(0) # leading batch dim
+# 			preds = model.forward(benc_, hcoo)
+# 		preds = preds.detach().cpu().squeeze()
+# 		preds = preds[30:, 10:20]
+# 		preds = (np.clip(preds, -1, 1) + 1)/2
+# 		preds = preds * possible
+# 		_, glob_indx = torch.sort(preds.flatten(), descending=True)
+# 		sorted_coords = torch.unravel_index(glob_indx, preds.shape)
+# 		# print(puzz)
+# 		# plt.rcParams['toolbar'] = 'toolbar2'
+# 		# fig,axs = plt.subplots(1,2,figsize=(12,6))
+# 		# axs[0].imshow(benc.numpy().T)
+# 		# axs[1].imshow(preds.numpy().T)
+# 		# plt.show()
+# 		# pdb.set_trace()
+# 		# for i in range(3): 
+# 		# 	row = sorted_coords[0][i] // 9
+# 		# 	col = sorted_coords[0][i] % 9
+# 		# 	print(row, col, sorted_coords[1][i])
+# 		n = int(torch.sum(possible).item())
+# 		c = torch.zeros((n,2), dtype=torch.int8)
+# 		d = torch.zeros((n,), dtype=torch.int8)
+# 		c[:,0] = sorted_coords[0][:n] // 9
+# 		c[:,1] = sorted_coords[0][:n] % 9
+# 		d = sorted_coords[1][:n]
+# 		return c.numpy(), d.numpy()
+# 		
+# 	stats = []
+# 	for i in range(2,3): 
+# 		sudoku.printSudoku("", puzzles[i])
+# 		bt = BoardTree(puzzles[i], 0.1, [0,0], 0)
+# 		bt.valueKids(valueFn)
+# 		solved,k = bt.solve(sudoku, 300, None, debug=True)
+# 		stats.append((solved,300-k))
+# 	print(stats)
+# 	exit()
 
 	if cmd_args.a:
 		optimizer_name = "adamw"
@@ -479,36 +533,38 @@ if __name__ == "__main__":
 	for uu in range(200000):
 		time_start = time.time()
 		if bi+batch_size >= TRAIN_N:
-			batch_indx = torch.randperm(TRAIN_N)
+			batch_indx = np.random.permutation(TRAIN_N)
 			bi = 0
 		indx = batch_indx[bi:bi+batch_size]
 		bi = bi + batch_size
 		
-		old_board = benc_train[indx, :, :]
-		mask = mask_train[indx, :, :]
-		value = value_train[indx]
+		poss = poss_train[indx, :, :, :].reshape((batch_size,81,9))
+		poss = torch.clip(poss, 0, 1)
+		guess = guess_train[indx, :, :, :].reshape((batch_size,81,9))
+		mask = guess != 0
 
-		old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
-		mask = torch.cat((mask, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
-		value = value.float().to(args['device'])
+		poss = poss.float().to(device)
+		guess = guess.float().to(device)
+		mask = mask.float().to(device)
+		
+		benc[:,-81:,11:20] = poss
+		benc_new[:,-81:,11:20] = guess # is signed
+		benc_mask[:,-81:,11:20] = mask
 
 		def closure():
-			new_state_preds = model.forward(old_board, hcoo)
+			benc_pred = model.forward(benc, hcoo)
 			global pred_data
-			pred_data = {'old_board':old_board, \
-				'new_board':mask*value[:,None,None], \
-					'new_state_preds':new_state_preds,\
+			pred_data = {'old_board':benc, \
+				'new_board':benc_new, \
+				'new_state_preds':benc_pred,\
 				'rewards':None, 'reward_preds':None,'w1':None, 'w2':None}
-			# mask*value[:,None,None]
 			
-			loss = torch.sum(\
-				(torch.sum(new_state_preds * mask, dim=[1,2]) \
-					- value)**2 )
-			+ sum(\
-				[torch.sum(1e-5 * \
-					torch.rand_like(param) * param * param) \
-					for param in model.parameters() \
-				])
+			loss = torch.sum( ((benc_pred - benc_new)*benc_mask)**2 ) \
+				+ sum(\
+					[torch.sum(1e-5 * \
+						torch.rand_like(param) * param * param) \
+						for param in model.parameters() \
+					])
 				# this was recommended by the psgd authors to break symmetries w a L2 norm on the weights.
 			return loss
 
@@ -545,12 +601,12 @@ if __name__ == "__main__":
 				fname = "pandaizer"
 				model.saveCheckpoint(f"checkpoints/{fname}.pth")
 
-		# linear psgd warm-up
-		if not cmd_args.a:
-			if uu < 5000:
-				optimizer.lr_params = \
-					0.0075 * (uu / 5000) / math.pow(n_steps, 1.0)
-					# made that scaling up
+		# # linear psgd warm-up
+		# if not cmd_args.a:
+		# 	if uu < 5000:
+		# 		optimizer.lr_params = \
+		# 			0.0075 * (uu / 5000) / math.pow(n_steps, 1.0)
+		# 			# made that scaling up
 					
 		if uu % 25 == 0:
 			# print(prof.key_averages( group_by_input_shape=True ).table( sort_by="cuda_time_total", row_limit=50))
@@ -560,28 +616,27 @@ if __name__ == "__main__":
 			break
 
 	# validate!
-	_,_,_,board_loc = encodeSudoku(np.zeros((9,9)), \
-		top_node = cmd_args.v)
-	sudoku = Sudoku(9,60)
-	n_valid = 0
-	n_total = 0
+	
 	with torch.no_grad():
 		for j in range(VALID_N // batch_size):
 			indx = torch.arange(j*batch_size, (j+1)*batch_size)
-
-			old_board = benc_valid[indx, :, :]
-			mask = mask_valid[indx, :, :]
-			value = value_valid[indx]
-
-			old_board = torch.cat((old_board, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1).float().to(args['device'])
-			mask = mask.float().to(args['device'])
-			value = value.float().to(args['device'])
-
-			new_state_preds = model.forward(old_board, hcoo)
 			
-			loss = torch.sum(\
-				(torch.sum(new_state_preds[:,:,:32] * mask, dim=[1,2]) \
-					- value)**2 )
+			poss = poss_valid[indx, :, :, :].reshape((batch_size,81,9))
+			poss = np.clip(poss, 0, 1)
+			guess = guess_valid[indx, :, :, :].reshape((batch_size,81,9))
+			mask = guess != 0
+
+			poss = poss.float().to(device)
+			guess = guess.float().to(device)
+			mask = mask.float().to(device)
+			
+			benc[:,-81:,11:20] = poss
+			benc_new[:,-81:,11:20] = guess # is signed
+			benc_mask[:,-81:,11:20] = mask
+			
+			benc_pred = model.forward(benc, hcoo)
+			
+			loss = torch.sum( ((benc_pred - benc_new)*benc_mask)**2 )
 			
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)

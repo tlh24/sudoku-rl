@@ -140,10 +140,10 @@ if __name__ == "__main__":
 			if lines is not None: 
 				lines.pop(0).remove()
 			lines = axs[0,0].plot([0,4,0,0,cl-1],[6,6,6,guess,guess], 'g', alpha=0.4)
-			plotTensor(1, 0, board[i,:cl,:].T, f"old_board[{i},:,:]", -4.0, 4.0)
-			plotTensor(0, 1, new_board[i,:cl,:32].T, f"new_board [{i},:,:32]", -4.0, 4.0)
-			plotTensor(1, 1, boardp[i,:cl,:].T, f"board_pred)[{i},:,:]", -4.0, 4.0)
-			plotTensor(0, 2, (boardp[i,:cl,1:32].T * new_board[i,:cl,1:32].T), f"(board_pred * new_board)[{i},:,1:32]", -4.0, 4.0)
+			plotTensor(0, 0, board[i,:cl,:].T, f"old_board[{i},:,:]", -4.0, 4.0)
+			plotTensor(1, 0, new_board[i,:cl,:32].T, f"new_board [{i},:,:32]", -4.0, 4.0)
+			plotTensor(0, 1, boardp[i,:cl,:].T, f"board_pred)[{i},:,:]", -4.0, 4.0)
+			plotTensor(1, 1, (board[i,:cl,1:32].T + 2*new_board[i,:cl,1:32].T), f"(board + 2*new_board)[{i},:,1:32]", -4.0, 4.0)
 			plotTensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
 			
 		if mode == 1: 
@@ -170,7 +170,6 @@ if __name__ == "__main__":
 					if head == 0: 
 						axs[layer+2,head].set_ylabel('input dim')
 						axs[layer+2,head].set_xlabel('output dim for Q & V')
-				
 		
 		
 		fig.tight_layout()
