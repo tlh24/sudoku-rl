@@ -1,4 +1,5 @@
 import math
+import random
 import argparse
 import time
 import os
@@ -35,14 +36,104 @@ def encodeSudoku(puzz, top_node=False):
 	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
 	return benc, coo, a2a, board_loc
+	
+def puzz2poss(puzz): 
+	# convert a 9x9 sudoku into a 9x9x9 possibility tensor
+	# where 0 = unknown, -1 = impossible, 1 = certain
+	poss = np.zeros((9,9,9), dtype=np.int8)
+	for i in range(9): 
+		for j in range(9): 
+			d = puzz[i,j]
+			if d > 0 and d < 10: 
+				poss[i,j,:] = -1
+				poss[i,j,d-1] = 1
+	return poss
+	
+def poss2puzz(poss): 
+	puzz = np.zeros((9,9), dtype=np.int8)
+	for i in range(9): 
+		for j in range(9):
+			if np.sum(poss[i,j,:] > 0) == 1: 
+				puzz[i,j] = np.argmax(poss[i,j,:]) + 1
+	return puzz
+	
+def poss2guess(poss): 
+	# pick an undefined cell, set to 1
+	# sel = np.argwhere(poss == 0)[0]
+	sel = random.choice( np.argwhere(poss == 0) )
+	guess = np.zeros((9,9,9), dtype=np.int8)
+	guess[sel[0], sel[1], sel[2]] = 1
+	return guess
+	
+def checkValid(poss): 
+	# see if a given poss tensor violates sudoku rules
+	m = poss > 0
+	for axis in range(3): 
+		if np.max(np.sum(m, axis=axis)) > 1: 
+			return False
+	# block dim
+	for b in range(9): 
+		i = (b // 3) * 3
+		j = (b % 3) * 3
+		mm = np.reshape(m[i:i+3, j:j+3, :], (9,9))
+		if np.max(np.sum(mm, axis=0)) > 1: 
+			return False
+	return True
+	
+def checkDone(poss): 
+	m = poss > 0
+	one = np.ones((9,9), dtype=np.int8)
+	for axis in range(3): 
+		b = np.sum(m, axis=axis) - one
+		if np.sum(b) != 0: 
+			return False
+	return True
+	
+def canGuess(poss): 
+	# see if we have options
+	return np.sum(poss == 0) > 0
+	
+def solve(poss, sudoku):
+	# input is always valid. 
+	guesses = np.zeros((9,9,9), dtype=np.int8)
+	rem = np.zeros((9,9,9), dtype=np.int8)
+	while canGuess(poss + guesses + rem):
+		guess = poss2guess(poss + guesses + rem)
+		poss2 = np.array(poss + guesses + guess) # no rem in inheritance! 
+		if checkValid(poss2): 
+			if checkDone(poss2): 
+				print("solved!")
+				sudoku.printSudoku("", poss2puzz(poss2))
+				return True, poss2
+			else: # not done, recurse
+				print("progress:")
+				sel = np.argwhere(guess == 1)
+				sel = sel[0]
+				sudoku.printSudoku("", poss2puzz(poss2), curs_pos=sel[:2])
+				rem = np.zeros((9,9,9), dtype=np.int8) # reset: different branch 
+				valid,ret = solve(poss2, sudoku)
+				if valid:
+					return valid, ret #TODO
+				else:
+					print("backtracking 1: removing")
+					guesses = guesses - guess
+					rem = rem - ret - guess
+					sudoku.printSudoku("", poss2puzz(-1*rem))
+		else: 
+			print("removing guess")
+			guesses = guesses - guess
+	print("backtracking 2: can't guess")
+	sudoku.printSudoku("", poss2puzz(-1*rem))
+	return False, -1*rem
+
 
 class BoardTree():
-	def __init__(self, puzz, value, curs_pos, digit):
+	def __init__(self, puzz, value, curs_pos, digit, poss):
 		self.puzz = puzz.astype(np.int8)
 		self.value = value
 		self.curs_pos = curs_pos
 		self.digit = digit # already in the puzzle @ curs_pos
-		if value > 0:
+		if poss is None: 
 			# not an end, make a list of (totally naive) possibilities.
 			r,c = np.where(puzz == 0)
 			indx = np.zeros((r.shape[0],2))
@@ -51,25 +142,25 @@ class BoardTree():
 			# form the cartesian product between indx and [1..9]
 			digits = np.arange(1,10)
 			digits = digits[:, np.newaxis]
-			indx = np.concatenate([indx.repeat(len(digits),axis=0), \
-					np.tile(digits, (len(indx),1)), \
-					np.zeros((len(digits)*len(indx),1)) ], axis=1)
+			indx = np.concatenate([indx.repeat(len(digits),axis=0), np.tile(digits, (len(indx),1)), np.zeros((len(digits)*len(indx),1)) ], axis=1)
 			indx = indx.astype(np.int8) # save 8x memory
 			# possible is hence r,c,digit,value
-			indx = np.random.shuffle(indx) # as we have no prior preference
+			np.random.shuffle(indx) # as we have no prior preference
 			self.possible = indx
-		else:
-			self.possible = None # dead-end
+		else: 
+			self.possible = np.array(poss) 
 		self.kids = [] # tuple mapping index to object
 		
 	def valueKids(self, value_fn): 
-		value_indx, value_digit = value_fn(self.puzz)
-		# returns sorted in descending order
-		self.possible = np.zeros((value_indx.shape[0],4)).astype(np.int8)
-		self.possible[:,:2] = value_indx.astype(np.int8)
-		self.possible[:,2] = value_digit.astype(np.int8)
+		if value_fn is not None: 
+			value_indx, value_digit = value_fn(self.puzz)
+			# returns sorted in descending order
+			self.possible = np.zeros((value_indx.shape[0],4)).astype(np.int8)
+			self.possible[:,:2] = value_indx.astype(np.int8)
+			self.possible[:,2] = value_digit.astype(np.int8)
 
 	def getKid(self, sudoku, value_fn):
+		assert(len(self.kids) < self.possible.shape[0])
 		indx = len(self.kids) # get the next (ranked) kid
 		r = self.possible[indx,0]
 		c = self.possible[indx,1]
@@ -81,12 +172,13 @@ class BoardTree():
 			value = 1
 		else:
 			value = -1
-		node = BoardTree(kid_puzz, value, [r,c], d)
-		if value_fn is not None: 
-			node.valueKids(value_fn)
+		# print(f"getKid {value}")
+		# sudoku.printSudoku("", kid_puzz, curs_pos=[r,c])
+		node = BoardTree(kid_puzz, value, [r,c], d, self.possible[indx+1:,:])
+		node.valueKids(value_fn)
 		self.kids.append(node)
 		self.possible[indx,3] = value # redundant but ok
-		return node, value
+		return node, indx
 
 	def hasPoss(self):
 		# determine if there are untested kids ( value +1 or -1)
@@ -123,9 +215,36 @@ class BoardTree():
 				sudoku.printSudoku("", self.puzz, curs_pos=self.curs_pos)
 			# if there is no solution from this node, set value accordingly
 			self.value = -1
+			# note: in the case that this particular guess is revisited, 
+			# it will be a child of a different node & different board state.
 			return False,k
 		else:
 			return True,k
+			
+	# def solve(self, sudoku, k, value_fn, debug=False): 
+	# 	found = False
+	# 	while self.hasPoss() and (not found) and k > 0:
+	# 		node,indx = self.getKid(sudoku, value_fn)
+	# 		k = k-1
+	# 		k,value,backtrack = node.solve(sudoku, k, value_fn, debug)
+	# 		self.possibilites[indx,3] = value
+	# 		if value > 0 and node.isDone():
+	# 			if debug: 
+	# 				print('solution!')
+	# 				sudoku.printSudoku("", node.puzz, curs_pos=node.curs_pos)
+	# 			else: 
+	# 				print('.', end='', flush=True)
+	# 			found = True
+	# 			return k, 1, []
+	# 		else
+	# 	if found:
+	# 		return k, 1, []
+	# 	else:
+	# 		if debug:
+	# 			print('backtracking from')
+	# 			sudoku.printSudoku("", self.puzz, curs_pos=self.curs_pos)
+	# 		return k, -1, self.kids
+			
 
 	def count(self):
 		n = len(self.kids)
@@ -221,11 +340,15 @@ if __name__ == "__main__":
 	world_dim = 64
 	n_steps = cmd_args.r
 
-	dat = np.load(f'../satnet/satnet_both_0.85_filled_{DATA_N}.npz')
+	dat = np.load(f'../satnet/satnet_both_0.65_filled_{DATA_N}.npz')
 	puzzles = dat['puzzles']
 	puzzles = puzzles.astype(np.int8)
 	sudoku = Sudoku(9,60)
-	# sudoku.printSudoku("",puzzles[0])
+	sudoku.printSudoku("",puzzles[11])
+
+	_,sol = solve(puzz2poss(puzzles[11]), sudoku)
+	sudoku.printSudoku("", poss2puzz(sol))
+	
 	# bt = BoardTree(puzzles[0], 0.01, [0,0], 0)
 	# bt.solve(sudoku, 100)
 	# x,c,v,d = bt.flatten()
@@ -331,9 +454,14 @@ if __name__ == "__main__":
 		d = sorted_coords[1][:n]
 		return c.numpy(), d.numpy()
 		
-	bt = BoardTree(puzzles[11], 0.1, [0,0], 0)
-	bt.valueKids(valueFn)
-	bt.solve(sudoku, 100, valueFn, debug=True)
+	stats = []
+	for i in range(2,3): 
+		sudoku.printSudoku("", puzzles[i])
+		bt = BoardTree(puzzles[i], 0.1, [0,0], 0)
+		bt.valueKids(valueFn)
+		solved,k = bt.solve(sudoku, 300, None, debug=True)
+		stats.append((solved,300-k))
+	print(stats)
 	exit()
 
 	if cmd_args.a:
