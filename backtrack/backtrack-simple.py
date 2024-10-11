@@ -47,7 +47,7 @@ def sudokuSolver(board):
 			# Recursively attempt to solve the rest of the board
 			done = sudokuSolver(board)
 			if done:
-					return True
+				return True
 
 			# If placing num doesn't lead to a solution, backtrack
 			board[row, col] = 0
@@ -60,6 +60,12 @@ def sudokuSolver(board):
 
 board_strs = []
 board_descs = []
+
+board_descs.append('''
+	 Easy puzzle from satnet - 0.65
+	 Needs only hidden singles strategy.
+	 ''')
+board_strs.append("298701035700500010105903276807000560000632748460850901350178694081040307674005102")
 
 board_descs.append('''
 	 Not so hard puzzle,

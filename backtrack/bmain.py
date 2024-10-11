@@ -132,14 +132,16 @@ def poss2puzz(poss):
 	
 def poss2guess(poss, value_fn): 
 	# pick an undefined cell, set to 1
-	if value_fn is not None: 
+	if value_fn and False:
 		val = value_fn( np.clip(poss, 0, 1)) # ignore guesses
 		val = val * (poss == 0)
 		val = val - 1e6*( poss != 0 )
 		flat_sel = np.argmax( val )
 		sel = np.unravel_index(flat_sel, poss.shape)
 	else: 
-		sel = random.choice( np.argwhere(poss == 0) )
+		# sel = random.choice( np.argwhere(poss == 0) )
+		sel = np.argwhere(poss == 0)[0]
+		pdb.set_trace()
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
