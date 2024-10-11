@@ -1,7 +1,8 @@
 import numpy as np
 import time
+from termcolor import colored
 
-def is_valid(board, row, col, num):
+def isValid(board, row, col, num):
 	# Check if the number is not repeated in the current row
 	if num in board[row, :]:
 		return False
@@ -15,7 +16,7 @@ def is_valid(board, row, col, num):
 
 	return True
 
-def find_empty_location(board):
+def findEmpty(board):
 	# Find an empty cell (with a value of 0)
 	for i in range(9):
 		for j in range(9):
@@ -26,11 +27,11 @@ def find_empty_location(board):
 g_evals = 0
 g_backtrack = 0
 
-def sudoku_solver(board):
+def sudokuSolver(board):
 	global g_evals, g_backtrack
 	# ignore the number of evals to find an empty spot.
 	# note find_empty_location is *ordered*
-	empty_loc = find_empty_location(board)
+	empty_loc = findEmpty(board)
 
 	# If no empty cells remain, the puzzle is solved
 	if not empty_loc:
@@ -40,11 +41,11 @@ def sudoku_solver(board):
 	# Try placing numbers 1 through 9 in the empty cell
 	for num in range(1, 10):
 		g_evals = g_evals + 1
-		if is_valid(board, row, col, num):
+		if isValid(board, row, col, num):
 			board[row, col] = num
 
 			# Recursively attempt to solve the rest of the board
-			done = sudoku_solver(board)
+			done = sudokuSolver(board)
 			if done:
 					return True
 
@@ -93,7 +94,8 @@ board_strs.append( "107200000" +\
 
 board_descs.append('''
 	 Another 17 clues.
-	 this puzzle is relatively easy, and only requies the hidden singles strategy.
+	 this puzzle is relatively easy,
+	 and only requies the hidden singles strategy.
 	 nonetheless, it requires very extensive backtracking.
 	 ''')
 board_strs.append( "500070600" +\
@@ -107,9 +109,11 @@ board_strs.append( "500070600" +\
 		"700000040" )
 
 board_descs.append('''
-	 17-clue puzzle no 3
-	 requires hidden singles, doubles, triples.
-	 very slow to solve due to the many zeros on the first row.
+	 17-clue puzzle no 3.
+	 Requires hidden singles, doubles, triples,
+	 but no graph coloring or other strategies.
+	 Very slow to solve due to the many zeros on the first row,
+	 hence much backtracking with the ordered algorithm.
 	 ''')
 board_strs.append( "060000100" +\
 		"000302000" +\
@@ -133,12 +137,17 @@ for board_str, board_desc in zip(board_strs, board_descs):
 	g_evals = 0
 	g_backtrack = 0
 	time_start = time.time()
-	done = sudoku_solver(board)
+	done = sudokuSolver(board)
 	time_end = time.time()
 	if done:
-		print("\nSudoku solved:")
+		print("Solution:")
 		print(board)
-		print(f"number of evals {g_evals} backtrack {g_backtrack} time {time_end - time_start}")
+		print("number of evals: ", end="")
+		print(colored(f"{g_evals}", attrs=["bold"]))
+		print("backtrack: ", end="")
+		print(colored(f"{g_backtrack}", attrs=["bold"]))
+		print("time to solve: ", end="")
+		print(colored(f"{time_end - time_start}", attrs=["bold"]))
 		print("")
 	else:
 		print("No solution exists.")
