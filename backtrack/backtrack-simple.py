@@ -51,14 +51,21 @@ def sudoku_solver(board):
 			# If placing num doesn't lead to a solution, backtrack
 			board[row, col] = 0
 			g_backtrack = g_backtrack + 1
+			# if g_backtrack % 1000 == 999:
+			# 	print(".", end="", flush=True)
 
 	# Trigger backtracking
 	return False
 
-# ths puzzle is both very hard -
-# requires many applications of inference chains -
-# and is degenerate, with 26 solutions.
 board_strs = []
+board_descs = []
+
+board_descs.append('''
+	 This puzzle is both very hard -
+	 requires many applications of inference chains -
+	 and is degenerate, with 26 solutions.
+	 It can be solved relatively quickly with backtracking.
+	 ''')
 board_strs.append( "000060300" +\
 		"000500020" +\
 		"106000070" +\
@@ -68,10 +75,12 @@ board_strs.append( "000060300" +\
 		"090000000" +\
 		"080020005" +\
 		"003000980" )
-# 17 clues.
-# this puzzle does is hard,
-# but does not require any advanced strategies or graph coloring.
-# just hidden singles, doubles, and triples.
+
+board_descs.append('''
+	 This 17-clue puzzle is hard,
+	 but does not require any advanced strategies or graph coloring.
+	 just hidden singles, doubles, and triples.
+	 ''')
 board_strs.append( "107200000" +\
 		"000050400" +\
 		"000100000" +\
@@ -81,10 +90,12 @@ board_strs.append( "107200000" +\
 		"600034000" +\
 		"000000071" +\
 		"000000000" )
-# another 17 clues.
-# this puzzle is relatively easy, and only requies
-# the hidden singles strategy.
-# none theless, it requires very extensive backtracking.
+
+board_descs.append('''
+	 Another 17 clues.
+	 this puzzle is relatively easy, and only requies the hidden singles strategy.
+	 nonetheless, it requires very extensive backtracking.
+	 ''')
 board_strs.append( "500070600" +\
 		"000010000" +\
 		"000000800" +\
@@ -94,8 +105,12 @@ board_strs.append( "500070600" +\
 		"010200000" +\
 		"000300500" +\
 		"700000040" )
-# 17-clue puzzle no 3
-# requires hidden singles, doubles, triples.
+
+board_descs.append('''
+	 17-clue puzzle no 3
+	 requires hidden singles, doubles, triples.
+	 very slow to solve due to the many zeros on the first row.
+	 ''')
 board_strs.append( "060000100" +\
 		"000302000" +\
 		"000000000" +\
@@ -106,11 +121,12 @@ board_strs.append( "060000100" +\
 		"200900000" +\
 		"000400600" )
 
-for board_str in board_strs[3:]:
+for board_str, board_desc in zip(board_strs, board_descs):
 	board_int = [int(c) for c in board_str]
 	board = np.array(board_int).reshape(9,9)
 	clues = np.sum(board > 0)
 	print(f"puzzle ({clues} clues):")
+	print(board_desc)
 	print(board_str)
 	print(board)
 
@@ -120,8 +136,9 @@ for board_str in board_strs[3:]:
 	done = sudoku_solver(board)
 	time_end = time.time()
 	if done:
-		print("Sudoku solved:")
+		print("\nSudoku solved:")
 		print(board)
 		print(f"number of evals {g_evals} backtrack {g_backtrack} time {time_end - time_start}")
+		print("")
 	else:
 		print("No solution exists.")
