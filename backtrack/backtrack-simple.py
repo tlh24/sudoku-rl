@@ -62,6 +62,20 @@ board_strs = []
 board_descs = []
 
 board_descs.append('''
+	 Not so hard puzzle,
+	 only hidden singles strategy required.
+	 ''')
+board_strs.append( "000900007" +\
+		"070000100" +\
+		"900240300" +\
+		"500803400" +\
+		"610000083" +\
+		"008602001" +\
+		"006038005" +\
+		"002000010" +\
+		"700004000" )
+
+board_descs.append('''
 	 This puzzle is both very hard -
 	 requires many applications of inference chains -
 	 and is degenerate, with 26 solutions.
@@ -96,7 +110,7 @@ board_descs.append('''
 	 Another 17 clues.
 	 this puzzle is relatively easy,
 	 and only requies the hidden singles strategy.
-	 nonetheless, it requires very extensive backtracking.
+	 nonetheless, it requires extensive backtracking.
 	 ''')
 board_strs.append( "500070600" +\
 		"000010000" +\
