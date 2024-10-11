@@ -31,6 +31,58 @@ import gmain
 import utils
 from sudoku_gen import Sudoku
 
+	
+def checkIfValid(mat): 
+	# verify that the current puzzle has no contradictions. 
+	valid = True
+	for i in range(9): 
+		match = mat == i+1
+		if np.max(np.sum(match, 1)) > 1: 
+			valid = False
+		if np.max(np.sum(match, 0)) > 1: 
+			valid = False
+		blocks = []
+		for i in range(0, 9, 3):
+			for j in range(0, 9, 3):
+				block = match[i:i+3, j:j+3].flatten()
+				blocks.append(block)
+		match = np.array(blocks)
+		if np.max(np.sum(match, 1)) > 1: 
+			valid = False
+	return valid
+
+def printSudoku(indent, puzzl_mat, curs_pos=None):
+	for i in range(9):
+		print(indent, end="")
+		for j in range(9):
+			k = i // 3 + j // 3
+			color = "black" if k % 2 == 0 else "red"
+			p = int(puzzl_mat[i,j])
+			bgcol = None
+			if curs_pos is not None: 
+				if int(curs_pos[0]) == i and int(curs_pos[1]) == j:
+					bgcol = "on_light_yellow"
+			if p == 0:
+				if color == "black":
+					color = "light_grey"
+				if color == "red":
+					color = "light_red"
+				if color == "blue":
+					color = "light_blue"
+				if color == "magenta":
+					color = "light_magenta"
+			if bgcol is not None: 
+				print(colored(p, color, bgcol), end=" ")
+			else: 
+				print(colored(p, color), end=" ")
+		print()
+	print(f"{indent}Valid:", checkIfValid(puzzl_mat))
+	# print the string form
+	for i in range(9):
+		for j in range(9):
+			print(puzzl_mat[i,j], end="")
+	print(",")
+
 def printPoss(indent, poss):
 	for pi in range(27):
 		print(indent, end="")
@@ -57,16 +109,6 @@ def printPoss(indent, poss):
 				print("", end=" ")
 			if pj == 26: 
 				print("")
-			# 	if pi % 3 == 2: 
-			# 		for s in range(9): 
-			# 			print("   ", end="")
-			# 		print("")
-
-
-def encodeSudoku(puzz, top_node=False):
-	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
-	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
-	return benc, coo, a2a, board_loc
 	
 def puzz2poss(puzz): 
 	# convert a 9x9 sudoku into a 9x9x9 possibility tensor
@@ -88,10 +130,16 @@ def poss2puzz(poss):
 				puzz[i,j] = np.argmax(poss[i,j,:]) + 1
 	return puzz
 	
-def poss2guess(poss): 
+def poss2guess(poss, value_fn): 
 	# pick an undefined cell, set to 1
-	# sel = np.argwhere(poss == 0)[0]
-	sel = random.choice( np.argwhere(poss == 0) )
+	if value_fn is not None: 
+		val = value_fn( np.clip(poss, 0, 1)) # ignore guesses
+		val = val * (poss == 0)
+		val = val - 1e6*( poss != 0 )
+		flat_sel = np.argmax( val )
+		sel = np.unravel_index(flat_sel, poss.shape)
+	else: 
+		sel = random.choice( np.argwhere(poss == 0) )
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
@@ -102,7 +150,7 @@ def checkValid(poss):
 	for axis in range(3): 
 		if np.max(np.sum(m, axis=axis)) > 1: 
 			return False
-	# block dim
+	# blocks
 	for b in range(9): 
 		i = (b // 3) * 3
 		j = (b % 3) * 3
@@ -121,22 +169,21 @@ def checkDone(poss):
 	return True
 	
 def canGuess(poss): 
-	# see if we have options
 	return np.sum(poss == 0) > 0
 	
-def solve(poss, k, sudoku, record, debug=False):
+def solve(poss, k, record, value_fn, debug=False):
 	# input is always valid. 
 	guesses = np.zeros((9,9,9), dtype=np.int8)
 	rem = np.zeros((9,9,9), dtype=np.int8)
 	while canGuess(poss + guesses + rem) and k > 0:
-		guess = poss2guess(poss + guesses + rem)
+		guess = poss2guess(poss + guesses + rem, value_fn)
 		poss2 = np.array(poss + guesses + guess) # no rem in inheritance! 
 		k = k-1
 		if checkValid(poss2): 
 			if checkDone(poss2): 
 				if debug: 
 					print("solved!")
-					sudoku.printSudoku("", poss2puzz(poss2))
+					printSudoku("", poss2puzz(poss2))
 				record.append((poss, guesses + guess))
 				return True, poss2, k
 			else: # not done, recurse
@@ -144,31 +191,35 @@ def solve(poss, k, sudoku, record, debug=False):
 					print("progress:")
 					sel = np.argwhere(guess == 1)
 					sel = sel[0]
-					sudoku.printSudoku("", poss2puzz(poss2), curs_pos=sel[:2])
+					printSudoku("", poss2puzz(poss2), curs_pos=sel[:2])
 				rem = np.zeros((9,9,9), dtype=np.int8) # reset: different branch 
-				valid,ret,k = solve(poss2, k, sudoku, record, debug)
+				valid,ret,k = solve(poss2, k, record, value_fn, debug)
 				if valid:
 					record.append((poss, guesses + guess))
 					return valid, ret, k
 				else:
 					guesses = guesses - guess
 					rem = rem - ret - guess
-					if debug: 
-						print("backtracking 1: removing")
-						sudoku.printSudoku("", poss2puzz(-1*rem))
+					# if debug: 
+					# 	print("backtracking 1: removing")
+					# 	printSudoku("", poss2puzz(-1*rem))
 		else: 
-			if debug: 
-				print("removing guess")
 			guesses = guesses - guess
+		guesses = np.clip(guesses, -1, 1)
+		rem = np.clip(rem, -1, 1)
 		
 	if debug: 
 		print("backtracking 2: can't guess; poss:")
-		sudoku.printSudoku("", poss2puzz(poss))
-		print("rem: ")
-		sudoku.printSudoku("", poss2puzz(-1*rem))
+		printSudoku("", poss2puzz(poss))
+		# print("rem: ")
+		# printSudoku("", poss2puzz(-1*rem))
 	record.append((poss, guesses))
 	return False, -1*rem, k
 
+def encodeSudoku(puzz, top_node=False):
+	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
+	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
+	return benc, coo, a2a, board_loc
 
 class BoardTree():
 	def __init__(self, puzz, value, curs_pos, digit, poss):
@@ -381,7 +432,7 @@ if __name__ == "__main__":
 	world_dim = 64
 	n_steps = cmd_args.r
 
-	dat = np.load(f'../satnet/satnet_both_0.85_filled_100000.npz')
+	dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
 	puzzles = dat["puzzles"]
 	sudoku = Sudoku(9,60)
 
@@ -394,7 +445,7 @@ if __name__ == "__main__":
 	except Exception as error:
 		record = []
 		for i in range(16000): 
-			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, sudoku, record, False)
+			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, record, None, False)
 			if i % 100 == 99: 
 				print(".", end="", flush=True)
 			# print("solve() result:")
@@ -462,51 +513,56 @@ if __name__ == "__main__":
 	benc = benc.to(device)
 	benc_new = benc.clone()
 	benc_mask = torch.zeros_like(benc)
+	benc_smol = benc[0].clone().unsqueeze(0)
 	# the meat of the ecoding will be replaced by (clipped) poss. 
 	
 	hcoo = gmain.expandCoordinateVector(coo, a2a)
 	hcoo = hcoo[0:2] # sparse / set-layers
 	hcoo.append('self') # intra-token op
 	
-# 	# make a new value-based BoardTree
-# 	def valueFn(puzz): 
-# 		benc = benc_train[0].clone()
-# 		benc[30:, 10:20] = 0 # erase the old encoding
-# 		puzz_flat = torch.from_numpy(np.reshape(puzz, (81,)))
-# 		puzz_flat = puzz_flat.int()
-# 		m = torch.arange(81)
-# 		benc[m+30, puzz_flat[m]+10] = 1
-# 		possible = torch.zeros(81, 10)
-# 		indx = torch.where(puzz_flat == 0)
-# 		possible[indx[0], 1:] = 1
-# 		with torch.no_grad(): 
-# 			benc_ = torch.cat((benc, torch.zeros(n_tok,world_dim-32)), dim=-1).float().to(args['device'])
-# 			benc_ = benc_.unsqueeze(0) # leading batch dim
-# 			preds = model.forward(benc_, hcoo)
-# 		preds = preds.detach().cpu().squeeze()
-# 		preds = preds[30:, 10:20]
-# 		preds = (np.clip(preds, -1, 1) + 1)/2
-# 		preds = preds * possible
-# 		_, glob_indx = torch.sort(preds.flatten(), descending=True)
-# 		sorted_coords = torch.unravel_index(glob_indx, preds.shape)
-# 		# print(puzz)
-# 		# plt.rcParams['toolbar'] = 'toolbar2'
-# 		# fig,axs = plt.subplots(1,2,figsize=(12,6))
-# 		# axs[0].imshow(benc.numpy().T)
-# 		# axs[1].imshow(preds.numpy().T)
-# 		# plt.show()
-# 		# pdb.set_trace()
-# 		# for i in range(3): 
-# 		# 	row = sorted_coords[0][i] // 9
-# 		# 	col = sorted_coords[0][i] % 9
-# 		# 	print(row, col, sorted_coords[1][i])
-# 		n = int(torch.sum(possible).item())
-# 		c = torch.zeros((n,2), dtype=torch.int8)
-# 		d = torch.zeros((n,), dtype=torch.int8)
-# 		c[:,0] = sorted_coords[0][:n] // 9
-# 		c[:,1] = sorted_coords[0][:n] % 9
-# 		d = sorted_coords[1][:n]
-# 		return c.numpy(), d.numpy()
+	def valueFn(poss): 
+		poss = torch.from_numpy(poss).float().reshape(81,9)
+		poss = poss.to(device)
+		benc_smol[0,-81:,11:20] = poss
+		
+		with torch.no_grad(): 
+			benc_pred = model.forward(benc_smol, hcoo)
+			
+		value = benc_pred[0,-81:,11:20].cpu().numpy()
+		value = np.reshape(value, (9,9,9))
+		
+		# plt.rcParams['toolbar'] = 'toolbar2'
+		# fig,axs = plt.subplots(1,2,figsize=(12,6))
+		# axs[0].imshow(benc_smol[0].cpu().numpy().T)
+		# axs[1].imshow(benc_pred[0].cpu().numpy().T)
+		# plt.show()
+		return value
+		
+	n_solved = 0
+	record = []
+	for i in range(16000, 16001): 
+		printSudoku("", puzzles[i])
+		_,sol,_ = solve(puzz2poss(puzzles[i]), 256*1024, record, valueFn, True)
+		sol = poss2puzz(sol)
+		if checkIfValid(sol): 
+			n_solved = n_solved + 1
+		if i % 10 == 9: 
+			print(".", end="", flush=True)
+	print(f"n_solved:{n_solved}")
+	
+	npz_file = f'satnet_backtrack_0.65.npz'
+	n = len(record)
+	print(f"number of supervised examples: {n}")
+	poss_all = np.zeros((n,9,9,9), dtype=np.int8)
+	guess_all = np.zeros((n,9,9,9), dtype=np.int8)
+	for i,(poss,guess) in enumerate(record):
+		# sudoku.printSudoku("r ",poss2puzz(poss))
+		# printPoss("", guess)
+		poss_all[i] = poss
+		guess_all[i] = guess
+	np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
+	
+	exit()
 # 		
 # 	stats = []
 # 	for i in range(2,3): 
