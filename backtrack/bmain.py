@@ -141,7 +141,6 @@ def poss2guess(poss, value_fn):
 	else: 
 		# sel = random.choice( np.argwhere(poss == 0) )
 		sel = np.argwhere(poss == 0)[0]
-		pdb.set_trace()
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
