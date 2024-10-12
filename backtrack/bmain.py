@@ -154,11 +154,15 @@ def checkValid(poss):
 			return False
 	# blocks
 	m = poss > 0
+	n = poss < 0
 	for b in range(9): 
 		i = (b // 3) * 3
 		j = (b % 3) * 3
 		mm = np.reshape(m[i:i+3, j:j+3, :], (9,9))
+		nn = np.reshape(n[i:i+3, j:j+3, :], (9,9))
 		if np.max(np.sum(mm, axis=0)) > 1:
+			return False
+		if np.max(np.sum(nn, axis=0)) >= 9:
 			return False
 	return True
 	
