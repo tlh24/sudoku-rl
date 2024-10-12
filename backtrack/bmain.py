@@ -147,22 +147,18 @@ def poss2guess(poss, value_fn):
 	
 def checkValid(poss): 
 	# see if a given poss tensor violates sudoku rules
-	m = poss > 0
 	for axis in range(3): 
-		s = np.sum(m, axis=axis)
-		if np.max(s) > 1:
+		if np.max(np.sum(poss > 0, axis=axis)) > 1:
 			return False
-		if np.min(s) <= -9: # no options
+		if np.max(np.sum(poss < 0, axis=axis)) >= 9:
 			return False
 	# blocks
+	m = poss > 0
 	for b in range(9): 
 		i = (b // 3) * 3
 		j = (b % 3) * 3
 		mm = np.reshape(m[i:i+3, j:j+3, :], (9,9))
-		s = np.sum(mm)
-		if np.max(s) > 1:
-			return False
-		if np.min(s) <= -9:
+		if np.max(np.sum(mm, axis=0)) > 1:
 			return False
 	return True
 	
