@@ -150,14 +150,20 @@ def checkValid(poss):
 	# see if a given poss tensor violates sudoku rules
 	m = poss > 0
 	for axis in range(3): 
-		if np.max(np.sum(m, axis=axis)) > 1: 
+		s = np.sum(m, axis=axis)
+		if np.max(s) > 1:
+			return False
+		if np.min(s) <= -9: # no options
 			return False
 	# blocks
 	for b in range(9): 
 		i = (b // 3) * 3
 		j = (b % 3) * 3
 		mm = np.reshape(m[i:i+3, j:j+3, :], (9,9))
-		if np.max(np.sum(mm, axis=0)) > 1: 
+		s = np.sum(mm)
+		if np.max(s) > 1:
+			return False
+		if np.min(s) <= -9:
 			return False
 	return True
 	
