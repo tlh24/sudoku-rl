@@ -112,7 +112,7 @@ def printPoss(indent, poss):
 	
 def puzz2poss(puzz): 
 	# convert a 9x9 sudoku into a 9x9x9 possibility tensor
-	# where 0 = unknown, -1 = impossible, 1 = certain
+	# where 0 = unknown, -1 = impossible, 1 = clue or guess
 	poss = np.zeros((9,9,9), dtype=np.int8)
 	for i in range(9): 
 		for j in range(9): 
@@ -145,6 +145,42 @@ def poss2guess(poss, value_fn):
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
+
+def poss2guessSmart(poss, value_fn):
+	# pick the most defined cell on the board
+	# (cell with the fewest number of possibilities)
+	pdb.set_trace()
+	p = np.sum(poss < 0, axis=2)
+	flat = np.argmin(p)
+	r,c = np.unravel_index(flat, p.shape)
+	# select the most constrained digit on the board
+	q = np.sum(poss < 0, axis=[0,1])
+	q = q + (poss[r,c,:] < 0)*100
+	d = np.argmin(q)
+	guess = np.zeros((9,9,9), dtype=np.int8)
+	guess[sel[0], sel[1], sel[2]] = 1
+	return guess
+
+def eliminatePoss(poss):
+	# apply the rules of Sudoku to eliminate entries in poss.
+	pdb.set_trace()
+	poss = np.clip(poss, -1, 1)
+	m = poss > 0
+	tiles = [(9,1,1), (1,9,1), (1,1,9)]
+	for axis in range(3):
+		# if a set has an element, eliminate along that axis.
+		s = np.sum(m, axis=axis)
+		poss = poss*2 - np.expand_dims(s, axis=0).tile(tiles[axis])
+		poss = np.clip(poss, -1, 1)
+	# do the same for the blocks.
+	for b in range(9):
+		i = (b // 3) * 3
+		j = (b % 3) * 3
+		mm = np.reshape(m[i:i+3, j:j+3, :], (9,9))
+		s = np.sum(mm, axis=0)
+		s = np.expand_dims(s, axis=0).tile((9,1)).reshape((3,3,9))
+		poss[i:i+3, j:j+3, :] = poss[i:i+3, j:j+3, :]*2 + s
+	poss = np.clip(poss, -1, 1)
 	
 def checkValid(poss): 
 	# see if a given poss tensor violates sudoku rules
@@ -183,8 +219,9 @@ def solve(poss, k, record, value_fn, debug=False):
 	# input is always valid. 
 	guesses = np.zeros((9,9,9), dtype=np.int8)
 	rem = np.zeros((9,9,9), dtype=np.int8)
+	eliminatePoss(poss)
 	while canGuess(poss + guesses + rem) and k > 0:
-		guess = poss2guess(poss + guesses + rem, value_fn)
+		guess = poss2guessSmart(poss + guesses + rem, value_fn)
 		poss2 = np.array(poss + guesses + guess) # no rem in inheritance! 
 		k = k-1
 		if checkValid(poss2): 
@@ -453,7 +490,7 @@ if __name__ == "__main__":
 	except Exception as error:
 		record = []
 		for i in range(16000): 
-			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, record, None, False)
+			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, record, None, True)
 			if i % 100 == 99: 
 				print(".", end="", flush=True)
 			# print("solve() result:")
