@@ -67,6 +67,7 @@ class SudokuSolver:
         Build the positions and remaining dictionaries based on the initial puzzle state.
             Sets any digit values (1-9) that don't exist to have [] in positions and 9 in remaining 
         """
+        pdb.set_trace()
         for i in range(9):
             for j in range(9):
                 # for all digit values, store the location in positions and decrement the number of digits (with the same val) remaining to place 
@@ -86,6 +87,7 @@ class SudokuSolver:
         Build the possibilities dictionary, which stores possible positions for each number.
         Possibilities dictionary is {number: {row: [possible_columns]}}
         """
+        pdb.set_trace()
         for num, positions in self.positions.items():
             self.possibilities[num] = {}
             available_rows = set(range(9))
@@ -136,6 +138,7 @@ class SudokuSolver:
         :param rows: List of rows where the current number can be placed.
         :return: True if a solution is found, False otherwise.
         """
+        pdb.set_trace()
         num = numbers[num_index]
         row = rows[row_index]
         # try placing the num for all possible cols corresponding to a given row

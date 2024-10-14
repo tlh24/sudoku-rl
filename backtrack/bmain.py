@@ -140,6 +140,7 @@ def poss2guess(poss, value_fn):
 		sel = np.unravel_index(flat_sel, poss.shape)
 	else: 
 		# sel = random.choice( np.argwhere(poss == 0) )
+		# random sel does not work!!! why??
 		sel = np.argwhere(poss == 0)[0]
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
@@ -150,7 +151,7 @@ def checkValid(poss):
 	for axis in range(3): 
 		if np.max(np.sum(poss > 0, axis=axis)) > 1:
 			return False
-		if np.max(np.sum(poss < 0, axis=axis)) >= 9:
+		if np.max(np.sum(poss < 0, axis=axis)) >= 9: # no options
 			return False
 	# blocks
 	m = poss > 0
