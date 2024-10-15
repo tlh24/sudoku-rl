@@ -254,10 +254,9 @@ def canGuess(poss):
 def solve(poss, k, record, value_fn, debug=False):
 	# input is always valid by construction.
 	guesses = np.zeros((9,9,9), dtype=np.int8)
-	rem = np.zeros((9,9,9), dtype=np.int8)
-	while canGuess(poss + guesses + rem) and checkValid(poss + guesses) and k > 0:
-		guess = poss2guessSmart(poss + guesses + rem, value_fn)
-		poss2 = np.array(poss + guesses + guess) # no rem in inheritance! 
+	while canGuess(poss + guesses) and checkValid(poss + guesses) and k > 0:
+		guess = poss2guessSmart(poss + guesses, value_fn)
+		poss2 = np.array(poss + guesses + guess) 
 		poss2 = eliminatePoss(poss2)
 		k = k-1
 		if checkValid(poss2): 
@@ -273,26 +272,22 @@ def solve(poss, k, record, value_fn, debug=False):
 					sel = np.argwhere(guess == 1)
 					sel = sel[0]
 					printSudoku("", poss2puzz(poss2), curs_pos=sel[:2])
-				rem = np.zeros((9,9,9), dtype=np.int8) # reset: different branch 
 				valid,ret,k = solve(poss2, k, record, value_fn, debug)
 				if valid:
 					record.append((poss, guesses + guess))
 					return valid, ret, k
 				else:
 					guesses = guesses - guess
-					# rem = rem - ret - guess
 		else: 
 			guesses = guesses - guess
 		guesses = np.clip(guesses, -1, 1)
-		rem = np.clip(rem, -1, 1)
 		
 	if debug: 
 		print("backtracking 2: can't guess; poss:")
 		printSudoku("", poss2puzz(poss))
-		# print("rem: ")
-		# printSudoku("", poss2puzz(-1*rem))
+		
 	record.append((poss, guesses))
-	return False, -1*rem, k
+	return False, poss, k
 
 def encodeSudoku(puzz, top_node=False):
 	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
