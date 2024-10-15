@@ -140,67 +140,103 @@ def poss2guess(poss, value_fn):
 		sel = np.unravel_index(flat_sel, poss.shape)
 	else: 
 		# sel = random.choice( np.argwhere(poss == 0) )
-		# random sel does not work!!! why??
+		# random sel does not work!!! 
+		# blows up the search tree! 
 		sel = np.argwhere(poss == 0)[0]
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
+	
+def boxPermutation(): 
+	# return an index vector that pemutes r,c
+	# to box_n, box_i
+	# - example: 
+	# poss_box = poss[permute[:,0], permute[:,1], :].reshape((9,9,9))
+	# - then sum over axis 1 (e.g.)
+	# - to reverse: 
+	# poss_ = poss_box[unpermute[:,0], unpermute[:,1], :].reshape((9,9,9))
+	permute = np.zeros((81,2), dtype=int)
+	unpermute = np.zeros((81,2), dtype=int)
+	for bn in range(9): 
+		for bi in range(9): 
+			i = (bn // 3) * 3
+			j = (bn % 3) * 3
+			ii = bi // 3
+			jj = bi % 3
+			permute[bn*9+bi,:] = [i+ii, j+jj]
+			unpermute[(i+ii)*9+(j+jj),:] = [bn, bi]
+	return permute,unpermute
+	
+box_permute, box_unpermute = boxPermutation()
 
 def poss2guessSmart(poss, value_fn):
 	# pick the most defined cell on the board
 	# (cell with the fewest number of possibilities)
-	pdb.set_trace()
-	p = np.sum(poss < 0, axis=2)
-	flat = np.argmin(p)
-	r,c = np.unravel_index(flat, p.shape)
-	# select the most constrained digit on the board
-	q = np.sum(poss < 0, axis=[0,1])
-	q = q + (poss[r,c,:] < 0)*100
-	d = np.argmin(q)
+	# this is effectively the hidden / unhidden singles strategy.
+	m = poss == 0
+	n = poss > 0
+	gmin = 100
+	for axis in range(3): 
+		s = np.sum( m, axis=axis ) + 10*np.sum( n, axis=axis)
+		flat = np.argmin( s )
+		a,b = np.unravel_index(flat, s.shape)
+		a,b = a.item(), b.item()
+		smin = s[a,b].item()
+		if axis == 0 and smin < gmin: 
+			c,d = a,b
+			r = np.argmax( m[:,c,d] ).item()
+			gmin = smin
+		if axis == 1 and smin < gmin: 
+			r,d = a,b
+			c = np.argmax( m[r,:,d] ).item()
+			gmin = smin
+		if axis == 2 and smin < gmin: 
+			r,c = a,b
+			d = np.argmax( m[r,c,:] ).item()
+		# should add in a 'box' axis via permutation... maybe later.
 	guess = np.zeros((9,9,9), dtype=np.int8)
-	guess[sel[0], sel[1], sel[2]] = 1
+	guess[r, c, d] = 1
+	if gmin < 1:
+		pdb.set_trace() # that's an error!
 	return guess
 
 def eliminatePoss(poss):
 	# apply the rules of Sudoku to eliminate entries in poss.
-	pdb.set_trace()
 	poss = np.clip(poss, -1, 1)
 	m = poss > 0
 	tiles = [(9,1,1), (1,9,1), (1,1,9)]
 	for axis in range(3):
 		# if a set has an element, eliminate along that axis.
 		s = np.sum(m, axis=axis)
-		poss = poss*2 - np.expand_dims(s, axis=0).tile(tiles[axis])
+		poss = poss*2 - np.tile(np.expand_dims(s, axis=axis), tiles[axis])
 		poss = np.clip(poss, -1, 1)
 	# do the same for the blocks.
-	for b in range(9):
-		i = (b // 3) * 3
-		j = (b % 3) * 3
-		mm = np.reshape(m[i:i+3, j:j+3, :], (9,9))
-		s = np.sum(mm, axis=0)
-		s = np.expand_dims(s, axis=0).tile((9,1)).reshape((3,3,9))
-		poss[i:i+3, j:j+3, :] = poss[i:i+3, j:j+3, :]*2 + s
-	poss = np.clip(poss, -1, 1)
+	axis = 1
+	poss_box = poss[box_permute[:,0], box_permute[:,1], :].reshape((9,9,9))
+	m = poss_box > 0
+	s = np.sum(m, axis=axis)
+	poss_box = poss_box*2 - np.tile(np.expand_dims(s, axis=axis), tiles[axis])
+	poss_box = np.clip(poss_box, -1, 1)
+	poss = poss_box[box_unpermute[:,0], box_unpermute[:,1], :].reshape((9,9,9))
+	return poss
 	
 def checkValid(poss): 
 	# see if a given poss tensor violates sudoku rules
+	m = poss > 0 # positive
+	n = poss < 0 # negative
 	for axis in range(3): 
-		if np.max(np.sum(poss > 0, axis=axis)) > 1:
+		if np.max(np.sum( m, axis=axis)) > 1:
 			return False
-		if np.max(np.sum(poss < 0, axis=axis)) >= 9: # no options
+		if np.max(np.sum( n, axis=axis)) >= 9: # no options
 			return False
 	# blocks
-	m = poss > 0
-	n = poss < 0
-	for b in range(9): 
-		i = (b // 3) * 3
-		j = (b % 3) * 3
-		mm = np.reshape(m[i:i+3, j:j+3, :], (9,9))
-		nn = np.reshape(n[i:i+3, j:j+3, :], (9,9))
-		if np.max(np.sum(mm, axis=0)) > 1:
-			return False
-		if np.max(np.sum(nn, axis=0)) >= 9:
-			return False
+	poss_box = poss[box_permute[:,0], box_permute[:,1], :].reshape((9,9,9))
+	m = poss_box > 0
+	n = poss_box < 0
+	if np.max(np.sum( m, axis=1)) > 1:
+		return False
+	if np.max(np.sum( n, axis=1)) >= 9: # no options
+		return False
 	return True
 	
 def checkDone(poss): 
@@ -216,13 +252,13 @@ def canGuess(poss):
 	return np.sum(poss == 0) > 0
 	
 def solve(poss, k, record, value_fn, debug=False):
-	# input is always valid. 
+	# input is always valid by construction.
 	guesses = np.zeros((9,9,9), dtype=np.int8)
 	rem = np.zeros((9,9,9), dtype=np.int8)
-	eliminatePoss(poss)
-	while canGuess(poss + guesses + rem) and k > 0:
+	while canGuess(poss + guesses + rem) and checkValid(poss + guesses) and k > 0:
 		guess = poss2guessSmart(poss + guesses + rem, value_fn)
 		poss2 = np.array(poss + guesses + guess) # no rem in inheritance! 
+		poss2 = eliminatePoss(poss2)
 		k = k-1
 		if checkValid(poss2): 
 			if checkDone(poss2): 
@@ -244,10 +280,7 @@ def solve(poss, k, record, value_fn, debug=False):
 					return valid, ret, k
 				else:
 					guesses = guesses - guess
-					rem = rem - ret - guess
-					# if debug: 
-					# 	print("backtracking 1: removing")
-					# 	printSudoku("", poss2puzz(-1*rem))
+					# rem = rem - ret - guess
 		else: 
 			guesses = guesses - guess
 		guesses = np.clip(guesses, -1, 1)
@@ -583,6 +616,40 @@ if __name__ == "__main__":
 		# plt.show()
 		return value
 		
+	puzz = [
+			[0,4,0,0,0,0,0,8,2], 
+			[7,0,0,6,0,0,0,0,0],
+			[0,0,0,0,0,0,0,0,0],
+			[0,0,0,0,7,0,0,1,0],
+			[0,0,0,0,5,0,6,0,0],
+			[0,8,2,0,0,0,0,0,0],
+			[3,0,5,0,0,0,7,0,0],
+			[6,0,0,1,0,0,0,0,0],
+			[0,0,0,8,0,0,0,0,0]] # 17 clues, requires graph coloring. 
+	puzz = [
+		[0, 6, 0, 0, 0, 0, 1, 0, 0],
+		[0, 0, 0, 3, 0, 2, 0, 0, 0],
+		[0, 0, 0, 0, 0, 0, 0, 0, 0],
+		[0, 0, 3, 0, 0, 0, 0, 2, 4],
+		[8, 0, 0, 0, 0, 0, 0, 3, 0],
+		[0, 0, 0, 0, 1, 0, 0, 0, 0],
+		[0, 1, 0, 0, 0, 0, 7, 5, 0],
+		[2, 0, 0, 9, 0, 0, 0, 0, 0],
+		[0, 0, 0, 4, 0, 0, 6, 0, 0]]
+	puzz = np.array(puzz)
+	printSudoku("", puzz)
+	start_time = time.time()
+	_,sol,_ = solve( eliminatePoss(puzz2poss(puzz)), 256*1024, [], valueFn, False)
+	print(f"time: {time.time() - start_time}")
+	printSudoku("", poss2puzz(sol))
+	# sol = poss2puzz(sol)
+	# permute,unpermute = boxPermutation()
+	# puzz_perm = sol[permute[:,0], permute[:,1]].reshape((9,9))
+	# printSudoku("", puzz_perm)
+	# puzz_unperm = puzz_perm[unpermute[:,0],unpermute[:,1]].reshape((9,9))
+	# printSudoku("", puzz_unperm)
+	exit()
+	
 	n_solved = 0
 	record = []
 	for i in range(16000, 16002):
