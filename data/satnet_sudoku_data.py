@@ -29,9 +29,9 @@ class Sudoku_SATNet(Dataset):
 
     def __getitem__(self, idx):
         """
-        Returns label: which is a float tensor of shape (81) consisting of {1,...,9}
+        Returns label: which is a float tensor of shape (81) consisting of {0,...,8}
         """
-        label = self.label[idx] + 1 #convert solution to have digits in [1,9]
+        label = self.label[idx] #convert solution to have digits in [0,8]
         return label 
 
 
