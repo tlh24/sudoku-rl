@@ -594,7 +594,7 @@ if __name__ == "__main__":
 		mask = mask.float().to(device)
 		
 		benc[:,-81:,11:20] = poss
-		benc_new[:,-81:,11:20] = guess + 0.2 # is signed
+		benc_new[:,-81:,11:20] = guess + 0.1 # is signed
 		benc_mask[:,-81:,11:20] = mask
 
 		def closure():
@@ -607,7 +607,7 @@ if __name__ == "__main__":
 			
 			loss = torch.sum( ((benc_pred - benc_new)*benc_mask)**2 ) \
 				+ sum(\
-					[torch.sum(1e-5 * \
+					[torch.sum(1e-4 * \
 						torch.rand_like(param) * param * param) \
 						for param in model.parameters() \
 					])
@@ -672,12 +672,12 @@ if __name__ == "__main__":
 			guess = guess_valid[indx, :, :, :].reshape((batch_size,81,9))
 			mask = guess != 0
 
-			poss = poss.float().to(device)
+			poss = torch.clip(poss.float().to(device), 0, 1)
 			guess = guess.float().to(device)
 			mask = mask.float().to(device)
 			
 			benc[:,-81:,11:20] = poss
-			benc_new[:,-81:,11:20] = guess # is signed
+			benc_new[:,-81:,11:20] = guess + 0.1 # is signed
 			benc_mask[:,-81:,11:20] = mask
 			
 			benc_pred = model.forward(benc, hcoo)
