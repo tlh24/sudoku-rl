@@ -132,6 +132,8 @@ if __name__ == "__main__":
 				maxerr = err[i]
 				sumerr = torch.sum(err)
 			else: 
+				maxerr = 0
+				sumerr = 0
 				i = 0
 			
 			guess = 10 + torch.argmax(new_board[i,0,10:20])
@@ -144,6 +146,7 @@ if __name__ == "__main__":
 			plotTensor(1, 0, new_board[i,:cl,:32].T, f"new_board [{i},:,:32]", -4.0, 4.0)
 			plotTensor(0, 1, boardp[i,:cl,:].T, f"board_pred)[{i},:,:]", -4.0, 4.0)
 			plotTensor(1, 1, (board[i,:cl,1:32].T + 2*new_board[i,:cl,1:32].T), f"(board + 2*new_board)[{i},:,1:32]", -4.0, 4.0)
+			plotTensor(0, 2, (board[i,:cl,1:32].T + boardp[i,:cl,1:32].T), f"(board + board_pred)[{i},:,1:32]", -4.0, 4.0)
 			plotTensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
 			
 		if mode == 1: 

@@ -435,7 +435,7 @@ if __name__ == "__main__":
 	puzzles = dat["puzzles"]
 	sudoku = Sudoku(9,60)
 
-	npz_file = f'satnet_backtrack_0.85.npz'
+	npz_file = f'satnet_backtrack_0.65.npz'
 	try:
 		file = np.load(npz_file)
 		poss_all = file["poss_all"]
@@ -443,8 +443,8 @@ if __name__ == "__main__":
 		print(f"number of supervised examples: {poss_all.shape[0]}")
 	except Exception as error:
 		record = []
-		for i in range(16000): 
-			_,sol,_ = solve(puzz2poss(puzzles[i]), 300, record, None, False)
+		for i in range(48000): 
+			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, record, None, False)
 			if i % 100 == 99: 
 				print(".", end="", flush=True)
 			# print("solve() result:")
