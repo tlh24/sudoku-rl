@@ -33,7 +33,6 @@ def test_solving(
     )
     device = next(model.parameters()).device 
     puzzles = get_test_puzzles(infill_dataset, num_samples, device) #tensor of shape (num_samples, 81) values 0-8, -1 for incomplete
-
     solutions = []
 
     for i, puzzle in enumerate(puzzles):

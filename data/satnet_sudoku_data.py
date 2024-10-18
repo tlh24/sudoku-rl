@@ -29,10 +29,14 @@ class Sudoku_SATNet(Dataset):
 
     def __getitem__(self, idx):
         """
-        Returns label: which is a float tensor of shape (81) consisting of {0,...,8}
+        Returns tuple (board, label)
+        initial_puzzle: float tensor of initial board, -1 for empty cells and {0..8} for digits  
+        label: which is a float tensor of shape (81) consisting of {0,...,8}
         """
+        initial_puzzle = self.board[idx] - 1  
         label = self.label[idx] #convert solution to have digits in [0,8]
-        return label 
+        
+        return initial_puzzle, label 
 
 
 if __name__ == "__main__":

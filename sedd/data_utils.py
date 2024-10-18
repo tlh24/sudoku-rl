@@ -187,7 +187,6 @@ def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, cache_dir=N
         test_dataset = torch.utils.data.Subset(dataset, indices[int(0.9*len(dataset)):])
         val_dataset = torch.utils.data.Subset(dataset, indices[int(0.8*len(dataset)):int(0.9*len(dataset))])
         train_dataset = torch.utils.data.Subset(dataset, indices[:int(0.8*len(dataset))])
-     
         if mode == 'train':
             return train_dataset
         elif mode == 'validation':

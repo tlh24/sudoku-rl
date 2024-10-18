@@ -417,7 +417,7 @@ class MLMDiffusion(BaseModel):
   
             # replace the initial hints into the generated denoised sample 
             pred_ids = torch.where(infill_mask.squeeze(-1), clean_x, infill_seed[None])
-            pred_ids = pred_ids.cpu().numpy()
+            pred_ids = pred_ids.cpu()
             
             traj.append(pred_ids)
         
