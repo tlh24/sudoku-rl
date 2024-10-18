@@ -13,7 +13,7 @@ import re
 import torch 
 
 # NOTE: You must change the config path to be the saved model config!
-@hydra.main(config_path="/home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/mlm_test/2024-09-26_22-42-58/.hydra", config_name="config")
+@hydra.main(config_path="/home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/mlm_test/2024-10-17_12-20-19/.hydra", config_name="config")
 def eval(config):
     # this initializes a model (ex: MLMDiffusion model) based on the parameters in config
     model = hydra.utils.instantiate(config.model, _recursive_=False)
@@ -43,12 +43,11 @@ def eval(config):
 
     print(f"Number of params in the model: {count_parameters(model)}")
     
-    #guidance_kwargs = {'return_best': False, 'return_best_logits': False, 'stability_coef': 0.01}
-    guidance_kwargs = None 
-
     solve_rate = test_solving(model, merged_config.num_eval_samples, 1, merged_config.infill_dataset, merged_config.vocab_file, model_exp_dir,0, 
-    guidance_kwargs=guidance_kwargs)
-    print(f"Guidance kwargs", guidance_kwargs)
+    config=merged_config)
+
+    print(f"return_best: {merged_config.return_best} return_best_logits: {merged_config.return_best_logits}\
+           stability_coef: {merged_config.stability_coef} add_guidance: {merged_config.add_guidance}")
     print(f"Evaluted on {merged_config.num_eval_samples}, get solve rate: {solve_rate}")
 
 

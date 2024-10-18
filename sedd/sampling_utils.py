@@ -53,7 +53,6 @@ def get_test_puzzles(dataset_name, batch_size, device):
         puzzles_indices = np.random.choice(len(board_ds), batch_size, replace=False).tolist()
         subset = Subset(board_ds, puzzles_indices) 
         puzzles = torch.stack([subset[i] for i in range(0, len(subset))]).to(device) # (num_puzzles, 81)
-        breakpoint()
     else:
         raise NotImplementedError()
     return puzzles 

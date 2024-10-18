@@ -16,7 +16,7 @@ def test_solving(
     vocab_file,
     exp_dir, 
     epoch,
-    guidance_kwargs=None
+    config=None
 ):
     '''
     Generate conditional samples and test solution accuracy
@@ -59,7 +59,7 @@ def test_solving(
                 corrupt_mask = corrupt_mask, 
                 num_solutions_generate = num_solutions_generate,
                 tokenizer = tokenizer,
-                guidance_kwargs = copy.deepcopy(guidance_kwargs)
+                config = copy.deepcopy(config)
             )
             solution = [tokenizer.decode(s) for s in solution_tokens] #solution sequence in vocab chars 
             solution_ints = list(map(lambda x: -1 if x == "[MASK]" else int(x), solution))

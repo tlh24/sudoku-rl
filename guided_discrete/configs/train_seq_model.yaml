@@ -8,10 +8,12 @@ project_name: guided_seq
 data_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/data
 train_fn: train_*.csv 
 val_fn: val_iid.csv
-train: larger_satnet
-valid: larger_satnet
-max_samples: 140000
-infill_dataset: larger_satnet
+train: satnet #larger_satnet
+#train: larger_satnet
+valid: satnet #larger_satnet
+#valid: larger_satnet
+max_samples: 1000
+infill_dataset: satnet
 is_sudoku: True 
 
 target_cols: null 
@@ -28,15 +30,18 @@ exp_name: mlm_test
 #exp_name: nos_test
 exp_dir: ${log_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
 
-val_sample_frequency: 10000 #5
-num_samples: 16
+resume_ckpt: null
+#resume_ckpt: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/nos_test/2024-09-25_19-57-16/models/best_by_train/epoch=7-step=4432.ckpt
+# Bad code, but boolean is_eval determines if you are running evaluation vs training
+is_eval: false  
+
+val_sample_frequency: 100000 #5
 num_solutions_generate: 1 #10 
 infill_seeds_fn: null #/home/nvg7279/src/seq-struct/infill_test_seeds.txt
 guidance_kwargs: null
 autoregressive_sample: False
+num_samples: 16
 
-resume_ckpt: null
-#resume_ckpt: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/nos_test/2024-09-25_19-57-16/models/best_by_train/epoch=7-step=4432.ckpt
 
 max_seq_len: 300
 min_seq_len: 128
@@ -44,9 +49,9 @@ trim_strategy: "randomcrop"
 
 gradient_clip: 10.0
 min_epochs: 50
-max_epochs: 100
+max_epochs: 500
 early_stop_patience: 0
-batch_size: 128
+batch_size: 32
 loader_workers: 4
 
 ngpu: 1
@@ -58,10 +63,10 @@ hydra:
     dir: ${exp_dir}
   sweep:
     dir: ${exp_dir}
-  sweeper:
-    params:
-      batch_size: 32,128
-      model.optimizer.lr: 1e-4,5e-4
-      model.network.num_hidden_layers: 1,4
-      model.network.dropout: 0.0,0.1,0.3
+  #sweeper:
+  #  params:
+  #    batch_size: 32,128
+  #    model.optimizer.lr: 1e-4,5e-4
+  #    model.network.num_hidden_layers: 1,4
+  #    model.network.dropout: 0.0,0.1,0.3
 

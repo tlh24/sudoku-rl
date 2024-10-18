@@ -254,11 +254,11 @@ class MLMDiffusion(BaseModel):
         infill_mask,
         orig_ids, #sequence of token ids
         tokenizer,
-        return_max_hidden=False, # boolean determines whether to return the best hidden found in search  
+        return_best_logits=False, # boolean determines whether to return the best hidden found among the guidance steps   
         guidance_layer="last",
         step_size=1,
         stability_coef=0.01, #1e-2
-        num_steps=25,
+        num_guidance_steps=25,
     ):
         print(f"KL coef {stability_coef}")
         logger = logging.getLogger(__name__)
@@ -284,7 +284,7 @@ class MLMDiffusion(BaseModel):
         max_hidden = hidden 
 
         with torch.enable_grad():
-            for iter in range(num_steps):
+            for iter in range(num_guidance_steps):
                 #NOTE: value function depends on the unpertubed hint logits.... 
                 # needs to be some infill function 
                 grad_infill_mask = (infill_mask.detach() * 1.0).requires_grad_(True)
@@ -326,7 +326,7 @@ class MLMDiffusion(BaseModel):
                 optimizer.step()
                 #scheduler.step(loss)
         #breakpoint()
-        if return_max_hidden:
+        if return_best_logits:
             logits = self.network.cls(max_hidden)
         else:
             logits = self.network.cls(hidden + delta.data) #NOTE: this is incorrect for case "first"
@@ -339,8 +339,7 @@ class MLMDiffusion(BaseModel):
         corrupt_mask,
         num_solutions_generate,
         tokenizer,
-        guidance_kwargs=None,
-        return_best=True 
+        config=None,
     ):
         '''
         Given one starting board, generates num_solutions_generate many solutions and returns one solution (the best) 
@@ -348,6 +347,7 @@ class MLMDiffusion(BaseModel):
         infill_seed: sequence to complete, contains [MASK] token ids. Shape (81, ) 
         infill_mask: vector of booleans (of shape infill_seed) where True means that token can be replaced, False means keep the original token. Shape (81, ) 
         corrupt_mask: vector of booleans where True means that the token can be corrupted, False means not. Shape (81, ) 
+
 
         For reference please refer to 2305.20009 Appendix section B Algo 1&2
         '''
@@ -376,11 +376,6 @@ class MLMDiffusion(BaseModel):
         #TODO: pdb and check that the initial hints are preserved 
         attn_mask = torch.ones_like(infill_mask, dtype=torch.bool)
         
-        if guidance_kwargs is not None:
-            return_best = guidance_kwargs.pop("return_best", False)
-        
-        return_best_logits = guidance_kwargs.pop("return_best_logits", False) if guidance_kwargs is not None else False 
-        
         traj = []
         
         # iterate over diffusion timesteps 
@@ -392,10 +387,10 @@ class MLMDiffusion(BaseModel):
             
             logits = model_output['logits']
 
-            if guidance_kwargs is not None:
+            if config.add_guidance:
                 guided_logits = self.guidance_steps(
-                    model_output, t, attn_mask, infill_mask, gt_vals, tokenizer,return_best_logits,
-                    **guidance_kwargs
+                    model_output, t, attn_mask, infill_mask, gt_vals, tokenizer,config.return_best_logits,
+                    stability_coef=config.stability_coef, num_guidance_steps=config.num_guidance_steps
                 )
                 diff_with_guidance = torch.mean((logits - guided_logits)**2)
                 print(f"Difference with guidance {diff_with_guidance}")
@@ -421,7 +416,7 @@ class MLMDiffusion(BaseModel):
             
             traj.append(pred_ids)
         
-        if return_best: #return the best of the final diffusion output
+        if config.return_best: #return the best of the final diffusion output
             samples = traj[-1].to(self.value_model.pos_emb.device)
             pred_boards = samples - 1
             one_hot_pred_boards = F.one_hot(pred_boards, num_classes=9).float()
@@ -429,7 +424,7 @@ class MLMDiffusion(BaseModel):
             best_sample_index = torch.argmax(value_scores)
             return samples[best_sample_index].cpu().numpy()
         else:
-            return traj[-1][0]
+            return traj[-1][0].numpy()
 
 
 
