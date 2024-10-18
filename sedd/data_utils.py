@@ -116,7 +116,24 @@ class TensDataset:
         return self.tensor[idx] 
 
         
+class SatNet_Shell:
+    '''
+    Takes in Sudoku_SATNet dataset and returns either the initial puzzle or the final solution
+    '''
+    def __init__(self, satnet_ds: Sudoku_SATNet, return_initial_puzzle:bool):
+        self.satnet_ds = satnet_ds
+        self.return_initial_puzzle = return_initial_puzzle
 
+    def __len__(self):
+        return len(self.satnet_ds)
+
+    def __getitem__(self, idx):
+        if self.return_initial_puzzle:
+            return self.satnet_ds[idx][0]
+
+        return self.satnet_ds[idx][1]
+     
+    
     
 def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, cache_dir=None, block_size=1024, num_proc=8):
     '''
@@ -170,17 +187,25 @@ def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, cache_dir=N
         return chunked_dataset
 
     elif dataset_path == 'satnet':
-            dataset = Sudoku_SATNet()
-            indices = list(range(len(dataset)))
-            test_dataset = torch.utils.data.Subset(dataset, indices[-1000:])
-            val_dataset = torch.utils.data.Subset(dataset, indices[8000:-1000])
-            train_dataset = torch.utils.data.Subset(dataset, indices[:8000])
+            satnet_dataset = Sudoku_SATNet()
+            satnet_inital_puzzles = SatNet_Shell(satnet_dataset, True)
+            satnet_solutions = SatNet_Shell(satnet_dataset, False)
+
+            indices = list(range(len(satnet_dataset)))
             if mode == 'train':
-                return train_dataset
-            elif mode == 'validation':
-                return val_dataset
+                initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[:8000])
+                solutions = torch.utils.data.Subset(satnet_solutions, indices[:8000])
+            elif mode == "validation":
+                initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[8000:-1000])
+                solutions = torch.utils.data.Subset(satnet_solutions, indices[8000:-1000])
             else:
-                return test_dataset
+                initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[-1000:])
+                solutions = torch.utils.data.Subset(satnet_solutions, indices[-1000:])
+        
+            if with_initial_puzzles:
+                return initial_puzzles, solutions 
+            return solutions     
+        
     elif dataset_path == 'larger_satnet':
         dataset = LargerSatNet(ret_tensor=True)
         indices = list(range(len(dataset)))
