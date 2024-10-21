@@ -204,13 +204,11 @@ class Absorbing(Graph):
 		return True
 
 	def rate(self, i):
-		pdb.set_trace()
 		# edge = - F.one_hot(i, num_classes=self.dim)
 		# edge.scatter_add_(-1, i[..., None], torch.ones_like(edge[..., :1]))
 		return F.one_hot((self.dim - 1) * torch.ones_like(i), num_classes=self.dim) - F.one_hot(i, num_classes=self.dim)        
 
 	def transp_rate(self, i):
-		pdb.set_trace()
 		edge = -F.one_hot(i, num_classes=self.dim)
 		edge[i == self.dim - 1] += 1
 		return edge
@@ -235,7 +233,6 @@ class Absorbing(Graph):
 		return edge
 
 	def sample_transition(self, i, sigma):
-		pdb.set_trace()
 		move_chance = 1 - (-sigma).exp()
 		move_indices = torch.rand(*i.shape, device=i.device) < move_chance
 		i_pert = torch.where(move_indices, self.dim - 1, i)
