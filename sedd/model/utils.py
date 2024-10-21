@@ -19,7 +19,7 @@ def get_model_fn(model, train=False):
 
         Args:
             x: A mini-batch of input data.
-            labels: A mini-batch of conditioning variables for time steps. Should be interpreted differently
+            sigma: A mini-batch of conditioning variables for time steps. Should be interpreted differently
               for different models.
 
         Returns:

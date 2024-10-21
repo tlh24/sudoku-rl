@@ -8,7 +8,7 @@ def gumbel_softmax(categorical_probs, hard=False, eps=1e-9):
 
 
 def sample_categorical(categorical_probs, method="hard"):
-    if method == "hard":
+    if method == "hard": # hard is not log? 
         gumbel_norm = 1e-10 - (torch.rand_like(categorical_probs) + 1e-10).log()
         return (categorical_probs / gumbel_norm).argmax(dim=-1)
     else:
