@@ -12,46 +12,31 @@ from torch.utils.data import Subset
 from utils import isValidSudoku
 
 
-class LargerSatNetInitial:
-    '''
-    Returns initial puzzles as a 1d array. Each element in the array is -1 if incomplete or digit in [0-8], corresponding to
-    digits in [1,9] 
-    '''
-    def __init__(self):
-        with open(os.path.join(home_dir, 'data', 'easy_130k_given.p'), 'rb') as file:
-            self.data = pickle.load(file)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        item = self.data[idx].flatten() - 1 #subtract 1 so we are zero indexed. 
-        item = item.astype(int)
-        return item
-
-
-
 def main(args):
     device = torch.device('cuda')
     model, graph, noise = load_model_local('./',device, args.model_path, args.checkpoint_num)
 
     if args.dataset == "larger_satnet":
-        #test_dataset_sols = data.get_dataset(args.dataset, mode="test") #sols are tens 
-        full_dataset_puzzles = LargerSatNetInitial()
-        test_dataset_puzzles = Subset(full_dataset_puzzles, np.arange(int(0.9*len(full_dataset_puzzles)), len(full_dataset_puzzles)))
+        test_dataset_puzzles, test_dataset_sols = data.get_dataset(args.dataset, mode="test", with_initial_puzzles=True)
         
-        puzzles_indices = np.random.choice(len(test_dataset_puzzles), args.batch_size, replace=False).tolist()
+        puzzles_indices = np.random.choice(len(test_dataset_puzzles), args.num_to_eval, replace=False).tolist()
         subset = Subset(test_dataset_puzzles, puzzles_indices) # (num_puzzles, 81)
-        puzzles = np.stack([subset[i] for i in range(0, len(subset))])
-        puzzles = torch.from_numpy(puzzles).to(device)
+        if isinstance(subset[i], np.ndarray):
+            puzzles = np.stack([subset[i] for i in range(0, len(subset))])
+            puzzles = torch.from_numpy(puzzles).to(device)
+        elif torch.is_tensor(subset[i]):
+            puzzles = torch.stack([subset[i] for i in range(0, len(subset))]).to(device)
+        else:
+            raise ValueError("Dataset must be np array or tensors")
+        
     elif args.dataset == "rrn":
         board_ds, solutions_ds = data.get_dataset(args.dataset, mode="train", with_initial_puzzles=True)
-        puzzles_indices = np.random.choice(len(board_ds), args.batch_size, replace=False).tolist()
+        puzzles_indices = np.random.choice(len(board_ds), args.num_to_eval, replace=False).tolist()
         subset = Subset(board_ds, puzzles_indices) # (num_puzzles, 81)
         puzzles = torch.stack([subset[i] for i in range(0, len(subset))]).to(device)
     elif args.dataset == "satnet":
         board_ds, solutions_ds = data.get_dataset(args.dataset, mode="test", with_initial_puzzles=True)
-        puzzles_indices = np.random.choice(len(board_ds), args.batch_size, replace=False).tolist()
+        puzzles_indices = np.random.choice(len(board_ds), args.num_to_eval, replace=False).tolist()
         subset = Subset(board_ds, puzzles_indices) # (num_puzzles, 81)
         puzzles = torch.stack([subset[i] for i in range(0, len(subset))]).to(device) 
     else:
@@ -69,7 +54,7 @@ def main(args):
 
 
     sampling_fn = sampling.get_pc_sampler(
-        graph, noise, (args.batch_size, args.seq_len), 'analytic', args.steps, device=device, proj_fun=proj_fun)
+        graph, noise, (args.num_to_eval, args.seq_len), 'analytic', args.steps, device=device, proj_fun=proj_fun)
 
     samples = proj_fun(sampling_fn(model))
     num_valid = 0
@@ -105,7 +90,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", default='experiments/10-18-2024-12:22')
     parser.add_argument("--checkpoint_num", type=int, required=True)
     parser.add_argument("--dataset", type=str, default='rrn')
-    parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--num_to_eval", type=int, default=512) #number of puzzles to evaluate
     parser.add_argument("--steps", type=int, default=1024)
     parser.add_argument('--seq_len', type=int, default=81)
     args = parser.parse_args()

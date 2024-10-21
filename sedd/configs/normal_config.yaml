@@ -27,6 +27,7 @@ data:
   train: satnet 
   valid: satnet 
   cache_dir: data 
+  num_training_samples: 1000 #or null to use all training samples 
 
 # Graph settings
 graph:
