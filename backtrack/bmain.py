@@ -152,6 +152,13 @@ def poss2guessDumb(poss, value_fn):
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
 	
+def poss2guessRand(poss, value_fn): 
+	# pick an undefined cell, set to 1
+	sel = random.choice( np.argwhere(poss == 0) )
+	guess = np.zeros((9,9,9), dtype=np.int8)
+	guess[sel[0], sel[1], sel[2]] = 1
+	return guess
+	
 def boxPermutation(): 
 	# return an index vector that pemutes r,c
 	# to box_n, box_i
@@ -310,58 +317,74 @@ def solve(poss, k, record, value_fn, debug=False):
 	else:
 		return True, poss, k # out of iterations
 
-def encodeSudoku(puzz, top_node=False):
-	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
-	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
-	return benc, coo, a2a, board_loc
+# def encodeSudoku(puzz, top_node=False):
+# 	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
+# 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
+# 	return benc, coo, a2a, board_loc
+# 
+# g_puzzles = np.zeros((9,9,9))
+# 
+# def singleBacktrack(j):
+# 	global g_puzzles
+# 	n_rollouts = 100
+# 	sudoku = Sudoku(9,60)
+# 	bt = BoardTree(g_puzzles[j], 0.01, [0,0], 0)
+# 	bt.solve(sudoku, n_rollouts)
+# 	x,c,v,d = bt.flatten()
+# 	benc = []
+# 	mask = []
+# 	for i in range(x.shape[0]): 
+# 		benc_, coo, a2a, board_loc = encodeSudoku(x[i])
+# 		mask_ = np.zeros(benc_.shape, dtype=np.int8)
+# 		loc = board_loc[c[i,0], c[i,1]]
+# 		mask_[loc, 10+d[i]] = 1
+# 		benc.append(benc_.astype(np.int8))
+# 		mask.append(mask_)
+# 		# multiply the mask by the value to get the target.
+# 	benc = np.stack(benc) # board encodings
+# 	mask = np.stack(mask) # masked value of given positions
+# 	return x,c,v,d,benc,mask,coo,a2a
+# 
+# def generateBacktrack(puzzles, N):
+# 	global g_puzzles
+# 	g_puzzles = puzzles
+# 	pool = Pool() #defaults to number of available CPU's
+# 	chunksize = 16
+# 	results = [None for _ in range(N)]
+# 	for ind, res in enumerate(pool.imap_unordered(singleBacktrack, range(N), chunksize)):
+# 	# for ind in range(N): # debug
+# 	# 	res = singleBacktrack(ind)
+# 		results[ind] = res
+# 
+# 	x = list(map(lambda r: r[0], results))
+# 	value = list(map(lambda r: r[2], results))
+# 	benc = list(map(lambda r: r[4], results))
+# 	mask = list(map(lambda r: r[5], results))
+# 	coo = results[0][6]
+# 	a2a = results[0][7]
+# 	
+# 	puzzles = np.concatenate(x)
+# 	benc = np.concatenate(benc)
+# 	mask = np.concatenate(mask)
+# 	value = np.concatenate(value)
+# 
+# 	return puzzles, benc, mask, value, coo, a2a
 
-g_puzzles = np.zeros((9,9,9))
+# next step 
+# -- block any moves that start from an invalid board state 
+#		unless they move to a valid board state = correction
+# -- keep around a history of moves for model-based backtracking
+# 		if the deltas overlap, update the value to the most recent.  
+#		(this history is just the poss tensor)
 
-def singleBacktrack(j):
-	global g_puzzles
-	n_rollouts = 100
-	sudoku = Sudoku(9,60)
-	bt = BoardTree(g_puzzles[j], 0.01, [0,0], 0)
-	bt.solve(sudoku, n_rollouts)
-	x,c,v,d = bt.flatten()
-	benc = []
-	mask = []
-	for i in range(x.shape[0]): 
-		benc_, coo, a2a, board_loc = encodeSudoku(x[i])
-		mask_ = np.zeros(benc_.shape, dtype=np.int8)
-		loc = board_loc[c[i,0], c[i,1]]
-		mask_[loc, 10+d[i]] = 1
-		benc.append(benc_.astype(np.int8))
-		mask.append(mask_)
-		# multiply the mask by the value to get the target.
-	benc = np.stack(benc) # board encodings
-	mask = np.stack(mask) # masked value of given positions
-	return x,c,v,d,benc,mask,coo,a2a
-
-def generateBacktrack(puzzles, N):
-	global g_puzzles
-	g_puzzles = puzzles
-	pool = Pool() #defaults to number of available CPU's
-	chunksize = 16
-	results = [None for _ in range(N)]
-	for ind, res in enumerate(pool.imap_unordered(singleBacktrack, range(N), chunksize)):
-	# for ind in range(N): # debug
-	# 	res = singleBacktrack(ind)
-		results[ind] = res
-
-	x = list(map(lambda r: r[0], results))
-	value = list(map(lambda r: r[2], results))
-	benc = list(map(lambda r: r[4], results))
-	mask = list(map(lambda r: r[5], results))
-	coo = results[0][6]
-	a2a = results[0][7]
+def stochasticSolve(puzz, n, value_fn, debug=False):
+	hist = np.zeros((n, 9,9,9), dtype=np.int8)
+	poss = puzz2poss(puzz) * 2
+	guesses = np.zeros((9,9,9), dtype=np.int8)
 	
-	puzzles = np.concatenate(x)
-	benc = np.concatenate(benc)
-	mask = np.concatenate(mask)
-	value = np.concatenate(value)
-
-	return puzzles, benc, mask, value, coo, a2a
+	while i < n: 
+		guess = poss2guessRand(poss, value_fn)
+		if checkValid( poss + guess )
 
 
 if __name__ == "__main__":
