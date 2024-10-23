@@ -317,10 +317,10 @@ def solve(poss, k, record, value_fn, debug=False):
 	else:
 		return True, poss, k # out of iterations
 
-# def encodeSudoku(puzz, top_node=False):
-# 	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
-# 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
-# 	return benc, coo, a2a, board_loc
+def encodeSudoku(puzz, top_node=False):
+	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
+	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
+	return benc, coo, a2a, board_loc
 # 
 # g_puzzles = np.zeros((9,9,9))
 # 
@@ -370,21 +370,45 @@ def solve(poss, k, record, value_fn, debug=False):
 # 
 # 	return puzzles, benc, mask, value, coo, a2a
 
-# next step 
-# -- block any moves that start from an invalid board state 
-#		unless they move to a valid board state = correction
-# -- keep around a history of moves for model-based backtracking
-# 		if the deltas overlap, update the value to the most recent.  
-#		(this history is just the poss tensor)
-
+'''
+non-backtracking random initial policy:
+-- if the board is valid, select a random next move.
+-- if the board is invalid,
+		select with bias one of the past moves to change.
+		Repeat this until the board is valid.
+-- accrue statistics on the moves,
+		such that you can train a policy for both correct moves and backtracking moves.
+-- You cannot change clues. Guesses can be revised.
+'''
 def stochasticSolve(puzz, n, value_fn, debug=False):
-	hist = np.zeros((n, 9,9,9), dtype=np.int8)
+	guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 	poss = puzz2poss(puzz) * 2
-	guesses = np.zeros((9,9,9), dtype=np.int8)
-	
-	while i < n: 
-		guess = poss2guessRand(poss, value_fn)
-		if checkValid( poss + guess )
+	iters = 50000
+	i = 0
+	j = 0
+	while i < n and j < iters:
+		j = j + 1
+		poss_ = np.sum(guesses, axis=0) + poss
+		if checkValid(poss_):
+			guess = poss2guessRand(poss_, value_fn)
+			guesses[i,:,:,:] = guess
+			i = i + 1
+		else:
+			while j < iters:
+				j = j + 1
+				s = np.random.randint(0,i)
+				fix = guesses[s,:,:,:]*-1 # remove past guess
+				guess = poss2guessRand(poss_ + fix, value_fn)
+				if checkValid(poss_ + fix + guess):
+					guesses[s,:,:,:] = guess
+					break
+
+		if debug:
+			poss_ = np.sum(guesses, axis=0) + poss
+			print(f"i:{i},j:{j}")
+			printSudoku("",poss2puzz(poss_) )
+			printPoss("", poss_)
+	return np.cumsum(guesses, axis=0)
 
 
 if __name__ == "__main__":
@@ -466,7 +490,7 @@ if __name__ == "__main__":
 		print(f"number of supervised examples: {poss_all.shape[0]}")
 	except Exception as error:
 		record = []
-		for i in range(48000): 
+		for i in range(1000):
 			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, record, None, False)
 			if i % 100 == 99: 
 				print(".", end="", flush=True)
@@ -560,12 +584,12 @@ if __name__ == "__main__":
 		# plt.show()
 		return value
 	
-	if False: 
+	if True:
 		n_solved = 0
 		record = []
 		for i in range(16000, 16002):
 			printSudoku("", puzzles[i])
-			_,sol,_ = solve(puzz2poss(puzzles[i]), 256*1024, record, valueFn, True)
+			_ = stochasticSolve(puzzles[i], 1024, valueFn, True)
 			sol = poss2puzz(sol)
 			if checkIfValid(sol): 
 				n_solved = n_solved + 1
@@ -573,17 +597,17 @@ if __name__ == "__main__":
 				print(".", end="", flush=True)
 		print(f"n_solved:{n_solved}")
 		
-		npz_file = f'satnet_backtrack_0.65.npz'
-		n = len(record)
-		print(f"number of supervised examples: {n}")
-		poss_all = np.zeros((n,9,9,9), dtype=np.int8)
-		guess_all = np.zeros((n,9,9,9), dtype=np.int8)
-		for i,(poss,guess) in enumerate(record):
-			# sudoku.printSudoku("r ",poss2puzz(poss))
-			# printPoss("", guess)
-			poss_all[i] = poss
-			guess_all[i] = guess
-		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
+		# npz_file = f'satnet_backtrack_0.65.npz'
+		# n = len(record)
+		# print(f"number of supervised examples: {n}")
+		# poss_all = np.zeros((n,9,9,9), dtype=np.int8)
+		# guess_all = np.zeros((n,9,9,9), dtype=np.int8)
+		# for i,(poss,guess) in enumerate(record):
+		# 	# sudoku.printSudoku("r ",poss2puzz(poss))
+		# 	# printPoss("", guess)
+		# 	poss_all[i] = poss
+		# 	guess_all[i] = guess
+		# np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
 		
 		exit()
 
