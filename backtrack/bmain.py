@@ -34,6 +34,8 @@ from sudoku_gen import Sudoku
 	
 def checkIfValid(mat): 
 	# verify that the current puzzle has no contradictions. 
+	# this does not check if there are cells with no options - 
+	# for that, use checkValid(poss)
 	valid = True
 	for i in range(9): 
 		match = mat == i+1
@@ -383,13 +385,16 @@ non-backtracking random initial policy:
 def stochasticSolve(puzz, n, value_fn, debug=False):
 	guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 	poss = puzz2poss(puzz) * 2
-	iters = 50000
+	iters = 150000
 	i = 0
 	j = 0
 	while i < n and j < iters:
 		j = j + 1
 		poss_ = np.sum(guesses, axis=0) + poss
-		if checkValid(poss_):
+		poss_elim = eliminatePoss( np.array(poss_) )
+		if checkValid(poss_) and checkValid(poss_elim):
+			if checkDone(poss_):
+				break
 			guess = poss2guessRand(poss_, value_fn)
 			guesses[i,:,:,:] = guess
 			i = i + 1
@@ -408,6 +413,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			print(f"i:{i},j:{j}")
 			printSudoku("",poss2puzz(poss_) )
 			printPoss("", poss_)
+			print(f"checkDone(poss): {checkDone(poss_)} checkValid(poss): {checkValid(poss_)} ")
 	return np.cumsum(guesses, axis=0)
 
 
