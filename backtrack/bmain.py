@@ -318,60 +318,7 @@ def solve(poss, k, record, value_fn, debug=False):
 		return False, poss, k # backtracking
 	else:
 		return True, poss, k # out of iterations
-
-def encodeSudoku(puzz, top_node=False):
-	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
-	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
-	return benc, coo, a2a, board_loc
-# 
-# g_puzzles = np.zeros((9,9,9))
-# 
-# def singleBacktrack(j):
-# 	global g_puzzles
-# 	n_rollouts = 100
-# 	sudoku = Sudoku(9,60)
-# 	bt = BoardTree(g_puzzles[j], 0.01, [0,0], 0)
-# 	bt.solve(sudoku, n_rollouts)
-# 	x,c,v,d = bt.flatten()
-# 	benc = []
-# 	mask = []
-# 	for i in range(x.shape[0]): 
-# 		benc_, coo, a2a, board_loc = encodeSudoku(x[i])
-# 		mask_ = np.zeros(benc_.shape, dtype=np.int8)
-# 		loc = board_loc[c[i,0], c[i,1]]
-# 		mask_[loc, 10+d[i]] = 1
-# 		benc.append(benc_.astype(np.int8))
-# 		mask.append(mask_)
-# 		# multiply the mask by the value to get the target.
-# 	benc = np.stack(benc) # board encodings
-# 	mask = np.stack(mask) # masked value of given positions
-# 	return x,c,v,d,benc,mask,coo,a2a
-# 
-# def generateBacktrack(puzzles, N):
-# 	global g_puzzles
-# 	g_puzzles = puzzles
-# 	pool = Pool() #defaults to number of available CPU's
-# 	chunksize = 16
-# 	results = [None for _ in range(N)]
-# 	for ind, res in enumerate(pool.imap_unordered(singleBacktrack, range(N), chunksize)):
-# 	# for ind in range(N): # debug
-# 	# 	res = singleBacktrack(ind)
-# 		results[ind] = res
-# 
-# 	x = list(map(lambda r: r[0], results))
-# 	value = list(map(lambda r: r[2], results))
-# 	benc = list(map(lambda r: r[4], results))
-# 	mask = list(map(lambda r: r[5], results))
-# 	coo = results[0][6]
-# 	a2a = results[0][7]
-# 	
-# 	puzzles = np.concatenate(x)
-# 	benc = np.concatenate(benc)
-# 	mask = np.concatenate(mask)
-# 	value = np.concatenate(value)
-# 
-# 	return puzzles, benc, mask, value, coo, a2a
-
+		
 '''
 non-backtracking random initial policy:
 -- if the board is valid, select a random next move.
@@ -384,18 +331,18 @@ non-backtracking random initial policy:
 '''
 def stochasticSolve(puzz, n, value_fn, debug=False):
 	guesses = np.zeros((n, 9,9,9), dtype=np.int8)
-	poss = puzz2poss(puzz) * 2
-	iters = 150000
+	clues = puzz2poss(puzz) * 2 
+	iters = 15000
 	i = 0
 	j = 0
 	while i < n and j < iters:
 		j = j + 1
-		poss_ = np.sum(guesses, axis=0) + poss
-		poss_elim = eliminatePoss( np.array(poss_) )
-		if checkValid(poss_) and checkValid(poss_elim):
-			if checkDone(poss_):
+		poss = np.sum(guesses, axis=0) + clues
+		poss_elim = eliminatePoss( np.array(poss) )
+		if checkValid(poss) and checkValid(poss_elim):
+			if checkDone(poss):
 				break
-			guess = poss2guessRand(poss_, value_fn)
+			guess = poss2guessRand(poss, value_fn)
 			guesses[i,:,:,:] = guess
 			i = i + 1
 		else:
@@ -403,19 +350,52 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 				j = j + 1
 				s = np.random.randint(0,i)
 				fix = guesses[s,:,:,:]*-1 # remove past guess
-				guess = poss2guessRand(poss_ + fix, value_fn)
-				if checkValid(poss_ + fix + guess):
+				guess = poss2guessRand(poss + fix, value_fn)
+				if checkValid(poss + fix + guess):
 					guesses[s,:,:,:] = guess
 					break
 
 		if debug:
-			poss_ = np.sum(guesses, axis=0) + poss
+			poss = np.sum(guesses, axis=0) + clues
 			print(f"i:{i},j:{j}")
-			printSudoku("",poss2puzz(poss_) )
-			printPoss("", poss_)
-			print(f"checkDone(poss): {checkDone(poss_)} checkValid(poss): {checkValid(poss_)} ")
-	return np.cumsum(guesses, axis=0)
+			printSudoku("",poss2puzz(poss) )
+			printPoss("", poss)
+			print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} ")
+	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses[:i-1,:,:,:], axis=0)), axis=0)
+	return context, guesses[:i,:,:,:]
 
+def encodeSudoku(puzz, top_node=False):
+	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
+	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
+	return benc, coo, a2a, board_loc
+
+g_puzzles = np.zeros((9,9,9))
+
+def singleSolve(j):
+	global g_puzzles
+	poss,guess = stochasticSolve(g_puzzles[j], 48, None, False)
+	if j%10 == 9:
+		print(".", end="", flush=True)
+	return (poss,guess)
+
+def parallelSolve(puzzles, N):
+	global g_puzzles
+	g_puzzles = puzzles
+	pool = Pool() #defaults to number of available CPU's
+	chunksize = 16
+	results = [None for _ in range(N)]
+	for ind, res in enumerate(pool.imap_unordered(singleSolve, range(N), chunksize)):
+	# for ind in range(N): # debug
+	# 	res = singleBacktrack(ind)
+		results[ind] = res
+
+	poss_lst = list(map(lambda r: r[0], results))
+	guess_lst = list(map(lambda r: r[1], results))
+	
+	poss_all = np.concatenate(poss_lst)
+	guess_all = np.concatenate(guess_lst)
+
+	return poss_all, guess_all
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
@@ -495,23 +475,29 @@ if __name__ == "__main__":
 		guess_all = file["guess_all"]
 		print(f"number of supervised examples: {poss_all.shape[0]}")
 	except Exception as error:
-		record = []
-		for i in range(1000):
-			_,sol,_ = solve(puzz2poss(puzzles[i]), 256, record, None, False)
-			if i % 100 == 99: 
-				print(".", end="", flush=True)
-			# print("solve() result:")
-			# sudoku.printSudoku("", poss2puzz(sol))
+		if False: 
+			rec_poss = []
+			rec_guess = []
+			for i in range(10000):
+				poss, guess = stochasticSolve(puzzles[i], 48, None, False)
+				if i % 10 == 9: 
+					print(".", end="", flush=True)
+				assert(poss.shape[0] == guess.shape[0])
+				# for j in range(poss.shape[0]): 
+				# 	print("board state:")
+				# 	printSudoku("",poss2puzz(poss[j,:,:,:]))
+				# 	print("guess:")
+				# 	printSudoku("",poss2puzz(guess[j,:,:,:]))
+				rec_poss.append(poss)
+				rec_guess.append(guess)
+			
+			poss_all = np.stack(rec_poss)
+			guess_all = np.stack(rec_guess)
+		else: 
+			poss_all, guess_all = parallelSolve(puzzles, 1000)
 		
-		n = len(record)
+		n = poss_all.shape[0]
 		print(f"number of supervised examples: {n}")
-		poss_all = np.zeros((n,9,9,9), dtype=np.int8)
-		guess_all = np.zeros((n,9,9,9), dtype=np.int8)
-		for i,(poss,guess) in enumerate(record):
-			# printSudoku("r ",poss2puzz(poss))
-			# printPoss("", guess)
-			poss_all[i] = poss
-			guess_all[i] = guess
 		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
 	
 	DATA_N = poss_all.shape[0]
@@ -590,7 +576,7 @@ if __name__ == "__main__":
 		# plt.show()
 		return value
 	
-	if True:
+	if False:
 		n_solved = 0
 		record = []
 		for i in range(16000, 16002):
@@ -640,6 +626,8 @@ if __name__ == "__main__":
 		poss = poss_train[indx, :, :, :].reshape((batch_size,81,9))
 		poss = torch.clip(poss, 0, 1)
 		guess = guess_train[indx, :, :, :].reshape((batch_size,81,9))
+		# model must guess the digit - no longer includes failed attempts
+		guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
 		mask = guess != 0
 
 		poss = torch.clip(poss.float().to(device), 0, 1)
@@ -723,6 +711,7 @@ if __name__ == "__main__":
 			poss = poss_valid[indx, :, :, :].reshape((batch_size,81,9))
 			poss = np.clip(poss, 0, 1)
 			guess = guess_valid[indx, :, :, :].reshape((batch_size,81,9))
+			guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
 			mask = guess != 0
 
 			poss = torch.clip(poss.float().to(device), 0, 1)
