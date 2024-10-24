@@ -154,9 +154,21 @@ def poss2guessDumb(poss, value_fn):
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
 	
+def sampleCategorical(categorical_probs):
+	# adapted from SEDD catsample.py
+	gumbel_norm = 1e-10 - np.log(np.random.random_sample(categorical_probs.shape) + 1e-10)
+	sel_flat = np.argmax(categorical_probs / gumbel_norm)
+	sel = np.unravel_index(sel_flat, categorical_probs.shape)
+	return sel
+	
 def poss2guessRand(poss, value_fn): 
-	# pick an undefined cell, set to 1
-	sel = random.choice( np.argwhere(poss == 0) )
+	if value_fn :
+		val = value_fn( poss )
+		val = 1 / (1+np.exp(-val)) # sigmoid
+		sel = sampleCategorical( val )
+	else: 
+		# pick an undefined cell, set to 1
+		sel = random.choice( np.argwhere(poss == 0) )
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
@@ -331,7 +343,7 @@ non-backtracking random initial policy:
 '''
 def stochasticSolve(puzz, n, value_fn, debug=False):
 	guesses = np.zeros((n, 9,9,9), dtype=np.int8)
-	clues = puzz2poss(puzz) * 2 
+	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	iters = 15000
 	i = 0
 	j = 0
@@ -358,16 +370,14 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 		if debug:
 			poss = np.sum(guesses, axis=0) + clues
 			print(f"i:{i},j:{j}")
-			printSudoku("",poss2puzz(poss) )
-			printPoss("", poss)
+			sel = np.where(guess == 1)
+			highlight = [sel[0].item(), sel[1].item()]
+			printSudoku("",poss2puzz(poss), curs_pos=highlight)
+			# printPoss("", poss)
 			print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} ")
 	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses[:i-1,:,:,:], axis=0)), axis=0)
 	return context, guesses[:i,:,:,:]
 
-def encodeSudoku(puzz, top_node=False):
-	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
-	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
-	return benc, coo, a2a, board_loc
 
 g_puzzles = np.zeros((9,9,9))
 
@@ -396,6 +406,13 @@ def parallelSolve(puzzles, N):
 	guess_all = np.concatenate(guess_lst)
 
 	return poss_all, guess_all
+	
+	
+def encodeSudoku(puzz, top_node=False):
+	nodes, _, board_loc = sparse_encoding.puzzleToNodes(puzz, top_node=top_node)
+	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
+	return benc, coo, a2a, board_loc
+	
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
@@ -568,21 +585,23 @@ if __name__ == "__main__":
 			
 		value = benc_pred[0,-81:,11:20].cpu().numpy()
 		value = np.reshape(value, (9,9,9))
-		
-		# plt.rcParams['toolbar'] = 'toolbar2'
-		# fig,axs = plt.subplots(1,2,figsize=(12,6))
-		# axs[0].imshow(benc_smol[0].cpu().numpy().T)
-		# axs[1].imshow(benc_pred[0].cpu().numpy().T)
-		# plt.show()
+		if False: 
+			plt.rcParams['toolbar'] = 'toolbar2'
+			fig,axs = plt.subplots(1,3,figsize=(12,6))
+			axs[0].imshow(benc_smol[0].cpu().numpy().T)
+			axs[1].imshow(benc_pred[0].cpu().numpy().T)
+			axs[2].imshow(value.reshape(81,9).T)
+			plt.show()
 		return value
 	
-	if False:
+	if True:
 		n_solved = 0
 		record = []
-		for i in range(16000, 16002):
+		for i in range(16000, 16001):
 			printSudoku("", puzzles[i])
-			_ = stochasticSolve(puzzles[i], 1024, valueFn, True)
-			sol = poss2puzz(sol)
+			poss,guess = stochasticSolve(puzzles[i], 64, valueFn, True)
+			sol = poss[-1,:,:,:] + guess[-1,:,:,:]
+			printSudoku("", poss2puzz(sol))
 			if checkIfValid(sol): 
 				n_solved = n_solved + 1
 			if i % 10 == 9: 
