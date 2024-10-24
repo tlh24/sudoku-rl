@@ -161,11 +161,30 @@ def sampleCategorical(categorical_probs):
 	sel = np.unravel_index(sel_flat, categorical_probs.shape)
 	return sel
 	
-def poss2guessRand(poss, value_fn): 
+def poss2guessRand(poss, value_fn, cntr): 
 	if value_fn :
 		val = value_fn( poss )
+		# remove clues as move options (you cannot change clues)
+		clues = poss > 1
+		val = val - 100*np.sum(clues, axis=-1)[...,None]
+		val = np.clip(val, -100, 100)
 		val = 1 / (1+np.exp(-val)) # sigmoid
-		sel = sampleCategorical( val )
+		if False: # DEBUG 
+			print("value context:")
+			printSudoku("c- ", poss2puzz(poss))
+			indx = np.argsort(-val.flatten())
+			indx = np.unravel_index(indx, val.shape)
+			print("top policy suggestions")
+			for i in range(10): 
+				print(indx[0][i], indx[1][i], indx[2][i], ":", (indx[0][i]*9+indx[1][i]))
+			plt.rcParams['toolbar'] = 'toolbar2'
+			plt.imshow(val.reshape((81,9)) )
+			plt.title('val')
+			plt.show()
+		# sel = sampleCategorical( val )
+		indx = np.argsort(-val.flatten())
+		indx = np.unravel_index(indx, val.shape)
+		sel = [indx[0][cntr], indx[1][cntr], indx[2][cntr]]
 	else: 
 		# pick an undefined cell, set to 1
 		sel = random.choice( np.argwhere(poss == 0) )
@@ -344,6 +363,7 @@ non-backtracking random initial policy:
 def stochasticSolve(puzz, n, value_fn, debug=False):
 	guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
+	clues = np.clip(clues, 0, 2) # replicate training
 	iters = 15000
 	i = 0
 	j = 0
@@ -354,27 +374,33 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 		if checkValid(poss) and checkValid(poss_elim):
 			if checkDone(poss):
 				break
-			guess = poss2guessRand(poss, value_fn)
+			guess = poss2guessRand(poss, value_fn, 0)
 			guesses[i,:,:,:] = guess
 			i = i + 1
 		else:
+			cntr = np.zeros((i), dtype=np.int64)
 			while j < iters:
+				# try one removal, one addition fixes
 				j = j + 1
 				s = np.random.randint(0,i)
-				fix = guesses[s,:,:,:]*-1 # remove past guess
-				guess = poss2guessRand(poss + fix, value_fn)
-				if checkValid(poss + fix + guess):
+				fix = guesses[s,:,:,:]*-1 # temp remove past guess
+				guess = poss2guessRand(poss + fix, value_fn, cntr[s])
+				poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME
+				if checkValid(poss_elim):
 					guesses[s,:,:,:] = guess
 					break
+				else:
+					cntr[s] = cntr[s] + 1
 
 		if debug:
 			poss = np.sum(guesses, axis=0) + clues
+			poss_elim = eliminatePoss( np.array(poss) )
 			print(f"i:{i},j:{j}")
 			sel = np.where(guess == 1)
 			highlight = [sel[0].item(), sel[1].item()]
 			printSudoku("",poss2puzz(poss), curs_pos=highlight)
 			# printPoss("", poss)
-			print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} ")
+			print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} checkValid(poss_elim): {checkValid(poss_elim)}")
 	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses[:i-1,:,:,:], axis=0)), axis=0)
 	return context, guesses[:i,:,:,:]
 
@@ -598,8 +624,19 @@ if __name__ == "__main__":
 		n_solved = 0
 		record = []
 		for i in range(16000, 16001):
-			printSudoku("", puzzles[i])
-			poss,guess = stochasticSolve(puzzles[i], 64, valueFn, True)
+			puzz = puzzles[i]
+			puzz = np.array([
+			[0,4,0,0,0,0,0,8,2], 
+			[7,0,0,6,0,0,0,0,0],
+			[0,0,0,0,0,0,0,0,0],
+			[0,0,0,0,7,0,0,1,0],
+			[0,0,0,0,5,0,6,0,0],
+			[0,8,2,0,0,0,0,0,0],
+			[3,0,5,0,0,0,7,0,0],
+			[6,0,0,1,0,0,0,0,0],
+			[0,0,0,8,0,0,0,0,0]], dtype=np.int8) # 17 clues, requires graph coloring. 
+			printSudoku("", puzz)
+			poss,guess = stochasticSolve(puzz, 64, valueFn, True)
 			sol = poss[-1,:,:,:] + guess[-1,:,:,:]
 			printSudoku("", poss2puzz(sol))
 			if checkIfValid(sol): 
@@ -643,13 +680,13 @@ if __name__ == "__main__":
 		bi = bi + batch_size
 		
 		poss = poss_train[indx, :, :, :].reshape((batch_size,81,9))
-		poss = torch.clip(poss, 0, 1)
+		poss = torch.clip(poss, 0, 2)
 		guess = guess_train[indx, :, :, :].reshape((batch_size,81,9))
 		# model must guess the digit - no longer includes failed attempts
 		guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
 		mask = guess != 0
 
-		poss = torch.clip(poss.float().to(device), 0, 1)
+		poss = poss.float().to(device)
 		guess = guess.float().to(device)
 		mask = mask.float().to(device)
 		
@@ -728,12 +765,12 @@ if __name__ == "__main__":
 			indx = torch.arange(j*batch_size, (j+1)*batch_size)
 			
 			poss = poss_valid[indx, :, :, :].reshape((batch_size,81,9))
-			poss = np.clip(poss, 0, 1)
+			poss = np.clip(poss, 0, 2)
 			guess = guess_valid[indx, :, :, :].reshape((batch_size,81,9))
 			guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
 			mask = guess != 0
 
-			poss = torch.clip(poss.float().to(device), 0, 1)
+			poss = poss.float().to(device)
 			guess = guess.float().to(device)
 			mask = mask.float().to(device)
 			
