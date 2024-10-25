@@ -4,11 +4,14 @@ import argparse
 import time
 import os
 import sys
-import threading
 import resource
 import glob # for file filtering
-from multiprocessing import Pool
-from itertools import product
+import multiprocessing as mp
+import threading
+from queue import Empty
+from typing import List, Tuple, Any, Callable
+from dataclasses import dataclass
+import csv # for reading rrn
 import numpy as np
 import torch
 from torch import nn, optim
@@ -119,7 +122,7 @@ def printPoss(indent, poss):
 	
 def puzz2poss(puzz): 
 	# convert a 9x9 sudoku into a 9x9x9 possibility tensor
-	# where 0 = unknown, -1 = impossible, 1 = clue or guess
+	# where 0 = unknown, -1 = impossible, 1 = guess, 2 = clue
 	poss = np.zeros((9,9,9), dtype=np.int8)
 	for i in range(9): 
 		for j in range(9): 
@@ -160,37 +163,6 @@ def sampleCategorical(categorical_probs):
 	sel_flat = np.argmax(categorical_probs / gumbel_norm)
 	sel = np.unravel_index(sel_flat, categorical_probs.shape)
 	return sel
-	
-def poss2guessRand(poss, value_fn, cntr): 
-	if value_fn :
-		val = value_fn( poss )
-		# remove clues as move options (you cannot change clues)
-		clues = poss > 1
-		val = val - 100*np.sum(clues, axis=-1)[...,None]
-		val = np.clip(val, -100, 100)
-		val = 1 / (1+np.exp(-val)) # sigmoid
-		if False: # DEBUG 
-			print("value context:")
-			printSudoku("c- ", poss2puzz(poss))
-			indx = np.argsort(-val.flatten())
-			indx = np.unravel_index(indx, val.shape)
-			print("top policy suggestions")
-			for i in range(10): 
-				print(indx[0][i], indx[1][i], indx[2][i], ":", (indx[0][i]*9+indx[1][i]))
-			plt.rcParams['toolbar'] = 'toolbar2'
-			plt.imshow(val.reshape((81,9)) )
-			plt.title('val')
-			plt.show()
-		# sel = sampleCategorical( val )
-		indx = np.argsort(-val.flatten())
-		indx = np.unravel_index(indx, val.shape)
-		sel = [indx[0][cntr], indx[1][cntr], indx[2][cntr]]
-	else: 
-		# pick an undefined cell, set to 1
-		sel = random.choice( np.argwhere(poss == 0) )
-	guess = np.zeros((9,9,9), dtype=np.int8)
-	guess[sel[0], sel[1], sel[2]] = 1
-	return guess
 	
 def boxPermutation(): 
 	# return an index vector that pemutes r,c
@@ -244,6 +216,40 @@ def poss2guessSmart(poss, value_fn):
 	guess[r, c, d] = 1
 	if gmin < 1:
 		pdb.set_trace() # that's an error!
+	return guess
+	
+def poss2guessRand(poss, value_fn, cntr): 
+	''' for use with stochasticSolve
+		select a guess at random
+		or enumerate through the value function '''
+	if value_fn :
+		val = value_fn( poss )
+		# remove clues as move options (you cannot change clues)
+		clues = poss > 1
+		val = val - 100*np.sum(clues, axis=-1)[...,None]
+		# val = np.clip(val, -100, 100) # jic
+		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
+		if False: # DEBUG 
+			print("value context:")
+			printSudoku("c- ", poss2puzz(poss))
+			indx = np.argsort(-val.flatten())
+			indx = np.unravel_index(indx, val.shape)
+			print("top policy suggestions")
+			for i in range(10): 
+				print(indx[0][i], indx[1][i], indx[2][i], ":", (indx[0][i]*9+indx[1][i]))
+			plt.rcParams['toolbar'] = 'toolbar2'
+			plt.imshow(val.reshape((81,9)) )
+			plt.title('val')
+			plt.show()
+		# sel = sampleCategorical( val )
+		indx = np.argsort(-val.flatten())
+		indx = np.unravel_index(indx, val.shape)
+		sel = [indx[0][cntr], indx[1][cntr], indx[2][cntr]]
+	else: 
+		# pick an undefined cell, set to 1
+		sel = random.choice( np.argwhere(poss == 0) )
+	guess = np.zeros((9,9,9), dtype=np.int8)
+	guess[sel[0], sel[1], sel[2]] = 1
 	return guess
 
 def eliminatePoss(poss):
@@ -364,7 +370,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	clues = np.clip(clues, 0, 2) # replicate training
-	iters = 15000
+	iters = 10000
 	i = 0
 	j = 0
 	while i < n and j < iters:
@@ -385,7 +391,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 				s = np.random.randint(0,i)
 				fix = guesses[s,:,:,:]*-1 # temp remove past guess
 				guess = poss2guessRand(poss + fix, value_fn, cntr[s])
-				poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME
+				poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
 				if checkValid(poss_elim):
 					guesses[s,:,:,:] = guess
 					break
@@ -417,7 +423,7 @@ def singleSolve(j):
 def parallelSolve(puzzles, N):
 	global g_puzzles
 	g_puzzles = puzzles
-	pool = Pool() #defaults to number of available CPU's
+	pool = mp.Pool() #defaults to number of available CPU's
 	chunksize = 16
 	results = [None for _ in range(N)]
 	for ind, res in enumerate(pool.imap_unordered(singleSolve, range(N), chunksize)):
@@ -439,6 +445,200 @@ def encodeSudoku(puzz, top_node=False):
 	benc, coo, a2a = sparse_encoding.encodeNodes(nodes)
 	return benc, coo, a2a, board_loc
 	
+	
+### parallelize the stochastic solve + value_fn ###
+@dataclass
+class ValueRequest:
+	poss: np.ndarray
+	solver_id: int
+	request_id: int
+
+@dataclass
+class ValueResponse:
+	value: np.ndarray
+	solver_id: int
+	request_id: int
+	
+@dataclass
+class SolveResult:
+    puzzle_idx: int
+    poss: np.ndarray
+    guess: np.ndarray
+	
+def value_function_worker(value_fn, input_queue, output_queues, active_workers, batch_size=128):
+	"""Worker that runs the value function in the main process"""
+	pending_requests: List[ValueRequest] = []
+	
+	while active_workers.value > 0:
+		try: # Try to fill up a batch
+			while len(pending_requests) < batch_size:
+					req = input_queue.get(timeout=0.01)
+					if req is None:  # Shutdown signal
+						return
+					pending_requests.append(req)
+		except Empty:
+			pass
+		
+		# Process a batch if we have enough requests or if queue is empty
+		if pending_requests and (len(pending_requests) <= batch_size or input_queue.empty()):
+			poss_lst = list(map( lambda x: x.poss, pending_requests))
+			poss_batch = np.stack(poss_lst)
+			value_batch = value_fn( poss_batch, len(poss_lst) )
+			
+			for i,req in enumerate(pending_requests): 
+				resp = ValueResponse(
+					value=value_batch[i], 
+					solver_id=req.solver_id, 
+					request_id=req.request_id )
+				output_queues[req.solver_id].put(resp)
+			
+			pending_requests.clear()
+			
+def solverWorker(
+	puzzles, start_idx, end_idx,
+	solver_id: int,
+	input_queue: mp.Queue, # to the value fn
+	output_queue: mp.Queue, # from the value fn
+	result_queue: mp.Queue, # result aggregator
+	n_iterations: int,
+):
+	"""Worker that runs the stochastic solve algorithm"""
+	next_request_id = 0
+	pending_requests = {}
+	
+	def value_fn_queue(poss):
+		nonlocal next_request_id
+		request = ValueRequest(
+			poss=poss,
+			solver_id=solver_id,
+			request_id=next_request_id
+		)
+		next_request_id += 1
+		
+		# Send request
+		input_queue.put(request)
+		response = output_queue.get()  
+		return response.value
+	
+	# Process each puzzle in the assigned chunk
+	for idx in range(start_idx, end_idx):
+		puzzle = puzzles[idx]
+		poss, guess = stochasticSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
+		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
+	
+def parallelSolveVF(
+	puzzles: np.ndarray,
+	value_fn,
+	n_iterations: int = 64,
+	n_workers: int = 16,
+	batch_size: int = 128
+) -> Tuple[np.ndarray, np.ndarray]:
+	"""
+	Solve multiple puzzles in parallel with efficient batching of value function calls.
+	
+	Args:
+		puzzles: List of puzzle states to solve
+		value_fn: value function
+		n_iterations: Number of iterations for each solve attempt
+		n_workers: Number of parallel solver workers
+		batch_size: Batch size for value function calls
+	
+	Returns:
+		List of (possibility, guess) tuples, one for each input puzzle
+	"""
+	n_puzzles = puzzles.shape[0]
+	chunk_size = (n_puzzles + n_workers - 1) // n_workers
+	
+	# Create queues for communication
+	value_fn_input_queue = mp.Queue()
+	value_fn_output_queues = {i: mp.Queue() for i in range(n_workers)}
+	result_queue = mp.Queue()
+	active_workers = mp.Value('i', 1)
+	
+	# Start solver workers
+	solver_processes = []
+	for i in range(n_workers):
+		start_idx = i * chunk_size
+		end_idx = min(start_idx + chunk_size, n_puzzles)
+		
+		if start_idx >= n_puzzles:
+			break
+			
+		p = mp.Process(
+			target=solverWorker,
+			args=(
+				puzzles, start_idx, end_idx, i,
+				value_fn_input_queue, value_fn_output_queues[i],
+				result_queue, n_iterations
+			)
+		)
+		p.start()
+		solver_processes.append(p)
+	
+	# Start collecting results in a separate thread 
+	results = [None] * n_puzzles
+	def result_collector():
+		collected = 0
+		while collected < n_puzzles:
+			try: 
+				result = result_queue.get()
+				results[result.puzzle_idx] = (result.poss, result.guess)
+				collected += 1
+				# print(f"+++ got result {collected}")
+			except: 
+				# Check if all workers are done and we've collected all results
+				if collected >= n_puzzles:
+					with active_workers.get_lock():
+						active_workers.value = 0
+		if collected >= n_puzzles:
+			with active_workers.get_lock():
+				active_workers.value = 0
+	
+	collector_thread = threading.Thread(target=result_collector)
+	collector_thread.start()
+	
+	# Run value function in main process
+	value_function_worker(value_fn, 
+							  value_fn_input_queue, 
+							  value_fn_output_queues, active_workers, batch_size)
+	
+	# Clean up
+	for p in solver_processes:
+		p.join()
+	collector_thread.join()
+	
+	poss_lst = list(map(lambda r: r[0], results))
+	guess_lst = list(map(lambda r: r[1], results))
+	
+	poss_all = np.concatenate(poss_lst)
+	guess_all = np.concatenate(guess_lst)
+
+	return poss_all, guess_all
+	
+def loadRrn(): 
+	# use RRN hard to select . 
+	csv_file = '../rrn-hard/train.csv'
+	base_file = os.path.splitext(csv_file)[0]
+	npz_file = f"{base_file}_.npz"
+	try:
+		file = np.load(npz_file)
+		puzzles = file["puzzles"]
+	except Exception as error:
+		print(error)
+		print("Reading %s" % csv_file)
+		with open(csv_file) as f:
+			puzzles, solutions = [], [] 
+			reader = csv.reader(f, delimiter=',')
+			for q,a in reader:
+				puzzle_digits = list(q)
+				puzzles.append(puzzle_digits)
+				solution_digits = list(map(int, list(a)))
+				solutions.append(solution_digits)
+		puzzles = np.stack(puzzles)
+		puzzles = puzzles.reshape((puzzles.shape[0],9,9)).astype(np.int8)
+		np.savez(npz_file, puzzles=puzzles)
+		
+	return puzzles
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
@@ -511,55 +711,6 @@ if __name__ == "__main__":
 	puzzles = dat["puzzles"]
 	sudoku = Sudoku(9,60)
 
-	npz_file = f'satnet_backtrack_0.65.npz'
-	try:
-		file = np.load(npz_file)
-		poss_all = file["poss_all"]
-		guess_all = file["guess_all"]
-		print(f"number of supervised examples: {poss_all.shape[0]}")
-	except Exception as error:
-		if False: 
-			rec_poss = []
-			rec_guess = []
-			for i in range(10000):
-				poss, guess = stochasticSolve(puzzles[i], 48, None, False)
-				if i % 10 == 9: 
-					print(".", end="", flush=True)
-				assert(poss.shape[0] == guess.shape[0])
-				# for j in range(poss.shape[0]): 
-				# 	print("board state:")
-				# 	printSudoku("",poss2puzz(poss[j,:,:,:]))
-				# 	print("guess:")
-				# 	printSudoku("",poss2puzz(guess[j,:,:,:]))
-				rec_poss.append(poss)
-				rec_guess.append(guess)
-			
-			poss_all = np.stack(rec_poss)
-			guess_all = np.stack(rec_guess)
-		else: 
-			poss_all, guess_all = parallelSolve(puzzles, 1000)
-		
-		n = poss_all.shape[0]
-		print(f"number of supervised examples: {n}")
-		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
-	
-	DATA_N = poss_all.shape[0]
-	VALID_N = DATA_N//10
-
-	def trainValSplit(y):
-		y_train = torch.tensor(y[:-VALID_N])
-		y_valid = torch.tensor(y[-VALID_N:])
-		return y_train, y_valid
-
-	poss_train, poss_valid = trainValSplit(poss_all)
-	guess_train, guess_valid = trainValSplit(guess_all)
-	assert(guess_train.shape[0] == poss_train.shape[0])
-
-	TRAIN_N = poss_train.shape[0]
-	VALID_N = poss_valid.shape[0]
-
-	print(f'loaded {npz_file}; train/test {TRAIN_N} / {VALID_N}')
-
 	device = torch.device('cuda:0')
 	args = {"device": device}
 	# use export CUDA_VISIBLE_DEVICES=1
@@ -601,26 +752,27 @@ if __name__ == "__main__":
 	hcoo = hcoo[0:2] # sparse / set-layers
 	hcoo.append('self') # intra-token op
 	
-	def valueFn(poss): 
-		poss = torch.from_numpy(poss).float().reshape(81,9)
+	def valueFn(poss, bs): 
+		assert(bs <= batch_size)
+		poss = torch.from_numpy(poss).float().reshape(bs,81,9)
 		poss = poss.to(device)
-		benc_smol[0,-81:,11:20] = poss
+		benc[:bs,-81:,11:20] = poss
 		
 		with torch.no_grad(): 
-			benc_pred = model.forward(benc_smol, hcoo)
+			benc_pred = model.forward(benc, hcoo)
 			
-		value = benc_pred[0,-81:,11:20].cpu().numpy()
-		value = np.reshape(value, (9,9,9))
+		value = benc_pred[:bs,-81:,11:20].cpu().numpy()
+		value = np.reshape(value, (bs,9,9,9))
 		if False: 
 			plt.rcParams['toolbar'] = 'toolbar2'
 			fig,axs = plt.subplots(1,3,figsize=(12,6))
-			axs[0].imshow(benc_smol[0].cpu().numpy().T)
+			axs[0].imshow(benc[0].cpu().numpy().T)
 			axs[1].imshow(benc_pred[0].cpu().numpy().T)
-			axs[2].imshow(value.reshape(81,9).T)
+			axs[2].imshow(value[0].reshape(81,9).T)
 			plt.show()
 		return value
 	
-	if True:
+	if False:
 		n_solved = 0
 		record = []
 		for i in range(16000, 16001):
@@ -656,8 +808,82 @@ if __name__ == "__main__":
 		# 	poss_all[i] = poss
 		# 	guess_all[i] = guess
 		# np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
-		
 		exit()
+	
+	npz_file = f'satnet_backtrack_0.65.npz'
+	try:
+		file = np.load(npz_file)
+		poss_all = file["poss_all"]
+		guess_all = file["guess_all"]
+		print(f"number of supervised examples: {poss_all.shape[0]}")
+	except Exception as error:
+		if False: 
+			# serial, slow.
+			rec_poss = []
+			rec_guess = []
+			for i in range(10000):
+				poss, guess = stochasticSolve(puzzles[i], 48, None, False)
+				if i % 10 == 9: 
+					print(".", end="", flush=True)
+				assert(poss.shape[0] == guess.shape[0])
+				# for j in range(poss.shape[0]): 
+				# 	print("board state:")
+				# 	printSudoku("",poss2puzz(poss[j,:,:,:]))
+				# 	print("guess:")
+				# 	printSudoku("",poss2puzz(guess[j,:,:,:]))
+				rec_poss.append(poss)
+				rec_guess.append(guess)
+			
+			poss_all = np.stack(rec_poss)
+			guess_all = np.stack(rec_guess)
+		else: 
+			poss_all, guess_all = parallelSolve(puzzles, 1000)
+		
+		n = poss_all.shape[0]
+		print(f"number of supervised examples: {n}")
+		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
+		
+		
+	npz_file = f"rrn_hard_backtrack.npz"
+	try:
+		file = np.load(npz_file)
+		poss_rrn = file["poss_all"]
+		guess_rrn = file["guess_all"]
+		print(f"number of supervised examples: {poss_rrn.shape[0]}")
+	except Exception as error:
+		puzzles = loadRrn()
+			
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles[:1024*4,...], valueFn, n_iterations=64, n_workers=batch_size*2, batch_size=batch_size)
+		
+		n = poss_rrn.shape[0]
+		print(f"number of supervised examples: {n}")
+		np.savez(npz_file, poss_all=poss_rrn, guess_all=guess_rrn)
+		
+		for i in range(24): 
+			printSudoku("", poss2puzz(poss_rrn[i]))
+			printSudoku("", poss2puzz(guess_rrn[i]))
+			print("")
+		exit()
+		
+	poss_all = np.concatenate((poss_all, poss_rrn))
+	guess_all = np.concatenate((guess_all, guess_rrn))
+	
+	DATA_N = poss_all.shape[0]
+	VALID_N = DATA_N//10
+
+	def trainValSplit(y):
+		y_train = torch.tensor(y[:-VALID_N])
+		y_valid = torch.tensor(y[-VALID_N:])
+		return y_train, y_valid
+
+	poss_train, poss_valid = trainValSplit(poss_all)
+	guess_train, guess_valid = trainValSplit(guess_all)
+	assert(guess_train.shape[0] == poss_train.shape[0])
+
+	TRAIN_N = poss_train.shape[0]
+	VALID_N = poss_valid.shape[0]
+
+	print(f'loaded {npz_file}; train/test {TRAIN_N} / {VALID_N}')
 
 	if cmd_args.a:
 		optimizer_name = "adamw"
