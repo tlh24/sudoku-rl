@@ -227,6 +227,7 @@ def poss2guessRand(poss, value_fn, cntr):
 		# remove clues as move options (you cannot change clues)
 		clues = poss > 1
 		val = val - 100*np.sum(clues, axis=-1)[...,None]
+		val = val + np.random.normal(0.0, 0.025, val.shape)
 		# val = np.clip(val, -100, 100) # jic
 		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
 		if False: # DEBUG 
@@ -853,7 +854,7 @@ if __name__ == "__main__":
 	except Exception as error:
 		puzzles = loadRrn()
 			
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles[:1024*4,...], valueFn, n_iterations=64, n_workers=batch_size*2, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles[:1024*4,...], valueFn, n_iterations=96, n_workers=batch_size*2, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
