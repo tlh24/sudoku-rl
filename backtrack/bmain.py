@@ -393,7 +393,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 				j = j + 1
 				k = k + 1
 				# rip up more
-				nfix = math.floor(math.log(k / 20))+1
+				nfix = math.floor(max(math.log(k / 20), 1))
 				s = np.random.randint(0, i, (nfix,))
 				fix = np.zeros((9,9,9), dtype=np.int8)
 				for l in range(nfix):
