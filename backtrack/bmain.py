@@ -374,7 +374,6 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	iters = 10000
 	i = 0
 	j = 0
-	k = 0
 	while i < n and j < iters:
 		j = j + 1
 		poss = np.sum(guesses, axis=0) + clues
@@ -386,23 +385,16 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			guesses[i,:,:,:] = guess
 			i = i + 1
 		else:
-			# counter for which guesses have been tried
 			cntr = np.zeros((i), dtype=np.int64)
 			while j < iters:
 				# try one removal, one addition fixes
 				j = j + 1
-				k = k + 1
-				# rip up more
-				nfix = math.floor(max(math.log(k / 20), 1))
-				s = np.random.randint(0, i, (nfix,))
-				fix = np.zeros((9,9,9), dtype=np.int8)
-				for l in range(nfix):
-					fix = fix + guesses[s,:,:,:]*-1 # temp remove past guess
+				s = np.random.randint(0,i)
+				fix = guesses[s,:,:,:]*-1 # temp remove past guess
 				guess = poss2guessRand(poss + fix, value_fn, cntr[s])
 				poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
 				if checkValid(poss_elim):
 					guesses[s,:,:,:] = guess
-					k = 0
 					break
 				else:
 					cntr[s] = cntr[s] + 1
