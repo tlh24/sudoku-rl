@@ -637,7 +637,7 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 
 	return boards,actions,rewards
 
-def expandCoordinateVector(coo, a2a):
+def expandCoordinateVector(coo, a2a, device):
 	# add [dst,dst] intra-token connections to the coordinate list. 
 	dst_set = set()
 	src_set = set()
@@ -685,25 +685,25 @@ def expandCoordinateVector(coo, a2a):
 	# add top-level attention
 	all2all = torch.Tensor(a2a);
 
-	kids2parents = kids2parents.cuda()
-	parents2kids = parents2kids.cuda()
-	self2self = self2self.cuda()
-	all2all = all2all.cuda()
+	kids2parents = kids2parents.to(device)
+	parents2kids = parents2kids.to(device)
+	self2self = self2self.to(device)
+	all2all = all2all.to(device)
 	# hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
 		# (self2self, dst_mxlen_s2s), all2all]
 	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), "self", all2all]
 
 	return hcoo
 
-def getLayerCoordinateVectors():
+def getLayerCoordinateVectors(device):
 	sudoku = Sudoku(SuN, SuK)
 	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(sudoku, np.zeros((9,9)), np.zeros((9,9)), np.zeros((2,), dtype=int), 0, 0)
 
-	hcoo = expandCoordinateVector(coo, a2a)
+	hcoo = expandCoordinateVector(coo, a2a, device)
 
 	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(sudoku, np.zeros((9,9)), np.zeros((9,9)), np.zeros((2,), dtype=int), 0, 0, many_reward=False) # FIXME
 
-	hcoo_m = expandCoordinateVector(coo, a2a)
+	hcoo_m = expandCoordinateVector(coo, a2a, device)
 	hcoo_m.append('dense') # for dense attention.
 
 	return hcoo, hcoo_m, reward_loc

@@ -368,48 +368,54 @@ non-backtracking random initial policy:
 -- You cannot change clues. Guesses can be revised.
 '''
 def stochasticSolve(puzz, n, value_fn, debug=False):
-	guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	clues = np.clip(clues, 0, 2) # replicate training
-	iters = 10000
-	i = 0
-	j = 0
-	while i < n and j < iters:
-		j = j + 1
-		poss = np.sum(guesses, axis=0) + clues
-		poss_elim = eliminatePoss( np.array(poss) )
-		if checkValid(poss) and checkValid(poss_elim):
-			if checkDone(poss):
-				break
-			guess = poss2guessRand(poss, value_fn, 0)
-			guesses[i,:,:,:] = guess
-			i = i + 1
-		else:
-			cntr = np.zeros((i), dtype=np.int64)
-			while j < iters:
-				# try one removal, one addition fixes
-				j = j + 1
-				s = np.random.randint(0,i)
-				fix = guesses[s,:,:,:]*-1 # temp remove past guess
-				guess = poss2guessRand(poss + fix, value_fn, cntr[s])
-				poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
-				if checkValid(poss_elim):
-					guesses[s,:,:,:] = guess
-					break
-				else:
-					cntr[s] = cntr[s] + 1
-
-		if debug:
+	iters = 1200
+	best_i = 0
+	guesses_best = None
+	for k in range(10): 
+		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
+		i = 0
+		j = 0
+		while i < n and j < iters:
+			j = j + 1
 			poss = np.sum(guesses, axis=0) + clues
 			poss_elim = eliminatePoss( np.array(poss) )
-			print(f"i:{i},j:{j}")
-			sel = np.where(guess == 1)
-			highlight = [sel[0].item(), sel[1].item()]
-			printSudoku("",poss2puzz(poss), curs_pos=highlight)
-			# printPoss("", poss)
-			print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} checkValid(poss_elim): {checkValid(poss_elim)}")
-	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses[:i-1,:,:,:], axis=0)), axis=0)
-	return context, guesses[:i,:,:,:]
+			if checkValid(poss) and checkValid(poss_elim):
+				if checkDone(poss):
+					break
+				guess = poss2guessRand(poss, value_fn, 0)
+				guesses[i,:,:,:] = guess
+				i = i + 1
+			else:
+				cntr = np.zeros((i), dtype=np.int64)
+				while j < iters:
+					# try one removal, one addition fixes
+					j = j + 1
+					s = np.random.randint(0,i)
+					fix = guesses[s,:,:,:]*-1 # temp remove past guess
+					guess = poss2guessRand(poss + fix, value_fn, cntr[s])
+					poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
+					if checkValid(poss_elim):
+						guesses[s,:,:,:] = guess
+						break
+					else:
+						cntr[s] = cntr[s] + 1
+
+			if debug:
+				poss = np.sum(guesses, axis=0) + clues
+				poss_elim = eliminatePoss( np.array(poss) )
+				print(f"i:{i},j:{j}")
+				sel = np.where(guess == 1)
+				highlight = [sel[0].item(), sel[1].item()]
+				printSudoku("",poss2puzz(poss), curs_pos=highlight)
+				# printPoss("", poss)
+				print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} checkValid(poss_elim): {checkValid(poss_elim)}")
+		if i > best_i: 
+			guesses_best = guesses
+			best_i = i
+	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses_best[:i-1,:,:,:], axis=0)), axis=0)
+	return context, guesses_best[:i,:,:,:]
 
 
 g_puzzles = np.zeros((9,9,9))
@@ -536,16 +542,6 @@ def parallelSolveVF(
 ) -> Tuple[np.ndarray, np.ndarray]:
 	"""
 	Solve multiple puzzles in parallel with efficient batching of value function calls.
-	
-	Args:
-		puzzles: List of puzzle states to solve
-		value_fn: value function
-		n_iterations: Number of iterations for each solve attempt
-		n_workers: Number of parallel solver workers
-		batch_size: Batch size for value function calls
-	
-	Returns:
-		List of (possibility, guess) tuples, one for each input puzzle
 	"""
 	n_puzzles = puzzles.shape[0]
 	chunk_size = (n_puzzles + n_workers - 1) // n_workers
@@ -645,10 +641,13 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Train sudoku policy model")
 	parser.add_argument('-a', action='store_true', help='use AdamW as the optimizer (as opposed to PSGD)')
 	parser.add_argument('-c', action='store_true', help="clear, start fresh: don't load model")
-	parser.add_argument('-v', action='store_true', help="train value function")
-	parser.add_argument('-r', type=int, default=1, help='number of repeats or steps')
+	parser.add_argument('-i', type=int, default=0, help='index of computation')
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
+	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
 	cmd_args = parser.parse_args()
+	
+	print(f"-i: {cmd_args.i} -cuda:{cmd_args.cuda}")
+	time.sleep(1)
 	
 	# increase the number of file descriptors for multiprocessing
 	rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -656,7 +655,6 @@ if __name__ == "__main__":
 
 	batch_size = 64
 	world_dim = 64
-	n_steps = cmd_args.r
 	
 	if False: 
 		puzz = [
@@ -712,20 +710,18 @@ if __name__ == "__main__":
 	puzzles = dat["puzzles"]
 	sudoku = Sudoku(9,60)
 
-	device = torch.device('cuda:0')
+	device = torch.device(f'cuda:{cmd_args.cuda}')
 	args = {"device": device}
-	# use export CUDA_VISIBLE_DEVICES=1
-	# to switch to another GPU
 	torch.set_float32_matmul_precision('high')
 	torch.backends.cuda.matmul.allow_tf32 = True
 
-	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}_{n_steps}.txt', 'w')
+	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
 	
 	memory_dict = gmain.getMemoryDict("../")
 
 	model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-			n_heads=8, n_layers=9, repeat=n_steps, mode=0).to(device)
+			n_heads=8, n_layers=9, repeat=1, mode=0).to(device)
 	model.printParamCount()
 	
 	if cmd_args.c: 
@@ -749,7 +745,7 @@ if __name__ == "__main__":
 	benc_smol = benc[0].clone().unsqueeze(0)
 	# the meat of the ecoding will be replaced by (clipped) poss. 
 	
-	hcoo = gmain.expandCoordinateVector(coo, a2a)
+	hcoo = gmain.expandCoordinateVector(coo, a2a, device)
 	hcoo = hcoo[0:2] # sparse / set-layers
 	hcoo.append('self') # intra-token op
 	
@@ -819,7 +815,7 @@ if __name__ == "__main__":
 		print(f"number of supervised examples: {poss_all.shape[0]}")
 	except Exception as error:
 		if False: 
-			# serial, slow.
+			# serial solve, slow.
 			rec_poss = []
 			rec_guess = []
 			for i in range(10000):
@@ -844,20 +840,25 @@ if __name__ == "__main__":
 		print(f"number of supervised examples: {n}")
 		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
 		
-		
-	npz_file = f"rrn_hard_backtrack.npz"
+	poss_rrn = []
+	guess_rrn = []
+	poss_rrn.append(poss_all)
+	guess_rrn.append(guess_all)
 	try:
-		file = np.load(npz_file)
-		poss_rrn = file["poss_all"]
-		guess_rrn = file["guess_all"]
-		print(f"number of supervised examples: {poss_rrn.shape[0]}")
+		for i in range(4): 
+			npz_file = f"rrn_hard_backtrack_{i}.npz"
+			file = np.load(npz_file)
+			poss_rrn.append(file["poss_all"])
+			guess_rrn.append(file["guess_all"])
+			print(f"number of supervised examples: {poss_rrn.shape[0]}")
 	except Exception as error:
 		puzzles = loadRrn()
-			
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles[:1024*4,...], valueFn, n_iterations=96, n_workers=batch_size*2, batch_size=batch_size)
+		sta = cmd_args.i*1024
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles[sta:sta+1024,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
+		npz_file = f"rrn_hard_backtrack_{cmd_args.i}.npz"
 		np.savez(npz_file, poss_all=poss_rrn, guess_all=guess_rrn)
 		
 		for i in range(24): 
@@ -866,8 +867,8 @@ if __name__ == "__main__":
 			print("")
 		exit()
 		
-	poss_all = np.concatenate((poss_all, poss_rrn))
-	guess_all = np.concatenate((guess_all, guess_rrn))
+	poss_all = np.concatenate(poss_rrn)
+	guess_all = np.concatenate(guess_rrn)
 	
 	DATA_N = poss_all.shape[0]
 	VALID_N = DATA_N//10
