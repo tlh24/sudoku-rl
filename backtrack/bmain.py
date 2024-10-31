@@ -721,7 +721,7 @@ if __name__ == "__main__":
 	memory_dict = gmain.getMemoryDict("../")
 
 	model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-			n_heads=8, n_layers=9, repeat=1, mode=0).to(device)
+			n_heads=8, n_layers=9, repeat=2, mode=0).to(device)
 	model.printParamCount()
 	
 	if cmd_args.c: 
@@ -850,8 +850,9 @@ if __name__ == "__main__":
 			file = np.load(npz_file)
 			poss_rrn.append(file["poss_all"])
 			guess_rrn.append(file["guess_all"])
-			print(f"number of supervised examples: {poss_rrn.shape[0]}")
+			print(f"number of supervised examples: {file["poss_all"].shape[0]}")
 	except Exception as error:
+		print(error)
 		puzzles = loadRrn()
 		sta = cmd_args.i*1024
 		poss_rrn, guess_rrn = parallelSolveVF(puzzles[sta:sta+1024,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
