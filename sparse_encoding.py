@@ -20,6 +20,7 @@ class Node:
 		self.kids = []
 		self.parents = []
 		self.axval = np.zeros(7)
+		self.poss = np.zeros(9)
 
 	def addChild(self, node):
 		# kid is type `Node
@@ -28,6 +29,9 @@ class Node:
 
 	def setAxVal(self, ax, val):
 		self.axval[ax.value - Axes.N_AX.value] = val
+		
+	def setPoss(self, poss): 
+		self.poss = poss
 
 	def print(self, indent):
 		if self.refcnt < 1:
@@ -58,9 +62,11 @@ class Node:
 				k.clearLoc()
 	
 	def setLoc(self, i):
+		# breadth-first labelling. Must call until result does not change. 
 		if self.loc < 0: 
 			self.loc = i
 			i = i+1
+		else: 
 			for k in self.kids: 
 				i = k.setLoc(i)
 		return i
@@ -127,6 +133,10 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 	board_nodes = [[] for _ in range(SuN)]
 
 	posOffset = (SuN - 1) / 2.0
+	
+	sudoku = Sudoku(9,60)
+	sudoku.setMat(puzzl_mat)
+	poss = sudoku.genPoss()
 
 	for x in range(SuN): # x = row
 		for y in range(SuN): # y = column
@@ -136,6 +146,7 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 			nb.setAxVal( Axes.N_AX, v )
 			g = guess_mat[x,y]
 			nb.setAxVal( Axes.G_AX, g )
+			nb.setPoss( poss[x,y,:] )
 
 			# think of these as named attributes, var.x, var.y etc
 			# the original encoding is var.pos[0], var.pos[1], var.pos[2]
@@ -208,11 +219,7 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 		nb = Node(Types.GUESS_ACTION)
 		nodes.append(nb)
 
-	for n in nodes:
-		n.clearLoc()
-	i = 0
-	for n in nodes:
-		i = n.setLoc(i)
+	setLocAll(nodes)
 
 	board_loc = np.zeros((SuN,SuN),dtype=int)
 	for x in range(SuN): # x = row
@@ -221,6 +228,16 @@ def puzzleToNodes(puzzl_mat, guess_mat=None, curs_pos=None, top_node=False):
 
 	return nodes, board_nodes, board_loc
 
+def setLocAll(node_list): 
+	for n in node_list: 
+		n.clearLoc()
+	i_old = -1
+	i = 0
+	while i_old < i: 
+		i_old = i
+		for n in node_list: 
+			i = n.setLoc(i)
+	return i
 
 def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:int, reward:float, many_reward=False):
 	nodes = []
@@ -263,11 +280,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	
 	# set the node indexes.
 	# some nodes are in the top-level list; others are just children.
-	for n in nodes: 
-		n.clearLoc()
-	i = 0
-	for n in nodes: 
-		i = n.setLoc(i)
+	i = setLocAll(nodes)
 	if i > token_cnt:
 		print(f'expect {token_cnt}, encoded {i} tokens')
 		pdb.set_trace()
@@ -282,8 +295,7 @@ def sudokuToNodes(puzzl_mat, guess_mat, curs_pos, action_type:int, action_value:
 	
 def nodesToCoo(nodes): 
 	# coo is [dst, src] -- see l1attnSparse
-	edges = [] # edges from kids to parents
-	# to get from parents to kids, switch dst and src. 
+	edges = [] # edges, parents <-- kids
 	a2a_set = set() # nodes that have no set relation, for a2a attention
 					# aka top-level nodes or objects.
 	for n in nodes: 
@@ -300,11 +312,7 @@ def nodesToCoo(nodes):
 def encodeNodes(nodes): 
 	# returns a matrix encoding of the nodes + coo vector
 	# redo the loc, jic
-	for n in nodes: 
-		n.clearLoc()
-	i = 0
-	for n in nodes: 
-		i = n.setLoc(i)
+	i = setLocAll(nodes)
 	# flatten the tree-list
 	for n in nodes: 
 		n.resetRefcnt()
@@ -324,7 +332,7 @@ def encodeNodes(nodes):
 		# add in categorical encoding of value
 		def encode(x):
 			if v >= 0.6 and v <= 9.4:
-				benc[i,11:20] = 0.0
+				benc[i,10:20] = 0.0
 				vi = round(v)
 				benc[i,10+vi] = 1.0
 					
@@ -334,7 +342,9 @@ def encodeNodes(nodes):
 			encode( v )
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
 			encode( v )
-			benc[i, Axes.N_AX] = n.axval[0]/10.0 # FIXME primarily categorical!
+			# benc[i, Axes.N_AX] = n.axval[0]/10.0 # FIXME primarily categorical!
+			# benc[i,11:20] = benc[i,11:20] + n.poss*-0.5 # NOTE 
+			benc[i, Axes.N_AX] = 0.0
 		if ntv == Types.GUESS_ACTION.value:
 			v = n.axval[Axes.G_AX.value - Axes.N_AX.value]
 			encode( v )
@@ -452,7 +462,7 @@ if __name__ == "__main__":
 	benc,coo,a2a = encodeNodes(nodes)
 	print('benc shape:',benc.shape,'coo shape',coo.shape,"a2a shape",a2a.shape)
 	
-	im[0] = axs[0].imshow(benc.T.numpy())
+	im[0] = axs[0].imshow(benc.T)
 	plt.colorbar(im[0], ax=axs[0])
 	axs[0].set_title('board encoding')
 	

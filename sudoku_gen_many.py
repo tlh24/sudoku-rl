@@ -1,6 +1,6 @@
 '''
 Generates N sudoku maps with some positions blank and some filled. 
-Saves the tensor of maps as a torch file named puzzles_{N}.pt
+Saves the tensor of maps as a torch file named puzzles_{N}.pth
 '''
 import math
 import torch
@@ -35,7 +35,7 @@ def generatePuzzles(N=500000,S=9):
 	for ind, res in enumerate(pool.imap_unordered(makePuzzle, range(N), chunksize)):
 		x[ind, :, :] = res
     
-	torch.save(x, f'puzzles_{S}_{N}.pt')
+	torch.save(x, f'puzzles_{S}_{N}.pth')
 
 # dumb global -- need it for multiprocessing.
 percent_filled = 0.75
@@ -182,19 +182,20 @@ def savePuzzles():
 
 	puzzles_tens = torch.from_numpy(puzzles)
 	solutions_tens = torch.from_numpy(solutions)
-	torch.save(puzzles_tens, "satnet_puzzles_100k.pt")
-	torch.save(solutions_tens, "satnet_sols_100k.pt")
+	torch.save(puzzles_tens, "satnet_puzzles_100k.pth")
+	torch.save(solutions_tens, "satnet_sols_100k.pth")
 
 
 def vizSatNetFile(file_name="satnet_both_0.75_filled_10000.npz"):
 	file = np.load(file_name)
 	puzzles = file["puzzles"]
 	sols = file["solutions"]
+	sudoku = Sudoku(9,60)
 
 	for i in range(5):
-		print(puzzles[i])
+		sudoku.printSudoku("",puzzles[i])
 		print(f"Num zeros {81-np.count_nonzero(puzzles[i])}")
-		print(sols[i])
+		sudoku.printSudoku("",sols[i])
 
 		print("\n")
 
@@ -207,7 +208,7 @@ def convertToTorch(np_satnet_file):
 	puzzles = file["puzzles"]
 	sols = file["solutions"]
 	puzzles_tens, sols_tens = torch.from_numpy(puzzles), torch.from_numpy(sols)
-	new_filename = os.path.splitext(np_satnet_file)[0] + '.pt'
+	new_filename = os.path.splitext(np_satnet_file)[0] + '.pth'
 	puzzle_filename = new_filename.replace("both", "puzzle")
 	sol_filename = new_filename.replace("both", "sol")
 	torch.save(puzzles_tens, puzzle_filename)
@@ -227,17 +228,17 @@ def genSATNetPuzzlesParallel(N, pct_filled):
 		if ind % 1000 == 999:
 			print(".", end="", flush=True)
 
-	np.savez(f'satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
+	np.savez(f'satnet/satnet_both_{percent_filled}_filled_{N}.npz', puzzles=puzzles, solutions=solutions)
 
 if __name__ == "__main__":
 	# generatePuzzles()
 	N = 100000
 	genSATNetPuzzlesParallel(N, 0.85)
-	vizSatNetFile(f"satnet_both_0.85_filled_{N}.npz")
+	vizSatNetFile(f"satnet/satnet_both_0.85_filled_{N}.npz")
 	genSATNetPuzzlesParallel(N, 0.65)
-	vizSatNetFile(f"satnet_both_0.65_filled_{N}.npz")
+	vizSatNetFile(f"satnet/satnet_both_0.65_filled_{N}.npz")
 	genSATNetPuzzlesParallel(N, 0.35) # 'hard'
-	vizSatNetFile(f"satnet_both_0.35_filled_{N}.npz")
+	vizSatNetFile(f"satnet/satnet_both_0.35_filled_{N}.npz")
 	# above corresponds to 13, 29, and 47 blanks.
 	# = 84, 64, 41 percent filled.
 

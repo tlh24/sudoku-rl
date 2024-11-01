@@ -162,9 +162,9 @@ def enumerateBoards(puzzles):
 	n = n_actions * n_masks * n_curspos * n_puzzles
 	
 	try:
-		orig_board_enc = torch.load(f'orig_board_enc_{n}.pt',weights_only=True)
-		new_board_enc = torch.load(f'new_board_enc_{n}.pt',weights_only=True)
-		rewards_enc = torch.load(f'rewards_enc_{n}.pt',weights_only=True)
+		orig_board_enc = torch.load(f'orig_board_enc_{n}.pth',weights_only=True)
+		new_board_enc = torch.load(f'new_board_enc_{n}.pth',weights_only=True)
+		rewards_enc = torch.load(f'rewards_enc_{n}.pth',weights_only=True)
 		n = 1
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
@@ -194,8 +194,8 @@ def enumerateBoards(puzzles):
 		rewards_enc = torch.from_numpy(rewards_enc)
 
 		print("saving the generated boards")
-		torch.save(orig_board_enc, f'orig_board_enc_{n}.pt')
-		torch.save(new_board_enc, f'new_board_enc_{n}.pt')
-		torch.save(rewards_enc, f'rewards_enc_{n}.pt')
+		torch.save(orig_board_enc, f'orig_board_enc_{n}.pth')
+		torch.save(new_board_enc, f'new_board_enc_{n}.pth')
+		torch.save(rewards_enc, f'rewards_enc_{n}.pth')
 
 	return orig_board_enc, new_board_enc, rewards_enc

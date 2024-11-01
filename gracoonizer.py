@@ -44,11 +44,12 @@ class Gracoonizer(nn.Module):
 			model_args = dict(
 				n_layer=n_layers,
 				n_head=n_heads,
-				n_embd=384,
+				n_embd=128,
 				block_size=token_cnt,
 				bias=False,
 				in_size=world_dim,
-				dropout=False)
+				dropout=False, 
+				repeat=repeat)
 			gptconf = GPTConfig(**model_args)
 			self.xfrmr = nanogpt_model.GPT(gptconf)
 		else: #Use NetDenoise MLP 
@@ -155,7 +156,7 @@ class Gracoonizer(nn.Module):
 		if path is None:
 			path = "checkpoints/gracoonizer.pth"
 		torch.save(self.state_dict(), path)
-		print(f"saved checkpoint to {path}")
+		print(colored(f"saved checkpoint to {path}", 'blue'))
 
 	def printParamCount(self):
 		trainable_params = sum(

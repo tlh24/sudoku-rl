@@ -126,12 +126,14 @@ if __name__ == "__main__":
 			reward = read_mmap(fd_reward, [batch_size, reward_dim])
 			rewardp = read_mmap(fd_rewardp, [batch_size, reward_dim])
 			
-			if u % 2 == 0 or True: 
-				err = torch.sum((boardp[:,:,33:] - new_board[:,:,1:32])**2, [1,2])
+			if u % 2 == 0 and False: 
+				err = torch.sum((boardp[:,:,1:32] - new_board[:,:,1:32])**2, [1,2])
 				i = torch.argmax(err).item()
 				maxerr = err[i]
 				sumerr = torch.sum(err)
 			else: 
+				maxerr = 0
+				sumerr = 0
 				i = 0
 			
 			guess = 10 + torch.argmax(new_board[i,0,10:20])
@@ -140,10 +142,11 @@ if __name__ == "__main__":
 			if lines is not None: 
 				lines.pop(0).remove()
 			lines = axs[0,0].plot([0,4,0,0,cl-1],[6,6,6,guess,guess], 'g', alpha=0.4)
-			plotTensor(1, 0, boardp[i,:cl,:].T, f"board_pred[{i},:,:]", -4.0, 4.0)
-			plotTensor(0, 1, new_board[i,:cl,:32].T - board[i,:cl,:32].T, f"(new_board -  board)[{i},:,:32]", -4.0, 4.0)
-			plotTensor(1, 1, boardp[i,:cl,:].T - board[i,:cl,:].T, f"(board_pred - board)[{i},:,:]", -4.0, 4.0)
-			plotTensor(0, 2, (boardp[i,:cl,33:].T - new_board[i,:cl,1:32].T), f"(board_pred - new_board)[{i},:,:32]", -4.0, 4.0)
+			plotTensor(0, 0, board[i,:cl,:].T, f"old_board[{i},:,:]", -4.0, 4.0)
+			plotTensor(1, 0, new_board[i,:cl,:32].T, f"new_board [{i},:,:32]", -4.0, 4.0)
+			plotTensor(0, 1, boardp[i,:cl,:].T, f"board_pred)[{i},:,:]", -4.0, 4.0)
+			plotTensor(1, 1, (board[i,:cl,1:32].T + new_board[i,:cl,1:32].T), f"(board + new_board)[{i},:,1:32]", -4.0, 4.0)
+			plotTensor(0, 2, (board[i,:cl,1:32].T + boardp[i,:cl,1:32].T), f"(board + board_pred)[{i},:,1:32]", -4.0, 4.0)
 			plotTensor(1, 2, torch.cat((reward,rewardp),1), f"reward & rewardp", -5.0, 5.0)
 			
 		if mode == 1: 
@@ -170,7 +173,6 @@ if __name__ == "__main__":
 					if head == 0: 
 						axs[layer+2,head].set_ylabel('input dim')
 						axs[layer+2,head].set_xlabel('output dim for Q & V')
-				
 		
 		
 		fig.tight_layout()
@@ -187,7 +189,7 @@ if __name__ == "__main__":
 			if maxerr > 1.0 and False:
 				time.sleep(60.0)
 			else:
-				time.sleep(4.0)
+				time.sleep(2.0)
 		initialized=True
 		u = u + 1
 
