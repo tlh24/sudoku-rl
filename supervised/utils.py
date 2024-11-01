@@ -65,7 +65,7 @@ class Sudoku_Dataset_SATNet(Dataset):
 					data[k] = torch.load(f, weights_only=False)
 			except Exception as error:
 				print(f"could not find data file: {error}")
-				print("please download: wget -cq powei.tw/sudoku.zip && unzip -qq sudoku.zip (see https://github.com/azreasoners/recurrent_transformer)")
+				print("please download: wget -cq powei.tw/sudoku.zip && unzip -qq sudoku.zip && mv sudoku satnet (see https://github.com/azreasoners/recurrent_transformer)")
 		# board has shape (10000, 81), 0's with no digits and 1-9 for digits
 		self.board = ((data['board'].sum(-1) != 0) * (data['board'].argmax(-1) + 1)).view(-1, 81).long()
 		self.label = data['label'].argmax(-1).view(-1, 81).long() # (10000, 81)

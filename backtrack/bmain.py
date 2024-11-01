@@ -370,10 +370,10 @@ non-backtracking random initial policy:
 def stochasticSolve(puzz, n, value_fn, debug=False):
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	clues = np.clip(clues, 0, 2) # replicate training
-	iters = 1200
+	iters = 800
 	best_i = 0
 	guesses_best = None
-	for k in range(10): 
+	for k in range(20): 
 		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 		i = 0
 		j = 0
@@ -642,6 +642,7 @@ if __name__ == "__main__":
 	parser.add_argument('-a', action='store_true', help='use AdamW as the optimizer (as opposed to PSGD)')
 	parser.add_argument('-c', action='store_true', help="clear, start fresh: don't load model")
 	parser.add_argument('-i', type=int, default=0, help='index of computation')
+	parser.add_argument('-r', type=int, default=1, help='number of repeats')
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
 	cmd_args = parser.parse_args()
@@ -653,7 +654,7 @@ if __name__ == "__main__":
 	rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 	resource.setrlimit(resource.RLIMIT_NOFILE, (8*2048, rlimit[1]))
 
-	batch_size = 64
+	batch_size = 128
 	world_dim = 64
 	
 	if False: 
@@ -714,14 +715,11 @@ if __name__ == "__main__":
 	args = {"device": device}
 	torch.set_float32_matmul_precision('high')
 	torch.backends.cuda.matmul.allow_tf32 = True
-
-	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
-	args['fd_losslog'] = fd_losslog
 	
 	memory_dict = gmain.getMemoryDict("../")
 
 	model = Gracoonizer(xfrmr_dim=world_dim, world_dim=world_dim, \
-			n_heads=8, n_layers=9, repeat=2, mode=0).to(device)
+			n_heads=8, n_layers=9, repeat=cmd_args.r, mode=0).to(device)
 	model.printParamCount()
 	
 	if cmd_args.c: 
@@ -854,8 +852,9 @@ if __name__ == "__main__":
 	except Exception as error:
 		print(error)
 		puzzles = loadRrn()
+		indx = np.random.permutation(puzzles.shape[0])
 		sta = cmd_args.i*1024
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles[sta:sta+1024,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles[indx[sta:sta+1024],...], valueFn, n_iterations=128, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
@@ -873,10 +872,11 @@ if __name__ == "__main__":
 	
 	DATA_N = poss_all.shape[0]
 	VALID_N = DATA_N//10
+	indx = np.random.permutation(DATA_N)
 
 	def trainValSplit(y):
-		y_train = torch.tensor(y[:-VALID_N])
-		y_valid = torch.tensor(y[-VALID_N:])
+		y_train = torch.tensor(y[indx[:-VALID_N]])
+		y_valid = torch.tensor(y[indx[-VALID_N:]])
 		return y_train, y_valid
 
 	poss_train, poss_valid = trainValSplit(poss_all)
@@ -887,6 +887,9 @@ if __name__ == "__main__":
 	VALID_N = poss_valid.shape[0]
 
 	print(f'loaded {npz_file}; train/test {TRAIN_N} / {VALID_N}')
+	
+	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
+	args['fd_losslog'] = fd_losslog
 
 	if cmd_args.a:
 		optimizer_name = "adamw"
@@ -900,7 +903,7 @@ if __name__ == "__main__":
 	bi = TRAIN_N
 	avg_duration = 0.0
 	
-	for uu in range(200000):
+	for uu in range(22000):
 		time_start = time.time()
 		if bi+batch_size >= TRAIN_N:
 			batch_indx = np.random.permutation(TRAIN_N)
