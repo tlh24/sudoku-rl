@@ -227,7 +227,7 @@ def poss2guessRand(poss, value_fn, cntr):
 		# remove clues as move options (you cannot change clues)
 		clues = poss > 1
 		val = val - 100*np.sum(clues, axis=-1)[...,None]
-		val = val + np.random.normal(0.0, 0.025, val.shape)
+		val = val + np.random.normal(0.0, 0.07, val.shape)
 		# val = np.clip(val, -100, 100) # jic
 		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
 		if False: # DEBUG 
@@ -373,6 +373,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	iters = 800
 	best_i = 0
 	guesses_best = None
+	found_solution = False
 	for k in range(20): 
 		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 		i = 0
@@ -411,10 +412,22 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 				printSudoku("",poss2puzz(poss), curs_pos=highlight)
 				# printPoss("", poss)
 				print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} checkValid(poss_elim): {checkValid(poss_elim)}")
-		if i > best_i: 
+		if checkDone(poss):
+			if i < best_i: 
+				guesses_best = guesses
+				best_i = i
+				found_solution = True
+		if i > best_i and not found_solution: 
 			guesses_best = guesses
 			best_i = i
+			
+		# log this run
+		with open('progress.txt', 'a') as fid:
+			fid.write(f"{k}\t{i}\t{j}\n")
+			fid.close()
 	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses_best[:i-1,:,:,:], axis=0)), axis=0)
+	
+	
 	return context, guesses_best[:i,:,:,:]
 
 
