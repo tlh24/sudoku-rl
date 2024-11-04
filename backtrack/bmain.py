@@ -56,7 +56,7 @@ def checkIfValid(mat):
 			valid = False
 	return valid
 
-def printSudoku(indent, puzzl_mat, curs_pos=None):
+def printSudoku(indent, puzzl_mat, curs_pos=None, highlight_pos=None):
 	for i in range(9):
 		print(indent, end="")
 		for j in range(9):
@@ -67,6 +67,9 @@ def printSudoku(indent, puzzl_mat, curs_pos=None):
 			if curs_pos is not None: 
 				if int(curs_pos[0]) == i and int(curs_pos[1]) == j:
 					bgcol = "on_light_yellow"
+			if highlight_pos is not None: 
+				if int(highlight_pos[0]) == i and int(highlight_pos[1]) == j:
+					bgcol = "on_light_blue"
 			if p == 0:
 				if color == "black":
 					color = "light_grey"
@@ -224,23 +227,30 @@ def poss2guessRand(poss, value_fn, cntr):
 		or enumerate through the value function '''
 	if value_fn :
 		val = value_fn( poss )
+		if len(val.shape) == 4: 
+			val = val.squeeze()
 		# remove clues as move options (you cannot change clues)
 		clues = poss > 1
 		val = val - 100*np.sum(clues, axis=-1)[...,None]
+		# remove existing guesses (you cannot submit same guess twice)
+		guesses = poss == 1
+		val = val - 100*guesses
+		# add a bit of noise, for exploration
 		val = val + np.random.normal(0.0, 0.07, val.shape)
 		# val = np.clip(val, -100, 100) # jic
 		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
 		if False: # DEBUG 
 			print("value context:")
-			printSudoku("c- ", poss2puzz(poss))
+			# printSudoku("c- ", poss2puzz(poss))
 			indx = np.argsort(-val.flatten())
 			indx = np.unravel_index(indx, val.shape)
-			print("top policy suggestions")
+			print(f"top policy suggestions; cntr:{cntr}")
 			for i in range(10): 
-				print(indx[0][i], indx[1][i], indx[2][i], ":", (indx[0][i]*9+indx[1][i]))
+				print(f"r:{indx[0][i]} c:{indx[1][i]} d:{indx[2][i]+1} r*9+c:{(indx[0][i]*9+indx[1][i])}")
 			plt.rcParams['toolbar'] = 'toolbar2'
-			plt.imshow(val.reshape((81,9)) )
+			plt.imshow(np.clip(val.reshape((81,9)).T, -2, 4) )
 			plt.title('val')
+			plt.colorbar()
 			plt.show()
 		# sel = sampleCategorical( val )
 		indx = np.argsort(-val.flatten())
@@ -373,9 +383,11 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	iters = 800
 	best_i = 0
 	guesses_best = None
-	found_solution = False
-	for k in range(20): 
+	guesses_best_j = None
+	fix = None
+	for k in range(20):  
 		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
+		guesses_j = np.ones((n,), dtype=int)*(iters+10)
 		i = 0
 		j = 0
 		while i < n and j < iters:
@@ -387,6 +399,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 					break
 				guess = poss2guessRand(poss, value_fn, 0)
 				guesses[i,:,:,:] = guess
+				guesses_j[i] = j
 				i = i + 1
 			else:
 				cntr = np.zeros((i), dtype=np.int64)
@@ -396,9 +409,14 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 					s = np.random.randint(0,i)
 					fix = guesses[s,:,:,:]*-1 # temp remove past guess
 					guess = poss2guessRand(poss + fix, value_fn, cntr[s])
+					# do not allow duplicate guesses
+					while np.sum(guess + fix*-1) == 0: 
+						guess = poss2guessRand(poss + fix, value_fn, cntr[s])
+						j = j + 1
 					poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
 					if checkValid(poss_elim):
 						guesses[s,:,:,:] = guess
+						guesses_j[s] = j
 						break
 					else:
 						cntr[s] = cntr[s] + 1
@@ -406,29 +424,35 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			if debug:
 				poss = np.sum(guesses, axis=0) + clues
 				poss_elim = eliminatePoss( np.array(poss) )
+				if fix is not None: 
+					fix_loc = np.where(fix == -1)
+					highlight_pos = [fix_loc[0].item(), fix_loc[1].item()]
+				else: 
+					highlight_pos = None
 				print(f"i:{i},j:{j}")
 				sel = np.where(guess == 1)
-				highlight = [sel[0].item(), sel[1].item()]
-				printSudoku("",poss2puzz(poss), curs_pos=highlight)
+				curs_pos = [sel[0].item(), sel[1].item()]
+				printSudoku("",poss2puzz(poss), curs_pos=curs_pos, highlight_pos=highlight_pos)
 				# printPoss("", poss)
 				print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} checkValid(poss_elim): {checkValid(poss_elim)}")
-		if checkDone(poss):
-			if i < best_i: 
-				guesses_best = guesses
-				best_i = i
-				found_solution = True
-		if i > best_i and not found_solution: 
-			guesses_best = guesses
+		
+		if i > best_i: 
+			guesses_best = np.array(guesses)
+			guesses_best_j = np.array(guesses_j)
 			best_i = i
+		if checkDone(poss):
+			break # found the solution, don't try more! 
 			
 		# log this run
 		with open('progress.txt', 'a') as fid:
 			fid.write(f"{k}\t{i}\t{j}\n")
 			fid.close()
-	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses_best[:i-1,:,:,:], axis=0)), axis=0)
-	
-	
-	return context, guesses_best[:i,:,:,:]
+
+	# sort the guesses based on j 
+	indx = np.argsort(guesses_best_j) # ascending
+	guesses_best = guesses_best[indx, ...]
+	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses_best[:best_i-1,:,:,:], axis=0)), axis=0)
+	return context, guesses_best[:best_i,:,:,:]
 
 
 g_puzzles = np.zeros((9,9,9))
@@ -655,7 +679,7 @@ if __name__ == "__main__":
 	parser.add_argument('-a', action='store_true', help='use AdamW as the optimizer (as opposed to PSGD)')
 	parser.add_argument('-c', action='store_true', help="clear, start fresh: don't load model")
 	parser.add_argument('-i', type=int, default=0, help='index of computation')
-	parser.add_argument('-r', type=int, default=1, help='number of repeats')
+	parser.add_argument('-r', type=int, default=2, help='number of repeats')
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
 	cmd_args = parser.parse_args()
@@ -760,7 +784,7 @@ if __name__ == "__main__":
 	hcoo = hcoo[0:2] # sparse / set-layers
 	hcoo.append('self') # intra-token op
 	
-	def valueFn(poss, bs): 
+	def valueFn(poss, bs=1): 
 		assert(bs <= batch_size)
 		poss = torch.from_numpy(poss).float().reshape(bs,81,9)
 		poss = poss.to(device)
@@ -780,7 +804,7 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if False:
+	if True:
 		n_solved = 0
 		record = []
 		for i in range(16000, 16001):
@@ -796,7 +820,7 @@ if __name__ == "__main__":
 			[6,0,0,1,0,0,0,0,0],
 			[0,0,0,8,0,0,0,0,0]], dtype=np.int8) # 17 clues, requires graph coloring. 
 			printSudoku("", puzz)
-			poss,guess = stochasticSolve(puzz, 64, valueFn, True)
+			poss,guess = stochasticSolve(puzz, 96, valueFn, True)
 			sol = poss[-1,:,:,:] + guess[-1,:,:,:]
 			printSudoku("", poss2puzz(sol))
 			if checkIfValid(sol): 
@@ -867,7 +891,7 @@ if __name__ == "__main__":
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
 		sta = cmd_args.i*1024
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles[indx[sta:sta+1024],...], valueFn, n_iterations=128, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles[indx[sta:sta+1024],...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
