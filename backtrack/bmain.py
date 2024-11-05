@@ -380,7 +380,7 @@ non-backtracking random initial policy:
 def stochasticSolve(puzz, n, value_fn, debug=False):
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	clues = np.clip(clues, 0, 2) # replicate training
-	iters = 800
+	iters = 400
 	best_i = 0
 	guesses_best = None
 	guesses_best_j = None
@@ -392,37 +392,43 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 		j = 0
 		while i < n and j < iters:
 			j = j + 1
-			poss = np.sum(guesses, axis=0) + clues
+			poss = np.clip(np.sum(guesses, axis=0) + clues,-1,2)
 			poss_elim = eliminatePoss( np.array(poss) )
 			if checkValid(poss) and checkValid(poss_elim):
 				if checkDone(poss):
 					break
 				guess = poss2guessRand(poss, value_fn, 0)
-				guesses[i,:,:,:] = guess
+				guesses[i,:,:,:] = np.clip(guesses[i,:,:,:] + guess,-1,1)
 				guesses_j[i] = j
 				i = i + 1
 			else:
 				cntr = np.zeros((i), dtype=np.int64)
 				while j < iters:
 					# try one removal, one addition fixes
-					j = j + 1
 					s = np.random.randint(0,i)
-					fix = guesses[s,:,:,:]*-1 # temp remove past guess
+					old_fix = np.clip(guesses[s,:,:,:], -1, 0)
+					 # fix = temp remove past guess
+					fix = np.clip(guesses[s,:,:,:], 0, 1)*-1 
 					guess = poss2guessRand(poss + fix, value_fn, cntr[s])
 					# do not allow duplicate guesses
-					while np.sum(guess + fix*-1) == 0: 
+					while np.sum(guess * (old_fix+fix)*-1) == 1 and j < iters: 
 						guess = poss2guessRand(poss + fix, value_fn, cntr[s])
 						j = j + 1
+						cntr[s] = cntr[s] + 1
 					poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
 					if checkValid(poss_elim):
-						guesses[s,:,:,:] = guess
+						# keep around wrong / failed guesses
+						guesses[s,:,:,:] = np.clip(guesses[s,:,:,:] + guess + fix,-1,1)
 						guesses_j[s] = j
+						j = j + 1
 						break
 					else:
+						guesses[s,:,:,:] = np.clip(guesses[s,:,:,:] - guess,-1,1)
 						cntr[s] = cntr[s] + 1
+						j = j + 1
 
 			if debug:
-				poss = np.sum(guesses, axis=0) + clues
+				poss = np.clip(np.sum(guesses, axis=0) + clues,-1,2)
 				poss_elim = eliminatePoss( np.array(poss) )
 				if fix is not None: 
 					fix_loc = np.where(fix == -1)
@@ -516,10 +522,10 @@ def value_function_worker(value_fn, input_queue, output_queues, active_workers, 
 	while active_workers.value > 0:
 		try: # Try to fill up a batch
 			while len(pending_requests) < batch_size:
-					req = input_queue.get(timeout=0.01)
-					if req is None:  # Shutdown signal
-						return
-					pending_requests.append(req)
+				req = input_queue.get(timeout=0.003)
+				if req is None:  # Shutdown signal
+					return
+				pending_requests.append(req)
 		except Empty:
 			pass
 		
@@ -804,7 +810,7 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if True:
+	if False:
 		n_solved = 0
 		record = []
 		for i in range(16000, 16001):
@@ -933,6 +939,10 @@ if __name__ == "__main__":
 	else:
 		optimizer_name = "psgd" # adam, adamw, psgd, or sgd
 	optimizer = gmain.getOptimizer(optimizer_name, model)
+	# optimizer.lr_params = 0.001
+	# optimizer.lr_preconditioner=0.002
+	optimizer.momentum=0.8
+	
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
@@ -952,7 +962,7 @@ if __name__ == "__main__":
 		poss = torch.clip(poss, 0, 2)
 		guess = guess_train[indx, :, :, :].reshape((batch_size,81,9))
 		# model must guess the digit - no longer includes failed attempts
-		guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
+		# guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
 		mask = guess != 0
 
 		poss = poss.float().to(device)
@@ -1036,7 +1046,7 @@ if __name__ == "__main__":
 			poss = poss_valid[indx, :, :, :].reshape((batch_size,81,9))
 			poss = np.clip(poss, 0, 2)
 			guess = guess_valid[indx, :, :, :].reshape((batch_size,81,9))
-			guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
+			# guess = guess*2 - torch.sum(guess, axis=-1)[...,None]
 			mask = guess != 0
 
 			poss = poss.float().to(device)
