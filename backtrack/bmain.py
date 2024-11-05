@@ -385,7 +385,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	best_guesses = None
 	best_guesses_j = None
 	fix = None
-	for k in range(5):
+	for k in range(1):
 		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 		guesses_j = np.ones((n,), dtype=int)*(iters+10)
 		i = 0
