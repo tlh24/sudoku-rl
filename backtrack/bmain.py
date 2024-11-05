@@ -379,11 +379,11 @@ non-backtracking random initial policy:
 '''
 def stochasticSolve(puzz, n, value_fn, debug=False):
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
-	clues = np.clip(clues, 0, 2) # replicate training
+	clues = np.clip(clues, 0, 2)
 	iters = 400
 	best_i = 0
-	guesses_best = None
-	guesses_best_j = None
+	best_guesses = None
+	best_guesses_j = None
 	fix = None
 	for k in range(20):  
 		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
@@ -443,8 +443,8 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 				print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} checkValid(poss_elim): {checkValid(poss_elim)}")
 		
 		if i > best_i: 
-			guesses_best = np.array(guesses)
-			guesses_best_j = np.array(guesses_j)
+			best_guesses = np.array(guesses)
+			best_guesses_j = np.array(guesses_j)
 			best_i = i
 		if checkDone(poss):
 			break # found the solution, don't try more! 
@@ -455,9 +455,9 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			fid.close()
 
 	# sort the guesses based on j 
-	indx = np.argsort(guesses_best_j) # ascending
-	guesses_best = guesses_best[indx, ...]
-	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(np.clip(guesses_best[:best_i-1,:,:,:],0,1), axis=0)), axis=0)
+	indx = np.argsort(best_guesses_j) # ascending
+	best_guesses = best_guesses[indx, ...]
+	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(np.clip(best_guesses[:best_i-1,:,:,:],0,1), axis=0)), axis=0)
 	return context, guesses_best[:best_i,:,:,:]
 
 
@@ -810,7 +810,7 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if False:
+	if True:
 		n_solved = 0
 		record = []
 		for i in range(16000, 16001):
@@ -828,11 +828,11 @@ if __name__ == "__main__":
 			printSudoku("", puzz)
 			poss,guess = stochasticSolve(puzz, 96, valueFn, True)
 			sol = poss[-1,:,:,:] + guess[-1,:,:,:]
-			printSudoku("", poss2puzz(sol))
-			if checkIfValid(sol): 
-				n_solved = n_solved + 1
-			if i % 10 == 9: 
-				print(".", end="", flush=True)
+			# printSudoku("", poss2puzz(sol))
+			for i in range(pss.shape[0]):
+				printSudoku("", poss2puzz(poss[i]))
+				printPoss("", guess[i])
+				print("")
 		print(f"n_solved:{n_solved}")
 		
 		# npz_file = f'satnet_backtrack_0.65.npz'
