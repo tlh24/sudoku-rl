@@ -385,7 +385,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	best_guesses = None
 	best_guesses_j = None
 	fix = None
-	for k in range(20):  
+	for k in range(5):
 		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 		guesses_j = np.ones((n,), dtype=int)*(iters+10)
 		i = 0
@@ -458,7 +458,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	indx = np.argsort(best_guesses_j) # ascending
 	best_guesses = best_guesses[indx, ...]
 	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(np.clip(best_guesses[:best_i-1,:,:,:],0,1), axis=0)), axis=0)
-	return context, guesses_best[:best_i,:,:,:]
+	return context, best_guesses[:best_i,:,:,:]
 
 
 g_puzzles = np.zeros((9,9,9))
