@@ -896,18 +896,19 @@ if __name__ == "__main__":
 		print(error)
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles[indx[sta:sta+1024],...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
+		sta = cmd_args.i*256
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles[indx[sta:sta+256],...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
 		npz_file = f"rrn_hard_backtrack_{cmd_args.i}.npz"
 		np.savez(npz_file, poss_all=poss_rrn, guess_all=guess_rrn)
 		
-		for i in range(24): 
-			printSudoku("", poss2puzz(poss_rrn[i]))
-			printSudoku("", poss2puzz(guess_rrn[i]))
-			print("")
+		if cmd_args.c == 0 and cmd_args.i == 0:
+			for i in range(100):
+				printSudoku("", poss2puzz(poss_rrn[i]))
+				printPoss("", guess_rrn[i])
+				print("")
 		exit()
 		
 	poss_all = np.concatenate(poss_rrn)
