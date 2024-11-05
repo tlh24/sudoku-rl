@@ -829,7 +829,7 @@ if __name__ == "__main__":
 			poss,guess = stochasticSolve(puzz, 96, valueFn, True)
 			sol = poss[-1,:,:,:] + guess[-1,:,:,:]
 			# printSudoku("", poss2puzz(sol))
-			for i in range(pss.shape[0]):
+			for i in range(poss.shape[0]):
 				printSudoku("", poss2puzz(poss[i]))
 				printPoss("", guess[i])
 				print("")
