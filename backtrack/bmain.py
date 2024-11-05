@@ -385,7 +385,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	best_guesses = None
 	best_guesses_j = None
 	fix = None
-	for k in range(1):
+	for k in range(20):
 		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
 		guesses_j = np.ones((n,), dtype=int)*(iters+10)
 		i = 0
@@ -816,7 +816,7 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if True:
+	if False:
 		n_solved = 0
 		record = []
 		for i in range(16000, 16001):
