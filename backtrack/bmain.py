@@ -392,7 +392,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 		j = 0
 		while i < n and j < iters:
 			j = j + 1
-			poss = np.clip(np.sum(guesses, axis=0) + clues,-1,2)
+			poss = np.sum(np.clip(guesses,0,1), axis=0) + clues
 			poss_elim = eliminatePoss( np.array(poss) )
 			if checkValid(poss) and checkValid(poss_elim):
 				if checkDone(poss):
@@ -411,7 +411,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 					fix = np.clip(guesses[s,:,:,:], 0, 1)*-1 
 					guess = poss2guessRand(poss + fix, value_fn, cntr[s])
 					# do not allow duplicate guesses
-					while np.sum(guess * (old_fix+fix)*-1) == 1 and j < iters: 
+					while np.sum(guess * (old_fix+fix)*-1) == 1 and j < iters:
 						guess = poss2guessRand(poss + fix, value_fn, cntr[s])
 						j = j + 1
 						cntr[s] = cntr[s] + 1
@@ -428,7 +428,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 						j = j + 1
 
 			if debug:
-				poss = np.clip(np.sum(guesses, axis=0) + clues,-1,2)
+				poss = np.sum(np.clip(guesses,0,1), axis=0) + clues
 				poss_elim = eliminatePoss( np.array(poss) )
 				if fix is not None: 
 					fix_loc = np.where(fix == -1)
@@ -457,7 +457,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	# sort the guesses based on j 
 	indx = np.argsort(guesses_best_j) # ascending
 	guesses_best = guesses_best[indx, ...]
-	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(guesses_best[:best_i-1,:,:,:], axis=0)), axis=0)
+	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(np.clip(guesses_best[:best_i-1,:,:,:],0,1), axis=0)), axis=0)
 	return context, guesses_best[:best_i,:,:,:]
 
 
