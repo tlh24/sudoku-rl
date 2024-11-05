@@ -924,7 +924,7 @@ if __name__ == "__main__":
 	# need to filter out elements with insufficient guidance
 	pdb.set_trace()
 	x = np.sum(np.abs(guess_all), axis=(1,2,3))
-	indx = np.where(x > 2)
+	indx = np.where(x > 1)
 	poss_all = poss_all[indx]
 	guess_all = guess_all[indx]
 	
