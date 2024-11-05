@@ -457,8 +457,14 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	# sort the guesses based on j 
 	indx = np.argsort(best_guesses_j) # ascending
 	best_guesses = best_guesses[indx, ...]
-	context = np.concatenate((np.expand_dims(clues,0), clues + np.cumsum(np.clip(best_guesses[:best_i-1,:,:,:],0,1), axis=0)), axis=0)
-	return context, best_guesses[:best_i,:,:,:]
+	context = np.concatenate(
+		(np.expand_dims(clues,0),
+			clues +
+				np.cumsum(
+					np.clip( best_guesses[:best_i-2,:,:,:], 0, 1),
+				axis=0)),
+		axis=0)
+	return context, best_guesses[:best_i-1,:,:,:]
 
 
 g_puzzles = np.zeros((9,9,9))
