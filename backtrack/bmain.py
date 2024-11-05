@@ -830,7 +830,7 @@ if __name__ == "__main__":
 			sol = poss[-1,:,:,:] + guess[-1,:,:,:]
 			# printSudoku("", poss2puzz(sol))
 			for i in range(poss.shape[0]):
-				printSudoku("", poss2puzz(poss[i]))
+				printSudoku(f"{i} ", poss2puzz(poss[i]))
 				printPoss("", guess[i])
 				print("")
 		print(f"n_solved:{n_solved}")
