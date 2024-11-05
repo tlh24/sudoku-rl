@@ -922,7 +922,6 @@ if __name__ == "__main__":
 	guess_all = np.concatenate(guess_rrn)
 
 	# need to filter out elements with insufficient guidance
-	pdb.set_trace()
 	x = np.sum(np.abs(guess_all), axis=(1,2,3))
 	indx = np.where(x > 1)
 	poss_all = poss_all[indx]
