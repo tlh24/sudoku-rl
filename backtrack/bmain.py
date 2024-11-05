@@ -457,6 +457,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 	# sort the guesses based on j 
 	indx = np.argsort(best_guesses_j) # ascending
 	best_guesses = best_guesses[indx, ...]
+	# cumsum, leave off lasst guess as it may be invalid.
 	context = np.concatenate(
 		(np.expand_dims(clues,0),
 			clues +
@@ -919,6 +920,13 @@ if __name__ == "__main__":
 		
 	poss_all = np.concatenate(poss_rrn)
 	guess_all = np.concatenate(guess_rrn)
+
+	# need to filter out elements with insufficient guidance
+	pdb.set_trace()
+	x = np.sum(np.abs(guess_all), axis=(1,2,3))
+	indx = np.where(x > 2)
+	poss_all = poss_all[indx]
+	guess_all = guess_all[indx]
 	
 	DATA_N = poss_all.shape[0]
 	VALID_N = DATA_N//10
