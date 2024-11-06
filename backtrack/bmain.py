@@ -573,6 +573,8 @@ def solverWorker(
 		# Send request
 		input_queue.put(request)
 		response = output_queue.get()  
+		assert(response.request_id == request.request_id)
+		assert(response.solver_id == solver_id)
 		return response.value
 	
 	# Process each puzzle in the assigned chunk
@@ -702,7 +704,7 @@ if __name__ == "__main__":
 	rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 	resource.setrlimit(resource.RLIMIT_NOFILE, (8*2048, rlimit[1]))
 
-	batch_size = 128
+	batch_size = 32
 	world_dim = 64
 	
 # 	if False:
@@ -901,7 +903,8 @@ if __name__ == "__main__":
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
 		sta = cmd_args.i*1024*2
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles[indx[sta:sta+1024*2],...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
+		puzzles_permute = np.array(puzzles[indx,...])
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*2,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
