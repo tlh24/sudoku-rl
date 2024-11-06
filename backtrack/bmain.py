@@ -818,19 +818,9 @@ if __name__ == "__main__":
 		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
-		parallelSolveVF(puzzles[:1000,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
+		parallelSolveVF(puzzles[:1024,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
 		# for i in range(1, 1000):
 		# 	puzz = puzzles[i]
-		# 	# puzz = np.array([
-		# 	# [0,4,0,0,0,0,0,8,2],
-		# 	# [7,0,0,6,0,0,0,0,0],
-		# 	# [0,0,0,0,0,0,0,0,0],
-		# 	# [0,0,0,0,7,0,0,1,0],
-		# 	# [0,0,0,0,5,0,6,0,0],
-		# 	# [0,8,2,0,0,0,0,0,0],
-		# 	# [3,0,5,0,0,0,7,0,0],
-		# 	# [6,0,0,1,0,0,0,0,0],
-		# 	# [0,0,0,8,0,0,0,0,0]], dtype=np.int8) # 17 clues, requires graph coloring.
 		# 	# printSudoku("", puzz)
 		# 	poss,guess = stochasticSolve(puzz, 96, valueFn, True)
 		# 	# sol = poss[-1,:,:,:] + guess[-1,:,:,:]
