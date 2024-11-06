@@ -695,6 +695,7 @@ if __name__ == "__main__":
 	parser.add_argument('-r', type=int, default=2, help='number of repeats')
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
+	parser.add_argument('-b', type=int, default=128, help='batch size')
 	cmd_args = parser.parse_args()
 	
 	print(f"-i: {cmd_args.i} -cuda:{cmd_args.cuda}")
@@ -704,7 +705,7 @@ if __name__ == "__main__":
 	rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 	resource.setrlimit(resource.RLIMIT_NOFILE, (8*2048, rlimit[1]))
 
-	batch_size = 32
+	batch_size = cmd_args.b
 	world_dim = 64
 	
 # 	if False:
