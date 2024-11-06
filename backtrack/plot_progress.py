@@ -1,3 +1,4 @@
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -9,8 +10,8 @@ second_column = data[1]
 
 moving_average = second_column.rolling(window=100).mean()
 
-# Plot the second column
-plt.plot(second_column, 'bo', alpha=0.1)
+matplotlib.rcParams.update({'font.size': 22})
+plt.plot(second_column, 'bo', alpha=1/255)
 plt.plot(moving_average, 'k')
 plt.xlabel('Index')
 plt.ylabel('Number of cells filled')
