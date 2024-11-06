@@ -896,7 +896,8 @@ if __name__ == "__main__":
 			file = np.load(npz_file)
 			poss_rrn.append(file["poss_all"])
 			guess_rrn.append(file["guess_all"])
-			print(f"number of supervised examples: {file["poss_all"].shape[0]}")
+			n_data = file["poss_all"].shape[0]
+			print(f"number of supervised examples: {n_data}")
 	except Exception as error:
 		print(error)
 		puzzles = loadRrn()
