@@ -955,7 +955,7 @@ if __name__ == "__main__":
 	optimizer = gmain.getOptimizer(optimizer_name, model)
 	# optimizer.lr_params = 0.001
 	# optimizer.lr_preconditioner=0.002
-	optimizer.momentum=0.8
+	# optimizer.momentum=0.8
 	
 
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
