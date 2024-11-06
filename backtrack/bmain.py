@@ -396,7 +396,6 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			poss_elim = eliminatePoss( np.array(poss) )
 			if checkValid(poss) and checkValid(poss_elim):
 				if checkDone(poss):
-					j = iters
 					break
 				guess = poss2guessRand(poss, value_fn, 0)
 				guesses[i,:,:,:] = np.clip(guesses[i,:,:,:] + guess,-1,1)
