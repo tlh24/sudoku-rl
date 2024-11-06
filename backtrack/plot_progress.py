@@ -10,7 +10,7 @@ second_column = data[1]
 moving_average = second_column.rolling(window=100).mean()
 
 # Plot the second column
-plt.plot(second_column, 'b')
+plt.plot(second_column, 'bo', alpha=0.1)
 plt.plot(moving_average, 'k')
 plt.xlabel('Index')
 plt.ylabel('Number of cells filled')
