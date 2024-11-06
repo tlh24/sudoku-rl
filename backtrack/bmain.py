@@ -818,7 +818,7 @@ if __name__ == "__main__":
 		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
-		parallelSolveVF(puzzles_permute[:1000,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
+		parallelSolveVF(puzzles[:1000,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
 		# for i in range(1, 1000):
 		# 	puzz = puzzles[i]
 		# 	# puzz = np.array([
