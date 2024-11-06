@@ -10,6 +10,6 @@ second_column = data[1]
 # Plot the second column
 plt.plot(second_column)
 plt.xlabel('Index')
-plt.ylabel('Values (Second Column)')
-plt.title('Plot of the Second Column')
+plt.ylabel('Number of cells filled')
+plt.title('Plot of cells filled vs time')
 plt.show()

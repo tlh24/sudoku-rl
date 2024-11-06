@@ -396,6 +396,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			poss_elim = eliminatePoss( np.array(poss) )
 			if checkValid(poss) and checkValid(poss_elim):
 				if checkDone(poss):
+					j = iters
 					break
 				guess = poss2guessRand(poss, value_fn, 0)
 				guesses[i,:,:,:] = np.clip(guesses[i,:,:,:] + guess,-1,1)
@@ -404,6 +405,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			else:
 				cntr = np.zeros((i), dtype=np.int64)
 				while j < iters:
+					j = j+1
 					# try one removal, one addition fixes
 					s = np.random.randint(0,i)
 					old_fix = np.clip(guesses[s,:,:,:], -1, 0)
@@ -412,20 +414,18 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 					guess = poss2guessRand(poss + fix, value_fn, cntr[s])
 					# do not allow duplicate guesses
 					while np.sum(guess * (old_fix+fix)*-1) == 1 and j < iters:
+						j = j+1
 						guess = poss2guessRand(poss + fix, value_fn, cntr[s])
-						j = j + 1
 						cntr[s] = cntr[s] + 1
 					poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
 					if checkValid(poss_elim):
 						# keep around wrong / failed guesses
 						guesses[s,:,:,:] = np.clip(guesses[s,:,:,:] + guess + fix,-1,1)
 						guesses_j[s] = j
-						j = j + 1
 						break
 					else:
 						guesses[s,:,:,:] = np.clip(guesses[s,:,:,:] - guess,-1,1)
 						cntr[s] = cntr[s] + 1
-						j = j + 1
 
 			if debug:
 				poss = np.sum(np.clip(guesses,0,1), axis=0) + clues
@@ -446,8 +446,6 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			best_guesses = np.array(guesses)
 			best_guesses_j = np.array(guesses_j)
 			best_i = i
-		if checkDone(poss):
-			break # found the solution, don't try more! 
 			
 		# log this run
 		with open('progress.txt', 'a') as fid:
