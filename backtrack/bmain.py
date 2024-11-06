@@ -448,7 +448,7 @@ def stochasticSolve(puzz, n, value_fn, debug=False):
 			best_i = i
 			
 		# log this run
-		with open('progress.txt', 'a') as fid:
+		with open('progress_.txt', 'a') as fid:
 			fid.write(f"{k}\t{i}\t{j}\n")
 			fid.close()
 
@@ -758,10 +758,6 @@ if __name__ == "__main__":
 # 		# printSudoku("", puzz_unperm)
 # 		exit()
 
-	# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-	# puzzles = dat["puzzles"]
-	# sudoku = Sudoku(9,60)
-
 	device = torch.device(f'cuda:{cmd_args.cuda}')
 	args = {"device": device}
 	torch.set_float32_matmul_precision('high')
@@ -818,30 +814,31 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if False:
+	if True:
+		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
-		for i in range(16000, 16001):
+		for i in range(1, 1000):
 			puzz = puzzles[i]
-			puzz = np.array([
-			[0,4,0,0,0,0,0,8,2], 
-			[7,0,0,6,0,0,0,0,0],
-			[0,0,0,0,0,0,0,0,0],
-			[0,0,0,0,7,0,0,1,0],
-			[0,0,0,0,5,0,6,0,0],
-			[0,8,2,0,0,0,0,0,0],
-			[3,0,5,0,0,0,7,0,0],
-			[6,0,0,1,0,0,0,0,0],
-			[0,0,0,8,0,0,0,0,0]], dtype=np.int8) # 17 clues, requires graph coloring. 
-			printSudoku("", puzz)
+			# puzz = np.array([
+			# [0,4,0,0,0,0,0,8,2],
+			# [7,0,0,6,0,0,0,0,0],
+			# [0,0,0,0,0,0,0,0,0],
+			# [0,0,0,0,7,0,0,1,0],
+			# [0,0,0,0,5,0,6,0,0],
+			# [0,8,2,0,0,0,0,0,0],
+			# [3,0,5,0,0,0,7,0,0],
+			# [6,0,0,1,0,0,0,0,0],
+			# [0,0,0,8,0,0,0,0,0]], dtype=np.int8) # 17 clues, requires graph coloring.
+			# printSudoku("", puzz)
 			poss,guess = stochasticSolve(puzz, 96, valueFn, True)
-			sol = poss[-1,:,:,:] + guess[-1,:,:,:]
+			# sol = poss[-1,:,:,:] + guess[-1,:,:,:]
 			# printSudoku("", poss2puzz(sol))
-			for i in range(poss.shape[0]):
-				printSudoku(f"{i} ", poss2puzz(poss[i]))
-				printPoss("", guess[i])
-				print("")
-		print(f"n_solved:{n_solved}")
+			# for i in range(poss.shape[0]):
+			# 	printSudoku(f"{i} ", poss2puzz(poss[i]))
+			# 	printPoss("", guess[i])
+			# 	print("")
 		
 		# npz_file = f'satnet_backtrack_0.65.npz'
 		# n = len(record)
