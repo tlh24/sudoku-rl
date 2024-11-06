@@ -7,8 +7,11 @@ data = pd.read_csv('progress.txt', sep='\t', header=None)
 # Extract the second column (index 1)
 second_column = data[1]
 
+moving_average = second_column.rolling(window=100).mean()
+
 # Plot the second column
-plt.plot(second_column)
+plt.plot(second_column, 'b')
+plt.plot(moving_average, 'k')
 plt.xlabel('Index')
 plt.ylabel('Number of cells filled')
 plt.title('Plot of cells filled vs time')
