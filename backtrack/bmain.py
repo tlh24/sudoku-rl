@@ -888,8 +888,6 @@ if __name__ == "__main__":
 		
 	poss_rrn = []
 	guess_rrn = []
-	poss_rrn.append(poss_all)
-	guess_rrn.append(guess_all)
 	try:
 		for i in range(4): 
 			npz_file = f"rrn_hard_backtrack_{i}.npz"
