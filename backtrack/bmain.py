@@ -705,59 +705,59 @@ if __name__ == "__main__":
 	batch_size = 128
 	world_dim = 64
 	
-	if False: 
-		puzz = [
-			[0,4,0,0,0,0,0,8,2], 
-			[7,0,0,6,0,0,0,0,0],
-			[0,0,0,0,0,0,0,0,0],
-			[0,0,0,0,7,0,0,1,0],
-			[0,0,0,0,5,0,6,0,0],
-			[0,8,2,0,0,0,0,0,0],
-			[3,0,5,0,0,0,7,0,0],
-			[6,0,0,1,0,0,0,0,0],
-			[0,0,0,8,0,0,0,0,0]] # 17 clues, requires graph coloring. 
-		puzz = [
-			[0,6,0,0,0,0,1,0,0],
-			[0,0,0,3,0,2,0,0,0],
-			[0,0,0,0,0,0,0,0,0],
-			[0,0,3,0,0,0,0,2,4],
-			[8,0,0,0,0,0,0,3,0],
-			[0,0,0,0,1,0,0,0,0],
-			[0,1,0,0,0,0,7,5,0],
-			[2,0,0,9,0,0,0,0,0],
-			[0,0,0,4,0,0,6,0,0]]
-		puzz = [
-			[5,0,7,9,4,0,1,0,0],
-			[0,0,0,0,3,0,2,7,6],
-			[0,6,0,0,0,8,0,0,5],
-			[0,8,0,6,0,4,0,0,0],
-			[0,0,5,0,0,0,0,0,3],
-			[9,0,0,0,0,0,0,0,2],
-			[7,0,8,0,0,9,0,0,0],
-			[6,0,0,0,0,0,0,2,9],
-			[0,4,0,5,8,1,0,6,0] ]
-		puzz = np.array(puzz)
-		printSudoku("", puzz)
-		start_time = time.time()
-		record = []
-		_,sol,_ = solve( eliminatePoss(puzz2poss(puzz)), 10000, record, None, True)
-		print(f"time: {time.time() - start_time}")
-		printSudoku("", poss2puzz(sol))
-		
-		for i,(poss,guess) in enumerate(record):
-			printSudoku("r ",poss2puzz(poss))
-			printPoss("", guess)
-		# sol = poss2puzz(sol)
-		# permute,unpermute = boxPermutation()
-		# puzz_perm = sol[permute[:,0], permute[:,1]].reshape((9,9))
-		# printSudoku("", puzz_perm)
-		# puzz_unperm = puzz_perm[unpermute[:,0],unpermute[:,1]].reshape((9,9))
-		# printSudoku("", puzz_unperm)
-		exit()
+# 	if False:
+# 		puzz = [
+# 			[0,4,0,0,0,0,0,8,2],
+# 			[7,0,0,6,0,0,0,0,0],
+# 			[0,0,0,0,0,0,0,0,0],
+# 			[0,0,0,0,7,0,0,1,0],
+# 			[0,0,0,0,5,0,6,0,0],
+# 			[0,8,2,0,0,0,0,0,0],
+# 			[3,0,5,0,0,0,7,0,0],
+# 			[6,0,0,1,0,0,0,0,0],
+# 			[0,0,0,8,0,0,0,0,0]] # 17 clues, requires graph coloring.
+# 		puzz = [
+# 			[0,6,0,0,0,0,1,0,0],
+# 			[0,0,0,3,0,2,0,0,0],
+# 			[0,0,0,0,0,0,0,0,0],
+# 			[0,0,3,0,0,0,0,2,4],
+# 			[8,0,0,0,0,0,0,3,0],
+# 			[0,0,0,0,1,0,0,0,0],
+# 			[0,1,0,0,0,0,7,5,0],
+# 			[2,0,0,9,0,0,0,0,0],
+# 			[0,0,0,4,0,0,6,0,0]]
+# 		puzz = [
+# 			[5,0,7,9,4,0,1,0,0],
+# 			[0,0,0,0,3,0,2,7,6],
+# 			[0,6,0,0,0,8,0,0,5],
+# 			[0,8,0,6,0,4,0,0,0],
+# 			[0,0,5,0,0,0,0,0,3],
+# 			[9,0,0,0,0,0,0,0,2],
+# 			[7,0,8,0,0,9,0,0,0],
+# 			[6,0,0,0,0,0,0,2,9],
+# 			[0,4,0,5,8,1,0,6,0] ]
+# 		puzz = np.array(puzz)
+# 		printSudoku("", puzz)
+# 		start_time = time.time()
+# 		record = []
+# 		_,sol,_ = solve( eliminatePoss(puzz2poss(puzz)), 10000, record, None, True)
+# 		print(f"time: {time.time() - start_time}")
+# 		printSudoku("", poss2puzz(sol))
+#
+# 		for i,(poss,guess) in enumerate(record):
+# 			printSudoku("r ",poss2puzz(poss))
+# 			printPoss("", guess)
+# 		# sol = poss2puzz(sol)
+# 		# permute,unpermute = boxPermutation()
+# 		# puzz_perm = sol[permute[:,0], permute[:,1]].reshape((9,9))
+# 		# printSudoku("", puzz_perm)
+# 		# puzz_unperm = puzz_perm[unpermute[:,0],unpermute[:,1]].reshape((9,9))
+# 		# printSudoku("", puzz_unperm)
+# 		exit()
 
-	dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-	puzzles = dat["puzzles"]
-	sudoku = Sudoku(9,60)
+	# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+	# puzzles = dat["puzzles"]
+	# sudoku = Sudoku(9,60)
 
 	device = torch.device(f'cuda:{cmd_args.cuda}')
 	args = {"device": device}
@@ -780,7 +780,7 @@ if __name__ == "__main__":
 			print(error)
 			
 	# null encoding that will be replaced. 
-	benc, coo, a2a, board_loc = encodeSudoku(puzzles[0])
+	benc, coo, a2a, board_loc = encodeSudoku(np.zeros((9,9)))
 	n_tok = benc.shape[0]
 	benc = torch.from_numpy(benc).float()
 	benc = torch.tile(benc.unsqueeze(0), (batch_size,1,1) )
@@ -853,38 +853,38 @@ if __name__ == "__main__":
 		# np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
 		exit()
 	
-	npz_file = f'satnet_backtrack_0.65.npz'
-	try:
-		file = np.load(npz_file)
-		poss_all = file["poss_all"]
-		guess_all = file["guess_all"]
-		print(f"number of supervised examples: {poss_all.shape[0]}")
-	except Exception as error:
-		if False: 
-			# serial solve, slow.
-			rec_poss = []
-			rec_guess = []
-			for i in range(10000):
-				poss, guess = stochasticSolve(puzzles[i], 48, None, False)
-				if i % 10 == 9: 
-					print(".", end="", flush=True)
-				assert(poss.shape[0] == guess.shape[0])
-				# for j in range(poss.shape[0]): 
-				# 	print("board state:")
-				# 	printSudoku("",poss2puzz(poss[j,:,:,:]))
-				# 	print("guess:")
-				# 	printSudoku("",poss2puzz(guess[j,:,:,:]))
-				rec_poss.append(poss)
-				rec_guess.append(guess)
-			
-			poss_all = np.stack(rec_poss)
-			guess_all = np.stack(rec_guess)
-		else: 
-			poss_all, guess_all = parallelSolve(puzzles, 1000)
-		
-		n = poss_all.shape[0]
-		print(f"number of supervised examples: {n}")
-		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
+# 	npz_file = f'satnet_backtrack_0.65.npz'
+# 	try:
+# 		file = np.load(npz_file)
+# 		poss_all = file["poss_all"]
+# 		guess_all = file["guess_all"]
+# 		print(f"number of supervised examples: {poss_all.shape[0]}")
+# 	except Exception as error:
+# 		if False:
+# 			# serial solve, slow.
+# 			rec_poss = []
+# 			rec_guess = []
+# 			for i in range(10000):
+# 				poss, guess = stochasticSolve(puzzles[i], 48, None, False)
+# 				if i % 10 == 9:
+# 					print(".", end="", flush=True)
+# 				assert(poss.shape[0] == guess.shape[0])
+# 				# for j in range(poss.shape[0]):
+# 				# 	print("board state:")
+# 				# 	printSudoku("",poss2puzz(poss[j,:,:,:]))
+# 				# 	print("guess:")
+# 				# 	printSudoku("",poss2puzz(guess[j,:,:,:]))
+# 				rec_poss.append(poss)
+# 				rec_guess.append(guess)
+#
+# 			poss_all = np.stack(rec_poss)
+# 			guess_all = np.stack(rec_guess)
+# 		else:
+# 			poss_all, guess_all = parallelSolve(puzzles, 1000)
+#
+# 		n = poss_all.shape[0]
+# 		print(f"number of supervised examples: {n}")
+# 		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
 		
 	poss_rrn = []
 	guess_rrn = []
