@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # Load the CSV file (assuming it's named 'data.csv')
-data = pd.read_csv('progress_.txt', sep='\t', header=None)
+data = pd.read_csv('progress.txt', sep='\t', header=None)
 
 # Extract the second column (index 1)
 second_column = data[1]
