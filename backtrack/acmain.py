@@ -143,23 +143,6 @@ def poss2puzz(poss):
 				puzz[i,j] = np.argmax(poss[i,j,:]) + 1
 	return puzz
 	
-def poss2guessDumb(poss, value_fn): 
-	# pick an undefined cell, set to 1
-	if value_fn and False:
-		val = value_fn( np.clip(poss, 0, 1)) # ignore guesses
-		val = val * (poss == 0)
-		val = val - 1e6*( poss != 0 )
-		flat_sel = np.argmax( val )
-		sel = np.unravel_index(flat_sel, poss.shape)
-	else: 
-		# sel = random.choice( np.argwhere(poss == 0) )
-		# random sel does not work!!! 
-		# blows up the search tree! 
-		sel = np.argwhere(poss == 0)[0]
-	guess = np.zeros((9,9,9), dtype=np.int8)
-	guess[sel[0], sel[1], sel[2]] = 1
-	return guess
-	
 def sampleCategorical(categorical_probs):
 	# adapted from SEDD catsample.py
 	gumbel_norm = 1e-10 - np.log(np.random.random_sample(categorical_probs.shape) + 1e-10)
@@ -188,40 +171,8 @@ def boxPermutation():
 	return permute,unpermute
 	
 box_permute, box_unpermute = boxPermutation()
-
-def poss2guessSmart(poss, value_fn):
-	# pick the most defined cell on the board
-	# (cell with the fewest number of possibilities --
-	#   hence the smallest branching factor)
-	# this is effectively the hidden / unhidden singles strategy.
-	m = poss == 0
-	n = poss > 0
-	gmin = 100
-	for axis in range(3): 
-		s = np.sum( m, axis=axis ) + 10*np.sum( n, axis=axis)
-		flat = np.argmin( s )
-		a,b = np.unravel_index(flat, s.shape)
-		a,b = a.item(), b.item()
-		smin = s[a,b].item()
-		if axis == 0 and smin < gmin: 
-			c,d = a,b
-			r = np.argmax( m[:,c,d] ).item()
-			gmin = smin
-		if axis == 1 and smin < gmin: 
-			r,d = a,b
-			c = np.argmax( m[r,:,d] ).item()
-			gmin = smin
-		if axis == 2 and smin < gmin: 
-			r,c = a,b
-			d = np.argmax( m[r,c,:] ).item()
-		# should add in a 'box' axis via the permutation... maybe later.
-	guess = np.zeros((9,9,9), dtype=np.int8)
-	guess[r, c, d] = 1
-	if gmin < 1:
-		pdb.set_trace() # that's an error!
-	return guess
 	
-def poss2guessRand(poss, value_fn, cntr): 
+def poss2guessRand(poss, value_fn, cntr, noise=0.05): 
 	''' for use with stochasticSolve
 		select a guess at random
 		or enumerate through the value function '''
@@ -236,7 +187,7 @@ def poss2guessRand(poss, value_fn, cntr):
 		guesses = poss == 1
 		val = val - 100*guesses
 		# add a bit of noise, for exploration
-		val = val + np.random.normal(0.0, 0.07, val.shape)
+		val = val + np.random.normal(0.0, noise, val.shape)
 		# val = np.clip(val, -100, 100) # jic
 		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
 		if False: # DEBUG 
@@ -311,170 +262,115 @@ def checkDone(poss):
 			return False
 	return True
 	
+def pctDone(poss): 
+	''' return the percent done, 0..1
+		assumes the puzzle is valid '''
+	if not checkValid(poss): 
+		return -1
+	m = poss > 0
+	f = np.sum(m, axis=2)
+	return f / 81.0
+	
 def canGuess(poss): 
 	return np.sum(poss == 0) > 0
-	
+		
 
-def solve(poss, k, record, value_fn, debug=False):
-	''' 
-	Solve a sudoku puzzle using backtracking 
-	input poss is always valid by construction.
-	!deprecated! 
-	'''
-	guesses = np.zeros((9,9,9), dtype=np.int8)
-	while canGuess(poss + guesses) and checkValid(poss + guesses) and k > 0:
-		# guess = poss2guessSmart(poss + guesses, value_fn)
-		guess = poss2guessDumb(poss + guesses, value_fn)
-		poss2 = np.array(poss + guesses + guess) 
-		# poss2 = eliminatePoss(poss2)
-		k = k-1
-		if checkValid(poss2): 
-			if checkDone(poss2): 
-				if debug: 
-					print("solved!")
-					printSudoku("", poss2puzz(poss2))
-				record.append((poss, guesses + guess))
-				return True, poss2, k
-			else: # not done, recurse
-				if debug: 
-					print(f"progress: k {k}")
-					sel = np.argwhere(guess == 1)
-					sel = sel[0]
-					printSudoku("", poss2puzz(poss2), curs_pos=sel[:2])
-					# printPoss("", poss + guesses + guess)
-				if k > 0: 
-					valid,ret,k = solve(poss2, k, record, value_fn, debug)
-					if valid:
-						record.append((poss, guesses + guess))
-						# printPoss("", guesses + guess)
-						return valid, ret, k
-					else:
-						# # downstream bad, subtract.
-						# don't put on record until we have a positive example
-						# record.append((poss, guesses - guess))
-						# printPoss("", guesses - guess)
-						guesses = guesses - guess
-				else: 
-					# this guess was valid within the limited roll-out, so add it.
-					# terminus of the roll-out is as informed as we can get.. 
-					record.append((poss, guesses + guess))
-					# printPoss("", guesses + guess)
-		else: 
-			# one-step bad, subtract.
-			guesses = guesses - guess
-		guesses = np.clip(guesses, -1, 1)
-		
-	if debug: 
-		print(f"backtracking. canGuess:{canGuess(poss + guesses)} checkValid:{checkValid(poss + guesses)} k:{k} poss+guesses:")
-		# printPoss("", poss + guesses)
-	if k > 0: 
-		return False, poss, k # backtracking
-	else:
-		return True, poss, k # out of iterations
-		
 '''
-non-backtracking solve, starting with a random initial policy:
--- if the board is valid, select a random next move.
--- if the board is invalid,
-		select with bias one of the past moves to change.
-		Repeat this until the board is valid.
--- accrue statistics on the moves,
-		such that you can train a policy for both correct moves and backtracking moves.
--- You cannot change clues. Guesses can be revised.
+experimentation-based stochastic solve.  
+as soon as you hit an invalid board, 
+select one past guess to experiment on.  
+for that guess, select n alternatives, and run the deterministic 
+solver until it hits an invalid board. 
+if all the alternatives are the same, pick another guess to experiment on.
 '''
-def stochasticSolve(puzz, n, value_fn, debug=False):
+def experimentSolve(puzz, n, value_fn, debug=False):
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
-	clues = np.clip(clues, 0, 2)
-	iters = 400
-	best_i = 0
-	best_guesses = None
-	best_guesses_j = None
-	fix = None
-	for k in range(20):
-		guesses = np.zeros((n, 9,9,9), dtype=np.int8)
-		guesses_j = np.ones((n,), dtype=int)*(iters+10)
-		i = 0
-		j = 0
-		while i < n and j < iters:
-			j = j + 1
-			poss = np.sum(np.clip(guesses,0,1), axis=0) + clues
-			poss_elim = eliminatePoss( np.array(poss) )
-			if checkValid(poss) and checkValid(poss_elim):
-				if checkDone(poss):
-					break
-				guess = poss2guessRand(poss, value_fn, 0)
-				guesses[i,:,:,:] = np.clip(guesses[i,:,:,:] + guess,-1,1)
-				guesses_j[i] = j
-				i = i + 1
-			else:
-				cntr = np.zeros((i), dtype=np.int64)
-				while j < iters:
-					j = j+1
-					# try one removal, one addition fixes
-					s = np.random.randint(0,i)
-					old_fix = np.clip(guesses[s,:,:,:], -1, 0)
-					 # fix = temp remove past guess
-					fix = np.clip(guesses[s,:,:,:], 0, 1)*-1 
-					guess = poss2guessRand(poss + fix, value_fn, cntr[s])
-					# do not allow duplicate guesses
-					while np.sum(guess * (old_fix+fix)*-1) == 1 and j < iters:
-						j = j+1
-						guess = poss2guessRand(poss + fix, value_fn, cntr[s])
-						cntr[s] = cntr[s] + 1
-					poss_elim = eliminatePoss( poss + fix + guess ) # this seems like a band-aid.. FIXME.. should learn to detect cycles.
-					if checkValid(poss_elim):
-						# keep around wrong / failed guesses
-						guesses[s,:,:,:] = np.clip(guesses[s,:,:,:] + guess + fix,-1,1)
-						guesses_j[s] = j
-						break
-					else:
-						guesses[s,:,:,:] = np.clip(guesses[s,:,:,:] - guess,-1,1)
-						cntr[s] = cntr[s] + 1
+	clues = np.clip(clues, 0, 2) # needed, o/w get -2
+	guesses = np.zeros((81,9,9,9), dtype=np.int8)
+	advantage = None
+	i = 0
+	while i < 81:
+		poss = np.sum(guesses, axis=0) + clues
+		if checkValid(poss):
+			if checkDone(poss):
+				break
+			guess = poss2guessRand(poss, value_fn, 0)
+			guesses[i,:,:,:] = guesses[i,:,:,:] + guess
+			i += 1
+		else:
+			if debug: printSudoku("",puzz)
+			ss = np.random.permutation(i)
+			si = 0
+			cntr = np.zeros((i,), dtype=int)
+			different = False
+			noise = 0.05
+			while not different: 
+				s = ss[si]
+				si += 1
+				si = si % ss.shape[0]
+				
+				fix = guesses[s,:,:,:]*-1
+				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
+				advantage = np.zeros((n,), dtype=int)
+				for k in range(n): 
+					guess = poss2guessRand(poss + fix, value_fn, cntr[s], noise)
+					guesses[s,...] = guess
+					guesses[s+1:,...] = 0 # erase old guesses.
+					exp_guess[k,...] = guess
+					# printSudoku("",poss2puzz(guess))
+					cntr[s] += 1
+					if cntr[s] > 50: 
+						cntr[s] = 0
+						noise *= 1.03
+						if debug: print(noise,s)
+					# do deterministic roll-outs from this point
+					# (which involves one redo, but ok)
+					poss = np.sum(guesses, axis=0) + clues
+					while checkValid(poss): 
+						advantage[k] += 1
+						if checkDone(poss):
+							break
+						guess = poss2guessRand(poss + fix, value_fn, 0)
+						guesses[s+advantage[k],...] = guess
+						poss = np.sum(guesses, axis=0) + clues
+				different = np.var(advantage) > 0
+			advantage = (advantage - np.mean(advantage)) / np.std(advantage) # contrastive, but unstable
+			advantage = 1 / (1 + np.exp(-1.5*advantage)) # sigmoid
+			break # got the data
 
-			if debug:
-				poss = np.sum(np.clip(guesses,0,1), axis=0) + clues
-				poss_elim = eliminatePoss( np.array(poss) )
-				if fix is not None: 
-					fix_loc = np.where(fix == -1)
-					highlight_pos = [fix_loc[0].item(), fix_loc[1].item()]
-				else: 
-					highlight_pos = None
-				print(f"i:{i},j:{j}")
-				sel = np.where(guess == 1)
-				curs_pos = [sel[0].item(), sel[1].item()]
-				printSudoku("",poss2puzz(poss), curs_pos=curs_pos, highlight_pos=highlight_pos)
-				# printPoss("", poss)
-				print(f"checkDone(poss): {checkDone(poss)} checkValid(poss): {checkValid(poss)} checkValid(poss_elim): {checkValid(poss_elim)}")
-		
-		if i > best_i: 
-			best_guesses = np.array(guesses)
-			best_guesses_j = np.array(guesses_j)
-			best_i = i
-			
-		# log this run
-		with open('progress_.txt', 'a') as fid:
-			fid.write(f"{k}\t{i}\t{j}\n")
-			fid.close()
+	context = np.sum(guesses[:i-1,...], axis=0) + clues
+	if debug:
+		if advantage is not None: 
+			printSudoku("c- ",poss2puzz(context))
+			for k in range(n): 
+				print(f"advantage {k} {advantage[k]}")
+				printSudoku("", poss2puzz(exp_guess[k,...]))
+				print("")
 
-	# sort the guesses based on j 
-	indx = np.argsort(best_guesses_j) # ascending
-	best_guesses = best_guesses[indx, ...]
-	# cumsum, leave off lasst guess as it may be invalid.
-	context = np.concatenate(
-		(np.expand_dims(clues,0),
-			clues +
-				np.cumsum(
-					np.clip( best_guesses[:best_i-2,:,:,:], 0, 1),
-				axis=0)),
-		axis=0)
-	return context, best_guesses[:best_i-1,:,:,:]
+	# if we finished the puzzle, keep around as positive training: 
+	if advantage is None: 
+		if debug: print("solved.")
+		context = np.concatenate(
+			(np.expand_dims(clues,0),
+				clues +
+					np.cumsum(
+						np.clip( guesses[:i-1,:,:,:], 0, 1),
+					axis=0)),
+			axis=0)
+		return context, guesses[:i,:,:,:]
+	else: 
+		exp_guess = np.sum(exp_guess * advantage[:,np.newaxis,np.newaxis,np.newaxis], axis=0)
+		context = np.tile(context[np.newaxis,:,:,:], (1,1,1,1))
+		exp_guess = np.tile(exp_guess[np.newaxis,:,:,:], (1,1,1,1))
+		return context, exp_guess
+	
 
 
 g_puzzles = np.zeros((9,9,9))
 
 def singleSolve(j):
 	global g_puzzles
-	poss,guess = stochasticSolve(g_puzzles[j], 48, None, False)
+	poss,guess = experimentSolve(g_puzzles[j], 20, None, False)
 	if j%10 == 9:
 		print(".", end="", flush=True)
 	return (poss,guess)
@@ -584,13 +480,13 @@ def solverWorker(
 	# Process each puzzle in the assigned chunk
 	for idx in range(start_idx, end_idx):
 		puzzle = puzzles[idx]
-		poss, guess = stochasticSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
+		poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
 		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
 	
 def parallelSolveVF(
 	puzzles: np.ndarray,
 	value_fn,
-	n_iterations: int = 64,
+	n_iterations: int = 20,
 	n_workers: int = 16,
 	batch_size: int = 128
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -711,56 +607,6 @@ if __name__ == "__main__":
 
 	batch_size = cmd_args.b
 	world_dim = 64
-	
-# 	if False:
-# 		puzz = [
-# 			[0,4,0,0,0,0,0,8,2],
-# 			[7,0,0,6,0,0,0,0,0],
-# 			[0,0,0,0,0,0,0,0,0],
-# 			[0,0,0,0,7,0,0,1,0],
-# 			[0,0,0,0,5,0,6,0,0],
-# 			[0,8,2,0,0,0,0,0,0],
-# 			[3,0,5,0,0,0,7,0,0],
-# 			[6,0,0,1,0,0,0,0,0],
-# 			[0,0,0,8,0,0,0,0,0]] # 17 clues, requires graph coloring.
-# 		puzz = [
-# 			[0,6,0,0,0,0,1,0,0],
-# 			[0,0,0,3,0,2,0,0,0],
-# 			[0,0,0,0,0,0,0,0,0],
-# 			[0,0,3,0,0,0,0,2,4],
-# 			[8,0,0,0,0,0,0,3,0],
-# 			[0,0,0,0,1,0,0,0,0],
-# 			[0,1,0,0,0,0,7,5,0],
-# 			[2,0,0,9,0,0,0,0,0],
-# 			[0,0,0,4,0,0,6,0,0]]
-# 		puzz = [
-# 			[5,0,7,9,4,0,1,0,0],
-# 			[0,0,0,0,3,0,2,7,6],
-# 			[0,6,0,0,0,8,0,0,5],
-# 			[0,8,0,6,0,4,0,0,0],
-# 			[0,0,5,0,0,0,0,0,3],
-# 			[9,0,0,0,0,0,0,0,2],
-# 			[7,0,8,0,0,9,0,0,0],
-# 			[6,0,0,0,0,0,0,2,9],
-# 			[0,4,0,5,8,1,0,6,0] ]
-# 		puzz = np.array(puzz)
-# 		printSudoku("", puzz)
-# 		start_time = time.time()
-# 		record = []
-# 		_,sol,_ = solve( eliminatePoss(puzz2poss(puzz)), 10000, record, None, True)
-# 		print(f"time: {time.time() - start_time}")
-# 		printSudoku("", poss2puzz(sol))
-#
-# 		for i,(poss,guess) in enumerate(record):
-# 			printSudoku("r ",poss2puzz(poss))
-# 			printPoss("", guess)
-# 		# sol = poss2puzz(sol)
-# 		# permute,unpermute = boxPermutation()
-# 		# puzz_perm = sol[permute[:,0], permute[:,1]].reshape((9,9))
-# 		# printSudoku("", puzz_perm)
-# 		# puzz_unperm = puzz_perm[unpermute[:,0],unpermute[:,1]].reshape((9,9))
-# 		# printSudoku("", puzz_unperm)
-# 		exit()
 
 	device = torch.device(f'cuda:{cmd_args.cuda}')
 	args = {"device": device}
@@ -818,68 +664,17 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if False:
+	if False: # development & debugging
 		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
 		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
-		# parallelSolveVF(puzzles[:1024,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
+		parallelSolveVF(puzzles[:1024,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		for i in range(0, 1000):
 			puzz = puzzles[i]
 			# printSudoku("", puzz)
-			poss,guess = stochasticSolve(puzz, 96, valueFn, True)
-		# 	# sol = poss[-1,:,:,:] + guess[-1,:,:,:]
-		# 	# printSudoku("", poss2puzz(sol))
-		# 	# for i in range(poss.shape[0]):
-		# 	# 	printSudoku(f"{i} ", poss2puzz(poss[i]))
-		# 	# 	printPoss("", guess[i])
-		# 	# 	print("")
-		
-		# npz_file = f'satnet_backtrack_0.65.npz'
-		# n = len(record)
-		# print(f"number of supervised examples: {n}")
-		# poss_all = np.zeros((n,9,9,9), dtype=np.int8)
-		# guess_all = np.zeros((n,9,9,9), dtype=np.int8)
-		# for i,(poss,guess) in enumerate(record):
-		# 	# sudoku.printSudoku("r ",poss2puzz(poss))
-		# 	# printPoss("", guess)
-		# 	poss_all[i] = poss
-		# 	guess_all[i] = guess
-		# np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
+			poss,guess = experimentSolve(puzz, 20, valueFn, True)
 		exit()
-	
-# 	npz_file = f'satnet_backtrack_0.65.npz'
-# 	try:
-# 		file = np.load(npz_file)
-# 		poss_all = file["poss_all"]
-# 		guess_all = file["guess_all"]
-# 		print(f"number of supervised examples: {poss_all.shape[0]}")
-# 	except Exception as error:
-# 		if False:
-# 			# serial solve, slow.
-# 			rec_poss = []
-# 			rec_guess = []
-# 			for i in range(10000):
-# 				poss, guess = stochasticSolve(puzzles[i], 48, None, False)
-# 				if i % 10 == 9:
-# 					print(".", end="", flush=True)
-# 				assert(poss.shape[0] == guess.shape[0])
-# 				# for j in range(poss.shape[0]):
-# 				# 	print("board state:")
-# 				# 	printSudoku("",poss2puzz(poss[j,:,:,:]))
-# 				# 	print("guess:")
-# 				# 	printSudoku("",poss2puzz(guess[j,:,:,:]))
-# 				rec_poss.append(poss)
-# 				rec_guess.append(guess)
-#
-# 			poss_all = np.stack(rec_poss)
-# 			guess_all = np.stack(rec_guess)
-# 		else:
-# 			poss_all, guess_all = parallelSolve(puzzles, 1000)
-#
-# 		n = poss_all.shape[0]
-# 		print(f"number of supervised examples: {n}")
-# 		np.savez(npz_file, poss_all=poss_all, guess_all=guess_all)
 		
 	poss_rrn = []
 	guess_rrn = []
@@ -897,7 +692,7 @@ if __name__ == "__main__":
 		indx = np.random.permutation(puzzles.shape[0])
 		sta = cmd_args.i*1024*2
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*2,...], valueFn, n_iterations=96, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*2,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
@@ -913,6 +708,7 @@ if __name__ == "__main__":
 		
 	poss_all = np.concatenate(poss_rrn)
 	guess_all = np.concatenate(guess_rrn)
+	pdb.set_trace()
 
 	# need to filter out elements with insufficient guidance
 	x = np.sum(np.abs(guess_all), axis=(1,2,3))
@@ -950,7 +746,6 @@ if __name__ == "__main__":
 	# optimizer.lr_preconditioner=0.002
 	# optimizer.momentum=0.8
 	
-
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
 
