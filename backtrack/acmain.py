@@ -710,7 +710,8 @@ if __name__ == "__main__":
 	guess_all = np.concatenate(guess_rrn)
 	pdb.set_trace()
 
-	# need to filter out elements with insufficient guidance
+	# if there is one guess, need to set other digits in that cell to 0. 
+	# (these are from successful boards)
 	x = np.sum(np.abs(guess_all), axis=(1,2,3))
 	indx = np.where(x > 1)
 	poss_all = poss_all[indx]
