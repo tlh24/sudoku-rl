@@ -172,7 +172,7 @@ def boxPermutation():
 	
 box_permute, box_unpermute = boxPermutation()
 	
-def poss2guessRand(poss, value_fn, cntr, noise=0.05): 
+def poss2guessRand(poss, value_fn, cntr, noise=0.0): 
 	''' for use with stochasticSolve
 		select a guess at random
 		or enumerate through the value function '''
@@ -286,6 +286,7 @@ if all the alternatives are the same, pick another guess to experiment on.
 def experimentSolve(puzz, n, value_fn, debug=False):
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	clues = np.clip(clues, 0, 2) # needed, o/w get -2
+	clues = clues.astype(np.int8) # o/w is int64
 	guesses = np.zeros((81,9,9,9), dtype=np.int8)
 	advantage = None
 	i = 0
@@ -298,7 +299,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			guesses[i,:,:,:] = guesses[i,:,:,:] + guess
 			i += 1
 		else:
-			if debug: printSudoku("",puzz)
+			# if debug: printSudoku("",puzz)
 			ss = np.random.permutation(i)
 			si = 0
 			cntr = np.zeros((i,), dtype=int)
@@ -342,10 +343,11 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 	if debug:
 		if advantage is not None: 
 			printSudoku("c- ",poss2puzz(context))
-			for k in range(n): 
-				print(f"advantage {k} {advantage[k]}")
-				printSudoku("", poss2puzz(exp_guess[k,...]))
-				print("")
+			print(advantage)
+			# for k in range(n): 
+			# 	print(f"advantage {k} {advantage[k]}")
+			# 	printSudoku("", poss2puzz(exp_guess[k,...]))
+			# 	print("")
 
 	# if we finished the puzzle, keep around as positive training: 
 	if advantage is None: 
@@ -356,12 +358,17 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 					np.cumsum(
 						np.clip( guesses[:i-1,:,:,:], 0, 1),
 					axis=0)),
-			axis=0)
-		return context, guesses[:i,:,:,:]
+			axis=0) # cumsum outputs int64.  won't wrap on conversion to int8.
+		# fixed point -- after the cumsum! 
+		guesses[:i,:,:,:] = guesses[:i,:,:,:]*127
+		return context.astype(np.int8), guesses[:i,:,:,:].astype(np.int8)
 	else: 
+		# convert advantage to fixed-point
+		advantage = np.clip(advantage, -1, 1)*127
+		advantage = advantage.astype(np.int8)
 		exp_guess = np.sum(exp_guess * advantage[:,np.newaxis,np.newaxis,np.newaxis], axis=0)
-		context = np.tile(context[np.newaxis,:,:,:], (1,1,1,1))
-		exp_guess = np.tile(exp_guess[np.newaxis,:,:,:], (1,1,1,1))
+		context = context[np.newaxis,:,:,:].astype(np.int8)
+		exp_guess = exp_guess[np.newaxis,:,:,:].astype(np.int8)
 		return context, exp_guess
 	
 
@@ -669,7 +676,7 @@ if __name__ == "__main__":
 		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
-		parallelSolveVF(puzzles[:1024,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		# parallelSolveVF(puzzles[:1024,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		for i in range(0, 1000):
 			puzz = puzzles[i]
 			# printSudoku("", puzz)
@@ -690,9 +697,9 @@ if __name__ == "__main__":
 		print(error)
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024*2
+		sta = cmd_args.i*1024*8
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*2,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*8,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
@@ -708,14 +715,14 @@ if __name__ == "__main__":
 		
 	poss_all = np.concatenate(poss_rrn)
 	guess_all = np.concatenate(guess_rrn)
-	pdb.set_trace()
 
 	# if there is one guess, need to set other digits in that cell to 0. 
 	# (these are from successful boards)
-	x = np.sum(np.abs(guess_all), axis=(1,2,3))
-	indx = np.where(x > 1)
-	poss_all = poss_all[indx]
-	guess_all = guess_all[indx]
+	one_guess = np.sum(np.abs(guess_all), axis=(1,2,3))
+	y = (np.sum(guess_all, axis=3) / 127.0) \
+			* (one_guess == 127)[:,np.newaxis,np.newaxis]
+	y = np.tile(y[:,:,:,np.newaxis], (1,1,1,9)).astype(np.int8)
+	guess_all = guess_all - y # other options in cell are -1/127
 	
 	DATA_N = poss_all.shape[0]
 	VALID_N = DATA_N//10
@@ -770,6 +777,7 @@ if __name__ == "__main__":
 
 		poss = poss.float().to(device)
 		guess = guess.float().to(device)
+		guess = guess / 127 # fixed to floating point
 		mask = mask.float().to(device)
 		
 		benc[:,-81:,11:20] = poss
@@ -854,6 +862,7 @@ if __name__ == "__main__":
 
 			poss = poss.float().to(device)
 			guess = guess.float().to(device)
+			guess = guess / 127 # fixed to floating point
 			mask = mask.float().to(device)
 			
 			benc[:,-81:,11:20] = poss
