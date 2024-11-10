@@ -187,7 +187,8 @@ def poss2guessRand(poss, value_fn, cntr, noise=0.0):
 		guesses = poss == 1
 		val = val - 100*guesses
 		# add a bit of noise, for exploration
-		val = val + np.random.normal(0.0, noise, val.shape)
+		if noise > 0: 
+			val = val + np.random.normal(0.0, noise, val.shape)
 		# val = np.clip(val, -100, 100) # jic
 		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
 		if False: # DEBUG 
@@ -203,16 +204,18 @@ def poss2guessRand(poss, value_fn, cntr, noise=0.0):
 			plt.title('val')
 			plt.colorbar()
 			plt.show()
-		# sel = sampleCategorical( val )
+		
 		indx = np.argsort(-val.flatten())
 		indx = np.unravel_index(indx, val.shape)
 		sel = [indx[0][cntr], indx[1][cntr], indx[2][cntr]]
+		guess_val = val[indx[0][cntr], indx[1][cntr], indx[2][cntr]]
 	else: 
 		# pick an undefined cell, set to 1
 		sel = random.choice( np.argwhere(poss == 0) )
+		guess_val = 1
 	guess = np.zeros((9,9,9), dtype=np.int8)
 	guess[sel[0], sel[1], sel[2]] = 1
-	return guess
+	return guess, guess_val
 
 def eliminatePoss(poss):
 	# apply the rules of Sudoku to eliminate entries in poss.
@@ -283,11 +286,12 @@ for that guess, select n alternatives, and run the deterministic
 solver until it hits an invalid board. 
 if all the alternatives are the same, pick another guess to experiment on.
 '''
-def experimentSolve(puzz, n, value_fn, debug=False):
+def experimentSolve(puzz, n, value_fn, debug=False, examine=0):
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	clues = np.clip(clues, 0, 2) # needed, o/w get -2
 	clues = clues.astype(np.int8) # o/w is int64
 	guesses = np.zeros((81,9,9,9), dtype=np.int8)
+	guesses_value = np.zeros((81,))
 	advantage = None
 	i = 0
 	while i < 81:
@@ -295,13 +299,18 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 		if checkValid(poss):
 			if checkDone(poss):
 				break
-			guess = poss2guessRand(poss, value_fn, 0)
-			guesses[i,:,:,:] = guesses[i,:,:,:] + guess
+			guess, guess_value = poss2guessRand(poss, value_fn, 0)
+			guesses[i,:,:,:] = guess
+			guesses_value[i] = guess_value
 			i += 1
+			s = i
 		else:
-			# if debug: printSudoku("",puzz)
-			ss = np.random.permutation(i)
-			si = 0
+			# select the lowest confidence guess for examination
+			# if debug: print("guesses_value:\n",guesses_value[:i])
+			# ss = np.argsort(guesses_value[:i])
+			ss = np.random.permutation(i) # no, random is better! 
+			si = examine
+			si = si % ss.shape[0]
 			cntr = np.zeros((i,), dtype=int)
 			different = False
 			noise = 0.05
@@ -314,7 +323,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				advantage = np.zeros((n,), dtype=int)
 				for k in range(n): 
-					guess = poss2guessRand(poss + fix, value_fn, cntr[s], noise)
+					guess,_ = poss2guessRand(poss + fix, value_fn, cntr[s], noise)
 					guesses[s,...] = guess
 					guesses[s+1:,...] = 0 # erase old guesses.
 					exp_guess[k,...] = guess
@@ -331,19 +340,19 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 						advantage[k] += 1
 						if checkDone(poss):
 							break
-						guess = poss2guessRand(poss + fix, value_fn, 0)
+						guess,_ = poss2guessRand(poss + fix, value_fn, 0)
 						guesses[s+advantage[k],...] = guess
 						poss = np.sum(guesses, axis=0) + clues
 				different = np.var(advantage) > 0
-			advantage = (advantage - np.mean(advantage)) / np.std(advantage) # contrastive, but unstable
-			advantage = 1 / (1 + np.exp(-1.5*advantage)) # sigmoid
+			if debug: print(advantage)
+			advantage = advantage - np.max(advantage) 
+			advantage = np.exp(0.2*advantage)
 			break # got the data
 
-	context = np.sum(guesses[:i-1,...], axis=0) + clues
+	context = np.sum(guesses[:s,...], axis=0) + clues
 	if debug:
 		if advantage is not None: 
 			printSudoku("c- ",poss2puzz(context))
-			print(advantage)
 			# for k in range(n): 
 			# 	print(f"advantage {k} {advantage[k]}")
 			# 	printSudoku("", poss2puzz(exp_guess[k,...]))
@@ -431,7 +440,7 @@ def value_function_worker(value_fn, input_queue, output_queues, active_workers, 
 	"""Worker that runs the value function in the main process"""
 	pending_requests: List[ValueRequest] = []
 	
-	while active_workers.value > 0:
+	while active_workers.value > 0: # no write / no need for a lock.
 		try: # Try to fill up a batch
 			while len(pending_requests) < batch_size:
 				req = input_queue.get(timeout=0.003)
@@ -463,8 +472,9 @@ def solverWorker(
 	output_queue: mp.Queue, # from the value fn
 	result_queue: mp.Queue, # result aggregator
 	n_iterations: int,
+	active_workers: mp.Value
 ):
-	"""Worker that runs the stochastic solve algorithm"""
+	"""Worker that runs the experiment solve algorithm"""
 	next_request_id = 0
 	pending_requests = {}
 	
@@ -487,8 +497,20 @@ def solverWorker(
 	# Process each puzzle in the assigned chunk
 	for idx in range(start_idx, end_idx):
 		puzzle = puzzles[idx]
-		poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
-		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
+		j = 0
+		solved = False
+		# if the puzzle does not solve, probe 'why' many times.
+		while j < 8 and not solved: 
+			poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0, j)
+			result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
+			j += 1
+			solved = guess.shape[0] > 1
+
+	# done, so decrement active_workers
+	with active_workers.get_lock():
+		active_workers.value -= 1
+		print(f"solver_worker done {active_workers.value}")
+	return None
 	
 def parallelSolveVF(
 	puzzles: np.ndarray,
@@ -507,7 +529,7 @@ def parallelSolveVF(
 	value_fn_input_queue = mp.Queue()
 	value_fn_output_queues = {i: mp.Queue() for i in range(n_workers)}
 	result_queue = mp.Queue()
-	active_workers = mp.Value('i', 1)
+	active_workers = mp.Value('i', n_workers)
 	
 	# Start solver workers
 	solver_processes = []
@@ -523,30 +545,25 @@ def parallelSolveVF(
 			args=(
 				puzzles, start_idx, end_idx, i,
 				value_fn_input_queue, value_fn_output_queues[i],
-				result_queue, n_iterations
+				result_queue, n_iterations, active_workers
 			)
 		)
 		p.start()
 		solver_processes.append(p)
 	
 	# Start collecting results in a separate thread 
-	results = [None] * n_puzzles
+	results = []
 	def result_collector():
-		collected = 0
-		while collected < n_puzzles:
+		done = False
+		while active_workers.value > 0:
 			try: 
 				result = result_queue.get()
-				results[result.puzzle_idx] = (result.poss, result.guess)
+				results.append( (result.poss, result.guess) )
 				collected += 1
-				# print(f"+++ got result {collected}")
 			except: 
-				# Check if all workers are done and we've collected all results
-				if collected >= n_puzzles:
-					with active_workers.get_lock():
-						active_workers.value = 0
-		if collected >= n_puzzles:
-			with active_workers.get_lock():
-				active_workers.value = 0
+				time.sleep(0.001)
+		print("result_collector done")
+		return None
 	
 	collector_thread = threading.Thread(target=result_collector)
 	collector_thread.start()
@@ -557,9 +574,15 @@ def parallelSolveVF(
 							  value_fn_output_queues, active_workers, batch_size)
 	
 	# Clean up
-	for p in solver_processes:
-		p.join()
 	collector_thread.join()
+	print("collector_thread joined")
+	for p in solver_processes:
+		p.join(timeout=1)
+		print("joined")
+		if p.is_alive():
+			print("Process is still running. Terminating it now.")
+			p.terminate()  # Forcefully terminate the process
+			p.join()       # Join again to clean up resources after termination
 	
 	poss_lst = list(map(lambda r: r[0], results))
 	guess_lst = list(map(lambda r: r[1], results))
@@ -676,10 +699,22 @@ if __name__ == "__main__":
 		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
-		# parallelSolveVF(puzzles[:1024,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
-		for i in range(0, 1000):
+		# parallelSolveVF(puzzles[:128,...], valueFn, n_iterations=20, n_workers=16, batch_size=16)
+		# exit()
+		for i in range(0, 1):
 			puzz = puzzles[i]
-			# printSudoku("", puzz)
+			puzz = [
+				[0,4,0,0,0,0,0,8,2],
+				[7,0,0,6,0,0,0,0,0],
+				[0,0,0,0,0,0,0,0,0],
+				[0,0,0,0,7,0,0,1,0],
+				[0,0,0,0,5,0,6,0,0],
+				[0,8,2,0,0,0,0,0,0],
+				[3,0,5,0,0,0,7,0,0],
+				[6,0,0,1,0,0,0,0,0],
+				[0,0,0,8,0,0,0,0,0]] # 17 clues, requires graph coloring.
+			puzz = np.array(puzz)
+			printSudoku("", puzz)
 			poss,guess = experimentSolve(puzz, 20, valueFn, True)
 		exit()
 		
@@ -697,9 +732,9 @@ if __name__ == "__main__":
 		print(error)
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024*8
+		sta = cmd_args.i*1024*12
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*8,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*12,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
