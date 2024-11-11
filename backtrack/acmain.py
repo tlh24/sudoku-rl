@@ -313,11 +313,11 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				give_up = False
 				
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
-				advantage = np.zeros((n,), dtype=int)
 				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
 				
 				# loop over possible replacements to this guess
 				while not different and not give_up:  
+					advantage = np.zeros((n,), dtype=int)
 					# n possible replacements @ s
 					for k in range(n): 
 						guesses_test[:s-1,...] = guesses[:s-1,...]
