@@ -753,9 +753,9 @@ if __name__ == "__main__":
 		print(error)
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024*2
+		sta = cmd_args.i*1024*4
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*2,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*4,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
