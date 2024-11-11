@@ -266,13 +266,11 @@ def checkDone(poss):
 	return True
 	
 def pctDone(poss): 
-	''' return the percent done, 0..1
-		assumes the puzzle is valid '''
+	''' return the fraction done, 0..81 '''
 	if not checkValid(poss): 
-		return -1
+		return -1 # otherwise the sum would not work! 
 	m = poss > 0
-	f = np.sum(m, axis=2)
-	return f / 81.0
+	return np.sum( m )  
 	
 def canGuess(poss): 
 	return np.sum(poss == 0) > 0
@@ -292,6 +290,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 	clues = clues.astype(np.int8) # o/w is int64
 	guesses = np.zeros((81,9,9,9), dtype=np.int8)
 	advantage = None
+	clues_fill = pctDone( clues )
 	i = 0
 	while i < 81:
 		poss = np.sum(guesses, axis=0) + clues
@@ -318,7 +317,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				# loop over possible replacements to this guess
 				while not different and not give_up:  
 					advantage = np.zeros((n,), dtype=int)
-					# n possible replacements @ s
+					# test n possible replacements @ s
 					for k in range(n): 
 						guesses_test[:s-1,...] = guesses[:s-1,...]
 						guesses_test[s:,...] = 0
@@ -326,7 +325,6 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 						guess,_ = poss2guessRand(poss, value_fn, cntr[s], 0.06)
 						guesses_test[s,...] = guess
 						exp_guess[k,...] = guess
-						# printSudoku("",poss2puzz(guess))
 						cntr[s] += 1
 						if cntr[s] > 50: 
 							give_up = True
@@ -340,6 +338,12 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							advantage[k] += 1
 							if checkDone(poss):
 								break
+							if advantage[k] + s + clues_fill > 81: 
+								printSudoku("fp ",poss2puzz(poss))
+								poss = np.sum(guesses_test[:s-1,...], axis=0) + clues
+								printSudoku("f- ",poss2puzz(poss))
+								print("advantage",advantage[k]," s", s, "fill", clues_fill)
+							assert(advantage[k] + s + clues_fill <= 81)
 							guess,_ = poss2guessRand(poss, value_fn, 0)
 							guesses_test[s+advantage[k],...] = guess
 							poss = np.sum(guesses_test, axis=0) + clues
@@ -731,7 +735,8 @@ if __name__ == "__main__":
 			[6,0,0,0,0,0,0,2,9],
 			[0,4,0,5,8,1,0,6,0] ] ]
 			puzzles = np.array(puzzles)
-			puzz = puzzles[i%3]
+			puzzles = loadRrn()
+			puzz = puzzles[i%puzzles.shape[0] ]
 			printSudoku("", puzz)
 			poss,guess = experimentSolve(puzz, 20, valueFn, True)
 		exit()
