@@ -345,18 +345,20 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 						context = clues
 					if debug:
 						printSudoku("c- ",poss2puzz(context))
-						print(s, advantage)
+						print("clues", clues_fill, "s", s, advantage)
+						print(advantage + clues_fill + s)
 						# for k in range(n): 
 						# 	print(f"advantage {k} {advantage[k]}")
 						# 	printSudoku("", poss2puzz(exp_guess[k,...]))
 						# 	print("")
 					advantage = advantage - np.max(advantage) 
 					advantage = np.exp(advantage / np.std(advantage))
-					if debug: print(advantage)
+					# if debug: print(advantage)
 					
 					# convert advantage to fixed-point
 					advantage = np.clip(advantage, -1, 1)*127
 					exp_guess = np.sum(exp_guess * advantage[:,np.newaxis,np.newaxis,np.newaxis], axis=0)
+					exp_guess = np.clip(exp_guess, -127, 127) # prevent wrap
 					
 					context_list.append(context.astype(np.int8))
 					exp_guess_list.append(exp_guess.astype(np.int8))
@@ -747,9 +749,9 @@ if __name__ == "__main__":
 		print(error)
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024*4
+		sta = cmd_args.i*1024*6
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*4,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*6,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
