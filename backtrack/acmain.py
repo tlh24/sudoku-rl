@@ -319,8 +319,8 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 					advantage = np.zeros((n,), dtype=int)
 					# test n possible replacements @ s
 					for k in range(n): 
-						guesses_test[:s-1,...] = guesses[:s-1,...]
-						guesses_test[s:,...] = 0
+						guesses_test[:,:,:,:] = 0 # erase all
+						guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
 						poss = np.sum(guesses_test, axis=0) + clues
 						guess,_ = poss2guessRand(poss, value_fn, cntr[s], 0.06)
 						guesses_test[s,...] = guess
@@ -338,11 +338,6 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							advantage[k] += 1
 							if checkDone(poss):
 								break
-							if advantage[k] + s + clues_fill > 81: 
-								printSudoku("fp ",poss2puzz(poss))
-								poss = np.sum(guesses_test[:s-1,...], axis=0) + clues
-								printSudoku("f- ",poss2puzz(poss))
-								print("advantage",advantage[k]," s", s, "fill", clues_fill)
 							assert(advantage[k] + s + clues_fill <= 81)
 							guess,_ = poss2guessRand(poss, value_fn, 0)
 							guesses_test[s+advantage[k],...] = guess
@@ -350,7 +345,10 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 					different = np.var(advantage) > 0
 				
 				if different: 
-					context = np.sum(guesses_test[:s-1,...], axis=0) + clues
+					if s > 0: 
+						context = np.sum(guesses_test[:s-1,...], axis=0) + clues
+					else: 
+						context = clues
 					if debug:
 						printSudoku("c- ",poss2puzz(context))
 						print(s, advantage)
@@ -696,7 +694,7 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if False: # development & debugging
+	if True: # development & debugging
 		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
 		puzzles = dat["puzzles"]
 		n_solved = 0
