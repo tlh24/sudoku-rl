@@ -286,12 +286,11 @@ for that guess, select n alternatives, and run the deterministic
 solver until it hits an invalid board. 
 if all the alternatives are the same, pick another guess to experiment on.
 '''
-def experimentSolve(puzz, n, value_fn, debug=False, examine=0):
+def experimentSolve(puzz, n, value_fn, debug=False):
 	clues = puzz2poss(puzz) * 2 # clues are 2, guesses are 1.
 	clues = np.clip(clues, 0, 2) # needed, o/w get -2
 	clues = clues.astype(np.int8) # o/w is int64
 	guesses = np.zeros((81,9,9,9), dtype=np.int8)
-	guesses_value = np.zeros((81,))
 	advantage = None
 	i = 0
 	while i < 81:
@@ -299,87 +298,92 @@ def experimentSolve(puzz, n, value_fn, debug=False, examine=0):
 		if checkValid(poss):
 			if checkDone(poss):
 				break
-			guess, guess_value = poss2guessRand(poss, value_fn, 0)
+			guess,_ = poss2guessRand(poss, value_fn, 0)
 			guesses[i,:,:,:] = guess
-			guesses_value[i] = guess_value
 			i += 1
-			s = i
 		else:
-			# select the lowest confidence guess for examination
-			# if debug: print("guesses_value:\n",guesses_value[:i])
-			# ss = np.argsort(guesses_value[:i])
-			ss = np.random.permutation(i) # no, random is better! 
-			si = examine
-			si = si % ss.shape[0]
+			exp_guess_list = []
+			context_list = []
 			cntr = np.zeros((i,), dtype=int)
-			different = False
-			noise = 0.05
-			while not different: 
+			ss = np.random.permutation(i) 
+			
+			for si in range(min(i, 8)): # iterate over different guesses
 				s = ss[si]
-				si += 1
-				si = si % ss.shape[0]
+				different = False
+				give_up = False
 				
-				fix = guesses[s,:,:,:]*-1
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				advantage = np.zeros((n,), dtype=int)
-				for k in range(n): 
-					guess,_ = poss2guessRand(poss + fix, value_fn, cntr[s], noise)
-					guesses[s,...] = guess
-					guesses[s+1:,...] = 0 # erase old guesses.
-					exp_guess[k,...] = guess
-					# printSudoku("",poss2puzz(guess))
-					cntr[s] += 1
-					if cntr[s] > 50: 
-						cntr[s] = 0
-						noise *= 1.03
-						if debug: print(noise,s)
-					# do deterministic roll-outs from this point
-					# (which involves one redo, but ok)
-					poss = np.sum(guesses, axis=0) + clues
-					while checkValid(poss): 
-						advantage[k] += 1
-						if checkDone(poss):
-							break
-						guess,_ = poss2guessRand(poss + fix, value_fn, 0)
-						guesses[s+advantage[k],...] = guess
-						poss = np.sum(guesses, axis=0) + clues
-				different = np.var(advantage) > 0
-			if debug: print(advantage)
-			advantage = advantage - np.max(advantage) 
-			advantage = np.exp(0.2*advantage)
-			break # got the data
-
-	context = np.sum(guesses[:s,...], axis=0) + clues
-	if debug:
-		if advantage is not None: 
-			printSudoku("c- ",poss2puzz(context))
-			# for k in range(n): 
-			# 	print(f"advantage {k} {advantage[k]}")
-			# 	printSudoku("", poss2puzz(exp_guess[k,...]))
-			# 	print("")
+				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
+				
+				# loop over possible replacements to this guess
+				while not different and not give_up:  
+					# n possible replacements @ s
+					for k in range(n): 
+						guesses_test[:s-1,...] = guesses[:s-1,...]
+						guesses_test[s:,...] = 0
+						poss = np.sum(guesses_test, axis=0) + clues
+						guess,_ = poss2guessRand(poss, value_fn, cntr[s], 0.06)
+						guesses_test[s,...] = guess
+						exp_guess[k,...] = guess
+						# printSudoku("",poss2puzz(guess))
+						cntr[s] += 1
+						if cntr[s] > 50: 
+							give_up = True
+							if debug: 
+								print(f"dead end! @ {s} of {i}")
+								print(advantage)
+						# do deterministic roll-outs from this replacement
+						#  (which involves one redo, but ok)
+						poss = np.sum(guesses_test, axis=0) + clues
+						while checkValid(poss): 
+							advantage[k] += 1
+							if checkDone(poss):
+								break
+							guess,_ = poss2guessRand(poss, value_fn, 0)
+							guesses_test[s+advantage[k],...] = guess
+							poss = np.sum(guesses_test, axis=0) + clues
+					different = np.var(advantage) > 0
+				
+				if different: 
+					context = np.sum(guesses_test[:s-1,...], axis=0) + clues
+					if debug:
+						printSudoku("c- ",poss2puzz(context))
+						print(s, advantage)
+						# for k in range(n): 
+						# 	print(f"advantage {k} {advantage[k]}")
+						# 	printSudoku("", poss2puzz(exp_guess[k,...]))
+						# 	print("")
+					advantage = advantage - np.max(advantage) 
+					advantage = np.exp(advantage / np.std(advantage))
+					if debug: print(advantage)
+					
+					# convert advantage to fixed-point
+					advantage = np.clip(advantage, -1, 1)*127
+					exp_guess = np.sum(exp_guess * advantage[:,np.newaxis,np.newaxis,np.newaxis], axis=0)
+					
+					context_list.append(context.astype(np.int8))
+					exp_guess_list.append(exp_guess.astype(np.int8))
+				
+			break # end for; break out of wihle i < 81: got the data
 
 	# if we finished the puzzle, keep around as positive training: 
 	if advantage is None: 
 		if debug: print("solved.")
 		context = np.concatenate(
-			(np.expand_dims(clues,0),
+			(np.expand_dims(clues,0), # starting board
 				clues +
-					np.cumsum(
-						np.clip( guesses[:i-1,:,:,:], 0, 1),
+					np.cumsum( # next series of boards
+						np.clip( guesses[:i-1,:,:,:], 0, 1), # don't add last guess
 					axis=0)),
 			axis=0) # cumsum outputs int64.  won't wrap on conversion to int8.
 		# fixed point -- after the cumsum! 
 		guesses[:i,:,:,:] = guesses[:i,:,:,:]*127
 		return context.astype(np.int8), guesses[:i,:,:,:].astype(np.int8)
 	else: 
-		# convert advantage to fixed-point
-		advantage = np.clip(advantage, -1, 1)*127
-		advantage = advantage.astype(np.int8)
-		exp_guess = np.sum(exp_guess * advantage[:,np.newaxis,np.newaxis,np.newaxis], axis=0)
-		context = context[np.newaxis,:,:,:].astype(np.int8)
-		exp_guess = exp_guess[np.newaxis,:,:,:].astype(np.int8)
-		return context, exp_guess
-	
+		context_out = np.stack(context_list)
+		exp_guess_out = np.stack(exp_guess_list)
+		return context_out, exp_guess_out
 
 
 g_puzzles = np.zeros((9,9,9))
@@ -497,14 +501,8 @@ def solverWorker(
 	# Process each puzzle in the assigned chunk
 	for idx in range(start_idx, end_idx):
 		puzzle = puzzles[idx]
-		j = 0
-		solved = False
-		# if the puzzle does not solve, probe 'why' many times.
-		while j < 8 and not solved: 
-			poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0, j)
-			result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
-			j += 1
-			solved = guess.shape[0] > 1
+		poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
+		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
 
 	# done, so decrement active_workers
 	with active_workers.get_lock():
@@ -625,7 +623,7 @@ if __name__ == "__main__":
 	parser.add_argument('-r', type=int, default=2, help='number of repeats')
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
-	parser.add_argument('-b', type=int, default=128, help='batch size')
+	parser.add_argument('-b', type=int, default=64, help='batch size')
 	cmd_args = parser.parse_args()
 	
 	print(f"-i: {cmd_args.i} -cuda:{cmd_args.cuda}")
@@ -701,19 +699,39 @@ if __name__ == "__main__":
 		record = []
 		# parallelSolveVF(puzzles[:128,...], valueFn, n_iterations=20, n_workers=16, batch_size=16)
 		# exit()
-		for i in range(0, 1):
-			puzz = puzzles[i]
-			puzz = [
-				[0,4,0,0,0,0,0,8,2],
-				[7,0,0,6,0,0,0,0,0],
-				[0,0,0,0,0,0,0,0,0],
-				[0,0,0,0,7,0,0,1,0],
-				[0,0,0,0,5,0,6,0,0],
-				[0,8,2,0,0,0,0,0,0],
-				[3,0,5,0,0,0,7,0,0],
-				[6,0,0,1,0,0,0,0,0],
-				[0,0,0,8,0,0,0,0,0]] # 17 clues, requires graph coloring.
-			puzz = np.array(puzz)
+		for i in range(0, 25):
+			puzzles = [ [
+			[0,4,0,0,0,0,0,8,2],
+			[7,0,0,6,0,0,0,0,0],
+			[0,0,0,0,0,0,0,0,0],
+			[0,0,0,0,7,0,0,1,0],
+			[0,0,0,0,5,0,6,0,0],
+			[0,8,2,0,0,0,0,0,0],
+			[3,0,5,0,0,0,7,0,0],
+			[6,0,0,1,0,0,0,0,0],
+			[0,0,0,8,0,0,0,0,0]], # 17 clues, requires graph coloring.
+			[
+			[0,6,0,0,0,0,1,0,0],
+			[0,0,0,3,0,2,0,0,0],
+			[0,0,0,0,0,0,0,0,0],
+			[0,0,3,0,0,0,0,2,4],
+			[8,0,0,0,0,0,0,3,0],
+			[0,0,0,0,1,0,0,0,0],
+			[0,1,0,0,0,0,7,5,0],
+			[2,0,0,9,0,0,0,0,0],
+			[0,0,0,4,0,0,6,0,0]],
+			[
+			[5,0,7,9,4,0,1,0,0],
+			[0,0,0,0,3,0,2,7,6],
+			[0,6,0,0,0,8,0,0,5],
+			[0,8,0,6,0,4,0,0,0],
+			[0,0,5,0,0,0,0,0,3],
+			[9,0,0,0,0,0,0,0,2],
+			[7,0,8,0,0,9,0,0,0],
+			[6,0,0,0,0,0,0,2,9],
+			[0,4,0,5,8,1,0,6,0] ] ]
+			puzzles = np.array(puzzles)
+			puzz = puzzles[i%3]
 			printSudoku("", puzz)
 			poss,guess = experimentSolve(puzz, 20, valueFn, True)
 		exit()
