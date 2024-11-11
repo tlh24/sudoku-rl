@@ -143,13 +143,6 @@ def poss2puzz(poss):
 				puzz[i,j] = np.argmax(poss[i,j,:]) + 1
 	return puzz
 	
-def sampleCategorical(categorical_probs):
-	# adapted from SEDD catsample.py
-	gumbel_norm = 1e-10 - np.log(np.random.random_sample(categorical_probs.shape) + 1e-10)
-	sel_flat = np.argmax(categorical_probs / gumbel_norm)
-	sel = np.unravel_index(sel_flat, categorical_probs.shape)
-	return sel
-	
 def boxPermutation(): 
 	# return an index vector that pemutes r,c
 	# to box_n, box_i
@@ -219,6 +212,7 @@ def poss2guessRand(poss, value_fn, cntr, noise=0.0):
 
 def eliminatePoss(poss):
 	# apply the rules of Sudoku to eliminate entries in poss.
+	# aka 'cheating' ;-)
 	poss = np.clip(poss, -1, 1)
 	m = poss > 0
 	tiles = [(9,1,1), (1,9,1), (1,1,9)]
@@ -571,7 +565,7 @@ def parallelSolveVF(
 	# Run value function in main process
 	value_function_worker(value_fn, 
 							  value_fn_input_queue, 
-							  value_fn_output_queues, active_workers, batch_size)
+							  value_fn_output_queues, active_workers, batch_size//2)
 	
 	# Clean up
 	collector_thread.join()
@@ -625,7 +619,7 @@ if __name__ == "__main__":
 	parser.add_argument('-r', type=int, default=2, help='number of repeats')
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
-	parser.add_argument('-b', type=int, default=64, help='batch size')
+	parser.add_argument('-b', type=int, default=128, help='batch size')
 	cmd_args = parser.parse_args()
 	
 	print(f"-i: {cmd_args.i} -cuda:{cmd_args.cuda}")
