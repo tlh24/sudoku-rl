@@ -165,7 +165,7 @@ def boxPermutation():
 	
 box_permute, box_unpermute = boxPermutation()
 	
-def poss2guessRand(poss, value_fn, cntr, noise=0.0): 
+def poss2guessRand(poss, value_fn, cntr, noise=None):
 	''' for use with stochasticSolve
 		select a guess at random
 		or enumerate through the value function '''
@@ -180,8 +180,9 @@ def poss2guessRand(poss, value_fn, cntr, noise=0.0):
 		guesses = poss == 1
 		val = val - 100*guesses
 		# add a bit of noise, for exploration
-		if noise > 0: 
-			val = val + np.random.normal(0.0, noise, val.shape)
+		if noise is not None:
+			pdb.set_trace()
+			val = val + noise
 		# val = np.clip(val, -100, 100) # jic
 		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
 		if False: # DEBUG 
@@ -297,7 +298,6 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 		else:
 			exp_guess_list = []
 			context_list = []
-			cntr = np.zeros((i,), dtype=int)
 			ss = np.random.permutation(i) 
 			
 			for si in range(min(i, 16)): # iterate over different guesses
@@ -310,19 +310,14 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				advantage = np.zeros((n,), dtype=int)
 				
 				# test n possible replacements @ s
+				noise = np.random.normal(0.0, 0.1, (9,9,9) )
 				for k in range(n): 
 					guesses_test[:,:,:,:] = 0 # erase all
 					guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
 					poss = np.sum(guesses_test, axis=0) + clues
-					guess,_ = poss2guessRand(poss, value_fn, cntr[s], 0.06)
+					guess,_ = poss2guessRand(poss, value_fn, k, noise)
 					guesses_test[s,...] = guess
 					exp_guess[k,...] = guess
-					cntr[s] += 1
-					if cntr[s] > 50: 
-						give_up = True
-						if debug: 
-							print(f"dead end! @ {s} of {i}")
-							print(advantage)
 					# do deterministic roll-outs from this replacement
 					#  (which involves one redo, but ok)
 					poss = np.sum(guesses_test, axis=0) + clues
