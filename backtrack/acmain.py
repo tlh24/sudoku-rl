@@ -181,7 +181,6 @@ def poss2guessRand(poss, value_fn, cntr, noise=None):
 		val = val - 100*guesses
 		# add a bit of noise, for exploration
 		if noise is not None:
-			pdb.set_trace()
 			val = val + noise
 		# val = np.clip(val, -100, 100) # jic
 		# val = 1 / (1+np.exp(-val)) # sigmoid, for sampleCategorical
@@ -683,7 +682,7 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if True: # development & debugging
+	if False: # development & debugging
 		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
 		puzzles = dat["puzzles"]
 		n_solved = 0
@@ -741,8 +740,8 @@ if __name__ == "__main__":
 	except Exception as error:
 		print(error)
 		puzzles = loadRrn()
-		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-		puzzles = dat["puzzles"]
+		# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		# puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
 		sta = cmd_args.i*1024*10
 		puzzles_permute = np.array(puzzles[indx,...])
