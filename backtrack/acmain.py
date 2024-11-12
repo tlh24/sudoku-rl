@@ -683,7 +683,7 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if False: # development & debugging
+	if True: # development & debugging
 		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
 		puzzles = dat["puzzles"]
 		n_solved = 0
