@@ -16,6 +16,7 @@ figsize = (12 ,7)
 plt.ion()
 plt.rcParams['font.size'] = 18
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
+ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
 initialized = False
 
 current_directory = os.getcwd()
