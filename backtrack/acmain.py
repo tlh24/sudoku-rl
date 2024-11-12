@@ -746,10 +746,12 @@ if __name__ == "__main__":
 	except Exception as error:
 		print(error)
 		puzzles = loadRrn()
+		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024*1
+		sta = cmd_args.i*1024*10
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*1,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*10,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
