@@ -300,45 +300,42 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			cntr = np.zeros((i,), dtype=int)
 			ss = np.random.permutation(i) 
 			
-			for si in range(min(i, 20)): # iterate over different guesses
+			for si in range(min(i, 16)): # iterate over different guesses
 				# s = ss[si]
 				s = si # FIXME
 				different = False
-				give_up = False
 				
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
+				advantage = np.zeros((n,), dtype=int)
 				
-				# loop over possible replacements to this guess
-				while not different and not give_up:  
-					advantage = np.zeros((n,), dtype=int)
-					# test n possible replacements @ s
-					for k in range(n): 
-						guesses_test[:,:,:,:] = 0 # erase all
-						guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
+				# test n possible replacements @ s
+				for k in range(n): 
+					guesses_test[:,:,:,:] = 0 # erase all
+					guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
+					poss = np.sum(guesses_test, axis=0) + clues
+					guess,_ = poss2guessRand(poss, value_fn, cntr[s], 0.06)
+					guesses_test[s,...] = guess
+					exp_guess[k,...] = guess
+					cntr[s] += 1
+					if cntr[s] > 50: 
+						give_up = True
+						if debug: 
+							print(f"dead end! @ {s} of {i}")
+							print(advantage)
+					# do deterministic roll-outs from this replacement
+					#  (which involves one redo, but ok)
+					poss = np.sum(guesses_test, axis=0) + clues
+					while checkValid(poss): 
+						advantage[k] += 1
+						if checkDone(poss):
+							break
+						assert(advantage[k] + s + clues_fill <= 81)
+						guess,_ = poss2guessRand(poss, value_fn, 0)
+						guesses_test[s+advantage[k],...] = guess
 						poss = np.sum(guesses_test, axis=0) + clues
-						guess,_ = poss2guessRand(poss, value_fn, cntr[s], 0.06)
-						guesses_test[s,...] = guess
-						exp_guess[k,...] = guess
-						cntr[s] += 1
-						if cntr[s] > 50: 
-							give_up = True
-							if debug: 
-								print(f"dead end! @ {s} of {i}")
-								print(advantage)
-						# do deterministic roll-outs from this replacement
-						#  (which involves one redo, but ok)
-						poss = np.sum(guesses_test, axis=0) + clues
-						while checkValid(poss): 
-							advantage[k] += 1
-							if checkDone(poss):
-								break
-							assert(advantage[k] + s + clues_fill <= 81)
-							guess,_ = poss2guessRand(poss, value_fn, 0)
-							guesses_test[s+advantage[k],...] = guess
-							poss = np.sum(guesses_test, axis=0) + clues
-					different = np.var(advantage) > 0
 				
+				different = np.var(advantage) > 0
 				if different: 
 					if s > 0: 
 						context = np.sum(guesses_test[:s-1,...], axis=0) + clues
@@ -346,7 +343,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 						context = clues
 					if debug:
 						printSudoku("c- ",poss2puzz(context))
-						print("clues", clues_fill, "s", s, advantage)
+						print("clues:", clues_fill, "s:", s, advantage)
 						print(advantage + clues_fill + s)
 						# for k in range(n): 
 						# 	print(f"advantage {k} {advantage[k]}")
@@ -364,7 +361,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 					context_list.append(context.astype(np.int8))
 					exp_guess_list.append(exp_guess.astype(np.int8))
 				
-			break # end for; break out of wihle i < 81: got the data
+			break # end for; break out of while i < 81: got the data
 
 	# if we finished the puzzle, keep around as positive training: 
 	if advantage is None: 
@@ -750,9 +747,9 @@ if __name__ == "__main__":
 		print(error)
 		puzzles = loadRrn()
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024*6
+		sta = cmd_args.i*1024*8
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*6,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*8,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
