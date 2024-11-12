@@ -300,8 +300,9 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			cntr = np.zeros((i,), dtype=int)
 			ss = np.random.permutation(i) 
 			
-			for si in range(min(i, 8)): # iterate over different guesses
-				s = ss[si]
+			for si in range(min(i, 20)): # iterate over different guesses
+				# s = ss[si]
+				s = si # FIXME
 				different = False
 				give_up = False
 				
