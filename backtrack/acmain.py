@@ -847,7 +847,7 @@ if __name__ == "__main__":
 		mask = mask.float().to(device)
 		
 		benc[:,-81:,11:20] = poss
-		benc_new[:,-81:,11:20] = guess + 0.1 # is signed
+		benc_new[:,-81:,11:20] = guess - 0.25*mask # render the mask too
 		benc_mask[:,-81:,11:20] = mask
 
 		def closure():
