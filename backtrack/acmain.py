@@ -343,7 +343,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 						# 	printSudoku("", poss2puzz(exp_guess[k,...]))
 						# 	print("")
 					advantage = advantage - np.max(advantage) 
-					advantage = np.exp(advantage / min(np.std(advantage), 5.0))
+					advantage = np.exp(advantage / min(np.std(advantage), 4.0))
 					if debug: print(np.round(advantage * 100) / 100)
 					
 					# convert advantage to fixed-point
