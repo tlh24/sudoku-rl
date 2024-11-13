@@ -57,8 +57,13 @@ def checkIfValid(mat):
 	return valid
 
 def printSudoku(indent, puzzl_mat, curs_pos=None, highlight_pos=None):
+	print(indent, end="  ")
+	for j in range(9): 
+		print(colored(j, "light_cyan"), end=" ")
+	print("")
 	for i in range(9):
 		print(indent, end="")
+		print(colored(i, "light_cyan"), end=" ")
 		for j in range(9):
 			k = i // 3 + j // 3
 			color = "black" if k % 2 == 0 else "red"
@@ -303,51 +308,61 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				# s = ss[si]
 				s = si # FIXME
 				different = False
+				std = 0.1
 				
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
 				advantage = np.zeros((n,), dtype=int)
 				
-				# test n possible replacements @ s
-				noise = np.random.normal(0.0, 0.100, (9,9,9) )
-				for k in range(n): 
-					guesses_test[:,:,:,:] = 0 # erase all
-					guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
-					poss = np.sum(guesses_test, axis=0) + clues
-					guess,_ = poss2guessRand(poss, value_fn, k, noise)
-					guesses_test[s,...] = guess
-					exp_guess[k,...] = guess
-					# do deterministic roll-outs from this replacement
-					#  (which involves one redo, but ok)
-					poss = np.sum(guesses_test, axis=0) + clues
-					while checkValid(poss): 
-						advantage[k] += 1
-						if checkDone(poss):
-							break
-						assert(advantage[k] + s + clues_fill <= 81)
-						guess,_ = poss2guessRand(poss, value_fn, 0)
-						guesses_test[s+advantage[k],...] = guess
+				while not different: 
+					# test n possible replacements @ s
+					noise = np.random.normal(0.0, std, (9,9,9) )
+					for k in range(n): 
+						guesses_test[:,:,:,:] = 0 # erase all
+						guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
 						poss = np.sum(guesses_test, axis=0) + clues
-				
-				different = np.var(advantage) > 0
+						guess,_ = poss2guessRand(poss, value_fn, k, noise)
+						guesses_test[s,...] = guess
+						exp_guess[k,...] = guess
+						# do deterministic roll-outs from this replacement
+						#  (which involves one redo, but ok)
+						poss = np.sum(guesses_test, axis=0) + clues
+						while checkValid(poss): 
+							advantage[k] += 1
+							if checkDone(poss):
+								break
+							assert(advantage[k] + s + clues_fill <= 81)
+							guess,_ = poss2guessRand(poss, value_fn, 0)
+							guesses_test[s+advantage[k],...] = guess
+							poss = np.sum(guesses_test, axis=0) + clues
+					different = np.var(advantage) > 0
+					std *= 1.1
+					
 				if different: 
-					if s > 0: 
-						context = np.sum(guesses_test[:s-1,...], axis=0) + clues
-					else: 
+					if s == 0: 
 						context = clues
+					if s > 0: 
+						context = np.sum(guesses_test[:s,...], axis=0) + clues
+					advantage_f = advantage - np.max(advantage) 
+					# advantage = np.exp(advantage / min(np.std(advantage), 4.0))
+					advantage_f = np.exp(advantage_f * 3) # hard label the max! 
 					if debug:
-						printSudoku("c- ",poss2puzz(context))
+						if s > 0: 
+							cp_r,cp_c,_ = np.where(guesses_test[s-1,:,:,:] == 1)
+							curs_pos = [cp_r.item(), cp_c.item()]
+						else: curs_pos = None
+						printSudoku("c- ",poss2puzz(context), curs_pos)
 						print("clues:", clues_fill, "s:", s, advantage + clues_fill + s)
-						# for k in range(n): 
-						# 	print(f"advantage {k} {advantage[k]}")
-						# 	printSudoku("", poss2puzz(exp_guess[k,...]))
-						# 	print("")
-					advantage = advantage - np.max(advantage) 
-					advantage = np.exp(advantage / min(np.std(advantage), 4.0))
-					if debug: print(np.round(advantage * 100) / 100)
+						for k in range(n): 
+							row,col,dig = np.where(exp_guess[k,:,:,:] == 1)
+							row = row.item()
+							col = col.item()
+							dig = dig.item()
+							af = int(np.round(advantage_f[k]))
+							print("a-", af, advantage[k] + clues_fill + s, "@", row,col,dig+1)
 					
 					# convert advantage to fixed-point
-					advantage = np.clip(advantage, -1, 1)*127
+					advantage = np.clip(advantage, 1/127, 1)*127
 					exp_guess = np.sum(exp_guess * advantage[:,np.newaxis,np.newaxis,np.newaxis], axis=0)
 					exp_guess = np.clip(exp_guess, -127, 127) # prevent wrap
 					
@@ -492,6 +507,8 @@ def solverWorker(
 		puzzle = puzzles[idx]
 		poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
 		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
+		if solver_id == 0: 
+			print(f"{indx}/{end_indx} {math.floor(100*(indx-start_indx)/(end_indx-start_indx))}" )
 
 	# done, so decrement active_workers
 	with active_workers.get_lock():
@@ -721,7 +738,7 @@ if __name__ == "__main__":
 			[6,0,0,0,0,0,0,2,9],
 			[0,4,0,5,8,1,0,6,0] ] ]
 			puzzles = np.array(puzzles)
-			puzzles = loadRrn()
+			# puzzles = loadRrn()
 			puzz = puzzles[i%puzzles.shape[0] ]
 			printSudoku("", puzz)
 			poss,guess = experimentSolve(puzz, 20, valueFn, True)
@@ -739,9 +756,9 @@ if __name__ == "__main__":
 			print(f"number of supervised examples: {n_data}")
 	except Exception as error:
 		print(error)
-		puzzles = loadRrn()
-		# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-		# puzzles = dat["puzzles"]
+		# puzzles = loadRrn()
+		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
 		incr = 1024*cmd_args.puzz
 		sta = cmd_args.i*incr
@@ -753,11 +770,11 @@ if __name__ == "__main__":
 		npz_file = f"rrn_hard_backtrack_{cmd_args.i}.npz"
 		np.savez(npz_file, poss_all=poss_rrn, guess_all=guess_rrn)
 		
-		if cmd_args.c == 0 and cmd_args.i == 0:
-			for i in range(100):
-				printSudoku("", poss2puzz(poss_rrn[i]))
-				printPoss("", guess_rrn[i])
-				print("")
+		# if cmd_args.c == 0 and cmd_args.i == 0:
+		# 	for i in range(100):
+		# 		printSudoku("", poss2puzz(poss_rrn[i]))
+		# 		printPoss("", guess_rrn[i])
+		# 		print("")
 		exit()
 		
 	poss_all = np.concatenate(poss_rrn)
