@@ -508,7 +508,7 @@ def solverWorker(
 		poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
 		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
 		if solver_id == 0: 
-			print(f"{indx}/{end_indx} {math.floor(100*(indx-start_indx)/(end_indx-start_indx))}" )
+			print(f"{indx}/{end_idx} {math.floor(100*(idx-start_idx)/(end_idx-start_idx))}" )
 
 	# done, so decrement active_workers
 	with active_workers.get_lock():
