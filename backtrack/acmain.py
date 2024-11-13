@@ -309,7 +309,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				advantage = np.zeros((n,), dtype=int)
 				
 				# test n possible replacements @ s
-				noise = np.random.normal(0.0, 0.1, (9,9,9) )
+				noise = np.random.normal(0.0, 0.100, (9,9,9) )
 				for k in range(n): 
 					guesses_test[:,:,:,:] = 0 # erase all
 					guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
