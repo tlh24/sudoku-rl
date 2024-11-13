@@ -613,7 +613,6 @@ if __name__ == "__main__":
 	parser.add_argument('--no-train', action='store_true', help="don't train the model.")
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
 	parser.add_argument('-b', type=int, default=128, help='batch size')
-	cmd_args = parser.parse_args()
 	parser.add_argument('--puzz', type=int, default=12, help='number of puzzles to solve, in units of 1024')
 	cmd_args = parser.parse_args()
 	
