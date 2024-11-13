@@ -337,15 +337,14 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 						context = clues
 					if debug:
 						printSudoku("c- ",poss2puzz(context))
-						print("clues:", clues_fill, "s:", s, advantage)
-						print(advantage + clues_fill + s)
+						print("clues:", clues_fill, "s:", s, advantage + clues_fill + s)
 						# for k in range(n): 
 						# 	print(f"advantage {k} {advantage[k]}")
 						# 	printSudoku("", poss2puzz(exp_guess[k,...]))
 						# 	print("")
 					advantage = advantage - np.max(advantage) 
 					advantage = np.exp(advantage / np.std(advantage))
-					# if debug: print(advantage)
+					if debug: print(advantage)
 					
 					# convert advantage to fixed-point
 					advantage = np.clip(advantage, -1, 1)*127
@@ -615,6 +614,8 @@ if __name__ == "__main__":
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
 	parser.add_argument('-b', type=int, default=128, help='batch size')
 	cmd_args = parser.parse_args()
+	parser.add_argument('-puzz', type=int, default=12, help='number of puzzles to solve, in units of 1024')
+	cmd_args = parser.parse_args()
 	
 	print(f"-i: {cmd_args.i} -cuda:{cmd_args.cuda}")
 	time.sleep(1)
@@ -743,9 +744,10 @@ if __name__ == "__main__":
 		# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
 		# puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
-		sta = cmd_args.i*1024*10
+		incr = 1024*cmd_args.puzz
+		sta = cmd_args.i*incr
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+1024*10,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+incr,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
