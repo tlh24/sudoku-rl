@@ -344,7 +344,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 						# 	print("")
 					advantage = advantage - np.max(advantage) 
 					advantage = np.exp(advantage / min(np.std(advantage), 5.0))
-					if debug: print(advantage)
+					if debug: print(np.round(advantage * 100) / 100))
 					
 					# convert advantage to fixed-point
 					advantage = np.clip(advantage, -1, 1)*127
