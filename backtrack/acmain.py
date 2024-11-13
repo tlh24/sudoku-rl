@@ -312,9 +312,9 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
-				advantage = np.zeros((n,), dtype=int)
 				
-				while not different: 
+				while not different and std < 0.25: 
+					advantage = np.zeros((n,), dtype=int)
 					# test n possible replacements @ s
 					noise = np.random.normal(0.0, std, (9,9,9) )
 					for k in range(n): 
@@ -462,6 +462,8 @@ def value_function_worker(value_fn, input_queue, output_queues, active_workers, 
 		if pending_requests and (len(pending_requests) <= batch_size or input_queue.empty()):
 			poss_lst = list(map( lambda x: x.poss, pending_requests))
 			poss_batch = np.stack(poss_lst)
+			# note: sparse bidirectional attention is not currently optimized
+			# for any batch size, so no sense in padding. 
 			value_batch = value_fn( poss_batch, len(poss_lst) )
 			
 			for i,req in enumerate(pending_requests): 
