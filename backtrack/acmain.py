@@ -169,6 +169,49 @@ def boxPermutation():
 	return permute,unpermute
 	
 box_permute, box_unpermute = boxPermutation()
+
+def permutePoss(poss, k): 
+	''' permute digit, row and columns in a sudoku
+		for the purposes of data augmentation 
+		(sigh -- ideally, should not be needed) '''
+	nn = poss.shape[0]
+	poss_aug = np.zeros((nn*k,9,9,9), dtype=np.int8)
+	for i in range(k): 
+		digitp = np.random.permutation(9)
+		poss_ = np.array(poss[:,:,:,digitp])
+		colp = np.zeros((9,), dtype=int)
+		rowp = np.zeros((9,), dtype=int)
+		for j in range(3): 
+			colp[j*3:(j+1)*3] = np.random.permutation(3) + j*3
+			rowp[j*3:(j+1)*3] = np.random.permutation(3) + j*3
+		poss_ = np.array(poss_[:,:,colp,:])
+		poss_ = np.array(poss_[:,rowp,:,:])
+		poss_aug[i*nn:(i+1)*nn,...] = poss_
+	return poss_aug
+	
+def permutePossGuess(poss, guess, k): 
+	''' permute digit, row and columns in a sudoku
+		for the purposes of data augmentation 
+		(sigh -- ideally, should not be needed) '''
+	nn = poss.shape[0]
+	poss_aug = np.zeros((nn*k,9,9,9), dtype=np.int8)
+	guess_aug = np.zeros((nn*k,9,9,9), dtype=np.int8)
+	for i in range(k): 
+		digitp = np.random.permutation(9)
+		colp = np.zeros((9,), dtype=int)
+		rowp = np.zeros((9,), dtype=int)
+		for j in range(3): 
+			colp[j*3:(j+1)*3] = np.random.permutation(3) + j*3
+			rowp[j*3:(j+1)*3] = np.random.permutation(3) + j*3
+		poss_ = np.array(poss[:,:,:,digitp]) # don't change original! 
+		guess_ = np.array(guess[:,:,:,digitp])
+		poss_ = np.array(poss_[:,:,colp,:])
+		poss_ = np.array(poss_[:,rowp,:,:])
+		guess_ = np.array(guess_[:,:,colp,:])
+		guess_ = np.array(guess_[:,rowp,:,:])
+		poss_aug[i*nn:(i+1)*nn,...] = poss_
+		guess_aug[i*nn:(i+1)*nn,...] = guess_
+	return poss_aug, guess_aug
 	
 def poss2guessRand(poss, value_fn, cntr, noise=None):
 	''' for use with stochasticSolve
@@ -308,7 +351,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				# s = ss[si]
 				s = si # FIXME?
 				different = False
-				std = 0.1
+				std = 0.09
 				
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
@@ -357,7 +400,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							row = row.item()
 							col = col.item()
 							dig = dig.item()
-							af = int(np.round(advantage_f[k]))
+							af = int(np.round(advantage_f[k]*100))
 							print("a-", af, advantage[k] + clues_fill + s, "@", row,col,dig+1)
 					
 					# convert advantage to fixed-point
@@ -674,6 +717,7 @@ if __name__ == "__main__":
 	benc = torch.cat((benc, torch.zeros(batch_size,n_tok,world_dim-32)), dim=-1)
 	benc = benc.to(device)
 	benc_new = benc.clone()
+	benc_new_disp = benc.clone()
 	benc_mask = torch.zeros_like(benc)
 	benc_smol = benc[0].clone().unsqueeze(0)
 	# the meat of the ecoding will be replaced by (clipped) poss. 
@@ -704,6 +748,14 @@ if __name__ == "__main__":
 	
 	if False: # development & debugging
 		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		sol = dat["solutions"]
+		poss = np.zeros((1,9,9,9), dtype=np.int8)
+		for k in range(1): 
+			poss[k,...] = puzz2poss(sol[k,:,:])
+		poss_permute = permutePoss(poss, 100)
+		for k in range(100): 
+			printSudoku("", poss2puzz(poss_permute[k,...]))
+		exit()
 		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
@@ -759,9 +811,9 @@ if __name__ == "__main__":
 			print(f"number of supervised examples: {n_data}")
 	except Exception as error:
 		print(error)
-		# puzzles = loadRrn()
-		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-		puzzles = dat["puzzles"]
+		puzzles = loadRrn()
+		# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		# puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
 		incr = 1024*cmd_args.puzz
 		sta = cmd_args.i*incr
@@ -796,18 +848,27 @@ if __name__ == "__main__":
 	indx = np.random.permutation(DATA_N)
 
 	def trainValSplit(y):
-		y_train = torch.tensor(y[indx[:-VALID_N]])
-		y_valid = torch.tensor(y[indx[-VALID_N:]])
+		y_train = np.array(y[indx[:-VALID_N]])
+		y_valid = np.array(y[indx[-VALID_N:]])
 		return y_train, y_valid
 
 	poss_train, poss_valid = trainValSplit(poss_all)
 	guess_train, guess_valid = trainValSplit(guess_all)
 	assert(guess_train.shape[0] == poss_train.shape[0])
+	
+	# augment
+	poss_train, guess_train = permutePossGuess(poss_train, guess_train, 16)
 
 	TRAIN_N = poss_train.shape[0]
 	VALID_N = poss_valid.shape[0]
 
 	print(f'loaded {npz_file}; train/test {TRAIN_N} / {VALID_N}')
+	
+	# convert to torch
+	poss_train = torch.tensor(poss_train)
+	guess_train = torch.tensor(guess_train)
+	poss_valid = torch.tensor(poss_valid)
+	guess_valid = torch.tensor(guess_valid)
 	
 	fd_losslog = open(f'losslog_{utils.getGitCommitHash()}.txt', 'w')
 	args['fd_losslog'] = fd_losslog
@@ -848,14 +909,15 @@ if __name__ == "__main__":
 		mask = mask.float().to(device)
 		
 		benc[:,-81:,11:20] = poss
-		benc_new[:,-81:,11:20] = guess - 0.25*mask # render the mask too
+		benc_new[:,-81:,11:20] = guess 
 		benc_mask[:,-81:,11:20] = mask
+		benc_new_disp[:,-81:,11:20] = guess - 0.25*(1-mask) # render the mask
 
 		def closure():
 			benc_pred = model.forward(benc, hcoo)
 			global pred_data
 			pred_data = {'old_board':benc, \
-				'new_board':benc_new, \
+				'new_board':benc_new_disp, \
 				'new_state_preds':benc_pred,\
 				'rewards':None, 'reward_preds':None,'w1':None, 'w2':None}
 			
@@ -933,7 +995,7 @@ if __name__ == "__main__":
 			mask = mask.float().to(device)
 			
 			benc[:,-81:,11:20] = poss
-			benc_new[:,-81:,11:20] = guess + 0.1 # is signed
+			benc_new[:,-81:,11:20] = guess # is signed
 			benc_mask[:,-81:,11:20] = mask
 			
 			benc_pred = model.forward(benc, hcoo)
