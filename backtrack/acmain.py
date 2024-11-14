@@ -344,8 +344,8 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 					if s > 0: 
 						context = np.sum(guesses_test[:s,...], axis=0) + clues
 					advantage_f = advantage - np.max(advantage) 
-					# advantage = np.exp(advantage / min(np.std(advantage), 4.0))
-					advantage_f = np.exp(advantage_f * 3) # hard label the max! 
+					advantage = np.exp(advantage / min(np.std(advantage), 4.0))
+					# advantage_f = np.exp(advantage_f * 3) # hard label the max! 
 					if debug:
 						if s > 0: 
 							cp_r,cp_c,_ = np.where(guesses_test[s-1,:,:,:] == 1)
