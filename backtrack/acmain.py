@@ -306,7 +306,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			
 			for si in range(min(i, 16)): # iterate over different guesses
 				# s = ss[si]
-				s = si # FIXME
+				s = si # FIXME?
 				different = False
 				std = 0.1
 				
@@ -344,8 +344,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 					if s > 0: 
 						context = np.sum(guesses_test[:s,...], axis=0) + clues
 					advantage_f = advantage - np.max(advantage) 
-					advantage = np.exp(advantage / min(np.std(advantage), 4.0))
-					# advantage_f = np.exp(advantage_f * 3) # hard label the max! 
+					advantage_f = np.exp(advantage_f / min(np.std(advantage_f), 4.0)) 
 					if debug:
 						if s > 0: 
 							cp_r,cp_c,_ = np.where(guesses_test[s-1,:,:,:] == 1)
@@ -362,8 +361,10 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							print("a-", af, advantage[k] + clues_fill + s, "@", row,col,dig+1)
 					
 					# convert advantage to fixed-point
-					advantage = np.clip(advantage, 1/127, 1)*127
-					exp_guess = np.sum(exp_guess * advantage[:,np.newaxis,np.newaxis,np.newaxis], axis=0)
+					advantage_f = np.clip(advantage_f, 1/127, 1)*127
+					exp_guess = exp_guess * \
+						advantage_f[:,np.newaxis,np.newaxis,np.newaxis]
+					exp_guess = np.sum(exp_guess, axis=0)
 					exp_guess = np.clip(exp_guess, -127, 127) # prevent wrap
 					
 					context_list.append(context.astype(np.int8))
