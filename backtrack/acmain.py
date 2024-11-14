@@ -400,8 +400,8 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							row = row.item()
 							col = col.item()
 							dig = dig.item()
-							af = int(np.round(advantage_f[k]*100))
-							print("a-", af, advantage[k] + clues_fill + s, "@", row,col,dig+1)
+							af = advantage_f[k]
+							print(f"a- {af:.2f}", advantage[k] + clues_fill + s, "@", row,col,dig+1)
 					
 					# convert advantage to fixed-point
 					advantage_f = np.clip(advantage_f, 1/127, 1)*127
