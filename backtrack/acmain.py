@@ -347,11 +347,11 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			context_list = []
 			ss = np.random.permutation(i) 
 			
-			for si in range(min(i, 16)): # iterate over different guesses
+			for si in range(min(i, 20)): # iterate over different guesses
 				# s = ss[si]
 				s = si # FIXME?
 				different = False
-				std = 0.09
+				std = 0.1
 				
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
@@ -360,6 +360,8 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 					advantage = np.zeros((n,), dtype=int)
 					# test n possible replacements @ s
 					noise = np.random.normal(0.0, std, (9,9,9) )
+					# for rep in range(1): 
+					# 	if debug: print(f"rep {rep}")
 					for k in range(n): 
 						guesses_test[:,:,:,:] = 0 # erase all
 						guesses_test[0:s,:,:,:] = guesses[0:s,:,:,:] 
@@ -375,9 +377,11 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							if checkDone(poss):
 								break
 							assert(advantage[k] + s + clues_fill <= 81)
-							guess,_ = poss2guessRand(poss, value_fn, 0)
+							noise_ = np.random.normal(0.0, 0.04, (9,9,9) )
+							guess,_ = poss2guessRand(poss, value_fn, 0, noise_)
 							guesses_test[s+advantage[k],...] = guess
 							poss = np.sum(guesses_test, axis=0) + clues
+					# advantage = np.sum(advantage, axis=1) / 1
 					different = np.var(advantage) > 0
 					std *= 1.1
 					
@@ -394,14 +398,16 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							curs_pos = [cp_r.item(), cp_c.item()]
 						else: curs_pos = None
 						printSudoku("c- ",poss2puzz(context), curs_pos)
-						print("clues:", clues_fill, "s:", s, advantage + clues_fill + s)
-						for k in range(n): 
+						print("clues:", clues_fill, "s:", s)
+						indx = np.argsort(-advantage_f)
+						for kk in range(n): 
+							k = indx[kk]
 							row,col,dig = np.where(exp_guess[k,:,:,:] == 1)
 							row = row.item()
 							col = col.item()
 							dig = dig.item()
 							af = advantage_f[k]
-							print(f"a- {af:.2f}", advantage[k] + clues_fill + s, "@", row,col,dig+1)
+							print(f"a- {af:.2f} {advantage[k] + clues_fill + s:.2f} @", row,col,dig+1)
 					
 					# convert advantage to fixed-point
 					advantage_f = np.clip(advantage_f, 1/127, 1)*127
@@ -438,7 +444,7 @@ g_puzzles = np.zeros((9,9,9))
 
 def singleSolve(j):
 	global g_puzzles
-	poss,guess = experimentSolve(g_puzzles[j], 20, None, False)
+	poss,guess = experimentSolve(g_puzzles[j], 100, None, False)
 	if j%10 == 9:
 		print(".", end="", flush=True)
 	return (poss,guess)
@@ -495,7 +501,7 @@ def value_function_worker(value_fn, input_queue, output_queues, active_workers, 
 	while active_workers.value > 0: # no write / no need for a lock.
 		try: # Try to fill up a batch
 			while len(pending_requests) < batch_size:
-				req = input_queue.get(timeout=0.003)
+				req = input_queue.get(timeout=0.001)
 				if req is None:  # Shutdown signal
 					return
 				pending_requests.append(req)
@@ -628,7 +634,6 @@ def parallelSolveVF(
 	print("collector_thread joined")
 	for p in solver_processes:
 		p.join(timeout=1)
-		print("joined")
 		if p.is_alive():
 			print("Process is still running. Terminating it now.")
 			p.terminate()  # Forcefully terminate the process
@@ -677,6 +682,7 @@ if __name__ == "__main__":
 	parser.add_argument('--cuda', type=int, default=0, help='index of cuda device')
 	parser.add_argument('-b', type=int, default=128, help='batch size')
 	parser.add_argument('--puzz', type=int, default=12, help='number of puzzles to solve, in units of 1024')
+	parser.add_argument('--dev', action='store_true', help="developer mode")
 	cmd_args = parser.parse_args()
 	
 	print(f"-i: {cmd_args.i} -cuda:{cmd_args.cuda}")
@@ -746,16 +752,16 @@ if __name__ == "__main__":
 			plt.show()
 		return value
 	
-	if False: # development & debugging
+	if cmd_args.dev: # development & debugging
 		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-		sol = dat["solutions"]
-		poss = np.zeros((1,9,9,9), dtype=np.int8)
-		for k in range(1): 
-			poss[k,...] = puzz2poss(sol[k,:,:])
-		poss_permute = permutePoss(poss, 100)
-		for k in range(100): 
-			printSudoku("", poss2puzz(poss_permute[k,...]))
-		exit()
+		# sol = dat["solutions"]
+		# poss = np.zeros((1,9,9,9), dtype=np.int8)
+		# for k in range(1): 
+		# 	poss[k,...] = puzz2poss(sol[k,:,:])
+		# poss_permute = permutePoss(poss, 100)
+		# for k in range(100): 
+		# 	printSudoku("", poss2puzz(poss_permute[k,...]))
+		# exit()
 		puzzles = dat["puzzles"]
 		n_solved = 0
 		record = []
@@ -815,10 +821,10 @@ if __name__ == "__main__":
 		# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
 		# puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
-		incr = 1024*cmd_args.puzz
+		incr = 256*cmd_args.puzz
 		sta = cmd_args.i*incr
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+incr,...], valueFn, n_iterations=20, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+incr,...], valueFn, n_iterations=64, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
