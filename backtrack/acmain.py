@@ -347,7 +347,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			context_list = []
 			ss = np.random.permutation(i) 
 			
-			for si in range(min(i, 20)): # iterate over different guesses
+			for si in range(min(i, 64)): # iterate over different guesses
 				# s = ss[si]
 				s = si # FIXME?
 				different = False
@@ -356,7 +356,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 				exp_guess = np.zeros((n,9,9,9), dtype=np.int8)
 				guesses_test = np.zeros((81,9,9,9), dtype=np.int8)
 				
-				while not different and std < 0.25: 
+				while not different and std < 0.21: # 8 reps
 					advantage = np.zeros((n,), dtype=int)
 					# test n possible replacements @ s
 					noise = np.random.normal(0.0, std, (9,9,9) )
