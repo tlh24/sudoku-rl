@@ -558,7 +558,8 @@ def solverWorker(
 	# Process each puzzle in the assigned chunk
 	for idx in range(start_idx, end_idx):
 		puzzle = puzzles[idx]
-		solved, poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
+		debug = False # solver_id==0
+		solved, poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, debug)
 		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
 		if solved:
 			with num_solved.get_lock():
