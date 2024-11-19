@@ -433,40 +433,40 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			axis=0) # cumsum outputs int64.  won't wrap on conversion to int8.
 		# fixed point -- after the cumsum! 
 		guesses[:i,:,:,:] = guesses[:i,:,:,:]*127
-		return context.astype(np.int8), guesses[:i,:,:,:].astype(np.int8)
+		return True, context.astype(np.int8), guesses[:i,:,:,:].astype(np.int8)
 	else: 
 		context_out = np.stack(context_list)
 		exp_guess_out = np.stack(exp_guess_list)
-		return context_out, exp_guess_out
+		return False, context_out, exp_guess_out
 
 
 g_puzzles = np.zeros((9,9,9))
 
-def singleSolve(j):
-	global g_puzzles
-	poss,guess = experimentSolve(g_puzzles[j], 100, None, False)
-	if j%10 == 9:
-		print(".", end="", flush=True)
-	return (poss,guess)
-
-def parallelSolve(puzzles, N):
-	global g_puzzles
-	g_puzzles = puzzles
-	pool = mp.Pool() #defaults to number of available CPU's
-	chunksize = 16
-	results = [None for _ in range(N)]
-	for ind, res in enumerate(pool.imap_unordered(singleSolve, range(N), chunksize)):
-	# for ind in range(N): # debug
-	# 	res = singleBacktrack(ind)
-		results[ind] = res
-
-	poss_lst = list(map(lambda r: r[0], results))
-	guess_lst = list(map(lambda r: r[1], results))
-	
-	poss_all = np.concatenate(poss_lst)
-	guess_all = np.concatenate(guess_lst)
-
-	return poss_all, guess_all
+# def singleSolve(j):
+# 	global g_puzzles
+# 	solved, poss, guess = experimentSolve(g_puzzles[j], 100, None, False)
+# 	if j%10 == 9:
+# 		print(".", end="", flush=True)
+# 	return (solved,poss,guess)
+#
+# def parallelSolve(puzzles, N):
+# 	global g_puzzles
+# 	g_puzzles = puzzles
+# 	pool = mp.Pool() #defaults to number of available CPU's
+# 	chunksize = 16
+# 	results = [None for _ in range(N)]
+# 	for ind, res in enumerate(pool.imap_unordered(singleSolve, range(N), chunksize)):
+# 	# for ind in range(N): # debug
+# 	# 	res = singleBacktrack(ind)
+# 		results[ind] = res
+#
+# 	poss_lst = list(map(lambda r: r[0], results))
+# 	guess_lst = list(map(lambda r: r[1], results))
+#
+# 	poss_all = np.concatenate(poss_lst)
+# 	guess_all = np.concatenate(guess_lst)
+#
+# 	return poss_all, guess_all
 	
 	
 def encodeSudoku(puzz, top_node=False):
@@ -533,6 +533,7 @@ def solverWorker(
 	result_queue: mp.Queue, # result aggregator
 	n_iterations: int,
 	active_workers: mp.Value
+	num_solved: mp.Value
 ):
 	"""Worker that runs the experiment solve algorithm"""
 	next_request_id = 0
@@ -557,8 +558,11 @@ def solverWorker(
 	# Process each puzzle in the assigned chunk
 	for idx in range(start_idx, end_idx):
 		puzzle = puzzles[idx]
-		poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
+		solved, poss, guess = experimentSolve(puzzle, n_iterations, value_fn_queue, solver_id==0)
 		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
+		if solved:
+			with num_solved.get_lock():
+				num_solved += 1
 		if solver_id == 0: 
 			print(f"---- {idx}/{end_idx} {math.floor(100*(idx-start_idx)/(end_idx-start_idx))} ----" )
 
@@ -586,6 +590,7 @@ def parallelSolveVF(
 	value_fn_output_queues = {i: mp.Queue() for i in range(n_workers)}
 	result_queue = mp.Queue()
 	active_workers = mp.Value('i', n_workers)
+	num_solved = mp.Value('i', 0)
 	
 	# Start solver workers
 	solver_processes = []
@@ -601,7 +606,7 @@ def parallelSolveVF(
 			args=(
 				puzzles, start_idx, end_idx, i,
 				value_fn_input_queue, value_fn_output_queues[i],
-				result_queue, n_iterations, active_workers
+				result_queue, n_iterations, active_workers, num_solved
 			)
 		)
 		p.start()
@@ -644,6 +649,8 @@ def parallelSolveVF(
 	
 	poss_all = np.concatenate(poss_lst)
 	guess_all = np.concatenate(guess_lst)
+
+	print(f"+++ num solved: {num_solved} / {n_puzzles}")
 
 	return poss_all, guess_all
 	
