@@ -377,7 +377,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 							if checkDone(poss):
 								break
 							assert(advantage[k] + s + clues_fill <= 81)
-							noise_ = np.random.normal(0.0, 0.04, (9,9,9) )
+							noise_ = np.random.normal(0.0, 0.0, (9,9,9) )
 							guess,_ = poss2guessRand(poss, value_fn, 0, noise_)
 							guesses_test[s+advantage[k],...] = guess
 							poss = np.sum(guesses_test, axis=0) + clues
