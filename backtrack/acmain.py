@@ -532,7 +532,7 @@ def solverWorker(
 	output_queue: mp.Queue, # from the value fn
 	result_queue: mp.Queue, # result aggregator
 	n_iterations: int,
-	active_workers: mp.Value
+	active_workers: mp.Value,
 	num_solved: mp.Value
 ):
 	"""Worker that runs the experiment solve algorithm"""
