@@ -817,9 +817,9 @@ if __name__ == "__main__":
 			print(f"number of supervised examples: {n_data}")
 	except Exception as error:
 		print(error)
-		puzzles = loadRrn()
-		# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-		# puzzles = dat["puzzles"]
+		# puzzles = loadRrn()
+		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
 		incr = 256*cmd_args.puzz
 		sta = cmd_args.i*incr
@@ -863,7 +863,7 @@ if __name__ == "__main__":
 	assert(guess_train.shape[0] == poss_train.shape[0])
 	
 	# augment
-	poss_train, guess_train = permutePossGuess(poss_train, guess_train, 16)
+	poss_train, guess_train = permutePossGuess(poss_train, guess_train, 32)
 
 	TRAIN_N = poss_train.shape[0]
 	VALID_N = poss_valid.shape[0]
