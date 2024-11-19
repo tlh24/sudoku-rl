@@ -562,7 +562,7 @@ def solverWorker(
 		result_queue.put(SolveResult(puzzle_idx=idx, poss=poss, guess=guess))
 		if solved:
 			with num_solved.get_lock():
-				num_solved += 1
+				num_solved.value += 1
 		if solver_id == 0: 
 			print(f"---- {idx}/{end_idx} {math.floor(100*(idx-start_idx)/(end_idx-start_idx))} ----" )
 
