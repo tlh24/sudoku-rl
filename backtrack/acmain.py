@@ -347,7 +347,7 @@ def experimentSolve(puzz, n, value_fn, debug=False):
 			context_list = []
 			ss = np.random.permutation(i) 
 			
-			for si in range(min(i, 64)): # iterate over different guesses
+			for si in range(min(i, n)): # iterate over different guesses
 				# s = ss[si]
 				s = si # FIXME?
 				different = False
@@ -824,14 +824,14 @@ if __name__ == "__main__":
 			print(f"number of supervised examples: {n_data}")
 	except Exception as error:
 		print(error)
-		# puzzles = loadRrn()
-		dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
-		puzzles = dat["puzzles"]
+		puzzles = loadRrn()
+		# dat = np.load(f'../satnet/satnet_both_0.65_filled_100000.npz')
+		# puzzles = dat["puzzles"]
 		indx = np.random.permutation(puzzles.shape[0])
 		incr = 256*cmd_args.puzz
 		sta = cmd_args.i*incr
 		puzzles_permute = np.array(puzzles[indx,...])
-		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+incr,...], valueFn, n_iterations=64, n_workers=batch_size, batch_size=batch_size)
+		poss_rrn, guess_rrn = parallelSolveVF(puzzles_permute[sta:sta+incr,...], valueFn, n_iterations=8, n_workers=batch_size, batch_size=batch_size)
 		
 		n = poss_rrn.shape[0]
 		print(f"number of supervised examples: {n}")
@@ -870,7 +870,7 @@ if __name__ == "__main__":
 	assert(guess_train.shape[0] == poss_train.shape[0])
 	
 	# augment
-	poss_train, guess_train = permutePossGuess(poss_train, guess_train, 32)
+	poss_train, guess_train = permutePossGuess(poss_train, guess_train, 10)
 
 	TRAIN_N = poss_train.shape[0]
 	VALID_N = poss_valid.shape[0]
