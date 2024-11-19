@@ -650,7 +650,7 @@ def parallelSolveVF(
 	poss_all = np.concatenate(poss_lst)
 	guess_all = np.concatenate(guess_lst)
 
-	print(f"+++ num solved: {num_solved} / {n_puzzles}")
+	print(f"+++ num solved: {num_solved.value} / {n_puzzles}")
 
 	return poss_all, guess_all
 	
