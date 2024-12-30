@@ -12,7 +12,7 @@ import pdb
 
 # Define the MLP model
 class MLP(nn.Module):
-	def __init__(self, use_layernorm=False, hidden_size=8192):
+	def __init__(self, use_layernorm=False, hidden_size=512):
 		super(MLP, self).__init__()
 		self.use_layernorm = use_layernorm
 
@@ -135,8 +135,8 @@ def estimate_gaussian_volume(activations, k=1):
 	"""
 	covariance_matrix = np.cov(activations, rowvar=False)  # rowvar=False means each column is a variable
 	eigval, eigvec = np.linalg.eig(covariance_matrix) # checking
-
-	logdet1 = np.sum(np.log(eigval)) # they are the same.
+	n = np.sum(np.log(eigval) > -10)
+	logdet1 = np.sum(np.log(eigval) * (np.log(eigval) > -10)) # they are the same.
 	sign, logdet = np.linalg.slogdet(covariance_matrix)
 	# We use slogdet which returns the sign and the log of the determinant
 	n = activations.shape[1]
@@ -144,7 +144,7 @@ def estimate_gaussian_volume(activations, k=1):
 	# volume = (np.pi**(n/2) / math.gamma(n/2 + 1)) * (k**n) * np.sqrt(determinant)
 	log_volume = (n/2) * np.log(np.pi) - math.lgamma(n/2 + 1) + n * k + (1/2) * logdet1
 
-	return eigval, logdet1
+	return eigval, log_volume
 
 
 def plot_overlaid_histograms(initial_activations,
@@ -218,6 +218,7 @@ def main():
 	parser = argparse.ArgumentParser(description="MLP MNIST Example")
 	parser.add_argument("--layer_norm", action="store_true", help="Use LayerNorm")
 	parser.add_argument("--lenet", action="store_true", help="Use LeNet5 instead of MLP")
+	parser.add_argument('--hidden', type=int, default=512, help='hidden size')
 	args = parser.parse_args()
 
 	# Hyperparameters
@@ -243,7 +244,7 @@ def main():
 	if args.lenet:
 		model = LeNet(use_layernorm=args.layer_norm).to(device)
 	else:
-		model = MLP(use_layernorm=args.layer_norm).to(device)
+		model = MLP(use_layernorm=args.layer_norm, hidden_size=args.hidden).to(device)
 
 	# Optimizer and loss function
 	optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
