@@ -1,0 +1,272 @@
+import math
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+import argparse
+import pdb
+
+# Define the MLP model
+class MLP(nn.Module):
+	def __init__(self, use_layernorm=False, hidden_size=8192):
+		super(MLP, self).__init__()
+		self.use_layernorm = use_layernorm
+
+		self.fc1 = nn.Linear(784, hidden_size)
+		self.fc2 = nn.Linear(hidden_size, hidden_size)
+		self.fc3 = nn.Linear(hidden_size, 10)
+
+		self.relu = nn.ReLU()
+		if self.use_layernorm:
+			self.ln1 = nn.LayerNorm(hidden_size)
+			self.ln2 = nn.LayerNorm(hidden_size)
+
+	def forward(self, x):
+		x = x.view(-1, 784)  # Flatten the input
+		x = self.fc1(x)
+		if self.use_layernorm:
+			x = self.ln1(x)
+		x = self.relu(x)
+		x = self.fc2(x)
+		h = x.detach().clone()
+		if self.use_layernorm:
+			x = self.ln2(x)
+		x = self.relu(x)
+		x = self.fc3(x)
+		return x, h
+
+class LeNet(nn.Module):
+	def __init__(self, use_layernorm=False):
+		super(LeNet, self).__init__()
+		self.use_layernorm = use_layernorm
+
+		# Convolutional layers
+		self.conv1 = nn.Conv2d(1, 6, 5)  # 1 input channel, 6 output channels, 5x5 kernel
+		self.conv2 = nn.Conv2d(6, 16, 5) # 6 input channels, 16 output channels, 5x5 kernel
+
+		# Fully connected layers
+		self.fc1 = nn.Linear(16 * 4 * 4, 120)  # 16*4*4 input features, 120 output features
+		self.fc2 = nn.Linear(120, 84)  # 120 input features, 84 output features
+		self.fc3 = nn.Linear(84, 10)  # 84 input features, 10 output features (for 10 classes)
+
+		# Optional LayerNorm
+		if self.use_layernorm:
+			self.ln1 = nn.LayerNorm([6, 12, 12])
+			self.ln2 = nn.LayerNorm([16, 4, 4])
+			self.ln3 = nn.LayerNorm(120)
+			self.ln4 = nn.LayerNorm(84)
+
+	def forward(self, x):
+		# Convolutional layers with ReLU and pooling
+		x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))  # 2x2 max pooling
+		if self.use_layernorm:
+			x = self.ln1(x)
+		x = F.max_pool2d(F.relu(self.conv2(x)), (2, 2))  # 2x2 max pooling
+		if self.use_layernorm:
+			x = self.ln2(x)
+
+		# Flatten for fully connected layers
+		x = x.view(-1, 16 * 4 * 4)
+
+		# Fully connected layers with ReLU
+		x = F.relu(self.fc1(x))
+		if self.use_layernorm:
+			x = self.ln3(x)
+		x = self.fc2(x)
+		h = x.detach().clone()
+		x = F.relu(x)
+		if self.use_layernorm:
+			x = self.ln4(x)
+		x = self.fc3(x)
+
+		return x, h
+
+# Function to train the model
+def train(model, train_loader, optimizer, criterion, device):
+	model.train()
+	for batch_idx, (data, target) in enumerate(train_loader):
+		data, target = data.to(device), target.to(device)
+		optimizer.zero_grad()
+		output, _ = model(data)
+		loss = criterion(output, target)
+		loss.backward()
+		optimizer.step()
+
+# Function to evaluate the model and collect activations
+def evaluate(model, data_loader, device, permute_pixels=False):
+	model.eval()
+	activations = []
+	correct = 0
+	total = 0
+
+	# Create a random permutation of the pixels
+	permutation = torch.randperm(784) if permute_pixels else torch.arange(784)
+
+	with torch.no_grad():
+		for data, target in data_loader:
+			data = data.view(-1, 784)[:, permutation].view(-1, 1, 28, 28) # Permute pixels
+			data, target = data.to(device), target.to(device)
+			output, h = model(data)
+			activations.append(h.cpu())
+
+			# Calculate accuracy
+			_, predicted = torch.max(output.data, 1)
+			total += target.size(0)
+			correct += (predicted == target).sum().item()
+
+	accuracy = 100 * correct / total
+	return torch.cat(activations), accuracy
+
+def estimate_gaussian_volume(activations, k=1):
+	"""
+	Estimates the log volume of an n-dimensional ellipsoid approximating a Gaussian
+	distribution from activation data.
+
+	Args:
+		activations: A numpy array of shape (num_samples, dimensionality) representing the activation data.
+		k: The number of standard deviations to use for the ellipsoid boundary.
+
+	Returns:
+		The estimated volume of the ellipsoid.
+	"""
+	covariance_matrix = np.cov(activations, rowvar=False)  # rowvar=False means each column is a variable
+	eigval, eigvec = np.linalg.eig(covariance_matrix) # checking
+
+	logdet1 = np.sum(np.log(eigval)) # they are the same.
+	sign, logdet = np.linalg.slogdet(covariance_matrix)
+	# We use slogdet which returns the sign and the log of the determinant
+	n = activations.shape[1]
+
+	# volume = (np.pi**(n/2) / math.gamma(n/2 + 1)) * (k**n) * np.sqrt(determinant)
+	log_volume = (n/2) * np.log(np.pi) - math.lgamma(n/2 + 1) + n * k + (1/2) * logdet1
+
+	return eigval, logdet1
+
+
+def plot_overlaid_histograms(initial_activations,
+									initial_activations_permuted,
+									final_activations, final_activations_permuted, title, use_cosine_similarity=False):
+	figsize = (12 ,7)
+	plt.rcParams['font.size'] = 18
+	plt.figure(figsize=figsize)
+
+	# Function to calculate cosine similarities or L2 norms and prepare histogram data
+	def plot_hist_data(activations, label, color, linestyle, permute_last_dim=False, randn_last_dim=False):
+		# center data.
+		# activations = activations - torch.mean(activations, 0)
+		# approximate (via a gaussian) the volume occupied by the activations.
+		if use_cosine_similarity:
+			s = torch.std(activations, 0)
+			if randn_last_dim:
+				# just replace with random normals of the same std
+				# (ignore the off-diagonal elements of the covariance)
+				a = torch.randn_like(activations) * s[...,:]
+				activations = a
+			# Permute the last dimension (if requested)
+			if permute_last_dim:
+				for i in range(activations.shape[0]):
+					idx = torch.randperm(activations.shape[1])
+					activations[i, :] = activations[i, idx]
+			# Calculate cosine similarities between all pairs of activations
+			norm_activations = F.normalize(activations, p=2, dim=1)  # Normalize to unit vectors
+			cosine_similarities = torch.matmul(norm_activations, norm_activations.t())
+			# Take upper triangle of the cosine similarity matrix (excluding diagonal)
+			mask = torch.triu(torch.ones_like(cosine_similarities), diagonal=1).bool()
+			values = cosine_similarities[mask].numpy()
+			eigval, vol = estimate_gaussian_volume(activations)
+			# print(f'{label}, eig values: {eigval[:10]}')
+			print(f'{label}, log det: {vol}')
+		else:
+			# Calculate L2 norms (vector length)
+			values = torch.linalg.norm(activations, dim=1).numpy()
+
+		# need fixed bin edges to make the distributions comparable.
+		hist, bin_edges = np.histogram(values, bins=200) # ,range=(-1,1)
+		bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+		plt.plot(bin_centers, hist, label=label, color=color, linestyle=linestyle)
+
+
+	# Get histogram data for each case, including control with last dimension permutation
+	plot_hist_data(initial_activations, "Initial", "blue", "-")
+	plot_hist_data(initial_activations, "Initial, permuted ctrl", "blue", "--", permute_last_dim=True)
+	plot_hist_data(initial_activations, "Initial, gaussian ctrl", "blue", ":", randn_last_dim=True)
+	plot_hist_data(initial_activations_permuted, "Initial, permuted-pixels", "green", "-.")
+
+	plot_hist_data(final_activations, "Trained", "red", "-")
+	plot_hist_data(final_activations, "Trained, permuted ctrl", "red", "--", permute_last_dim=True)
+	plot_hist_data(final_activations, "Trained, gaussian ctrl", "red", ":", randn_last_dim=True)
+	plot_hist_data(final_activations_permuted, "Trained, permuted-pixels", "orange", "-.")
+
+	plt.title(title)
+	if use_cosine_similarity:
+		plt.xlabel("Cosine Similarity of Activations")
+	else:
+		plt.xlabel("L2 Norm of Activation")
+	plt.ylabel("Frequency")
+	plt.legend()
+	plt.show()
+
+
+# Main function
+def main():
+	# Parse command-line arguments
+	parser = argparse.ArgumentParser(description="MLP MNIST Example")
+	parser.add_argument("--layer_norm", action="store_true", help="Use LayerNorm")
+	parser.add_argument("--lenet", action="store_true", help="Use LeNet5 instead of MLP")
+	args = parser.parse_args()
+
+	# Hyperparameters
+	batch_size = 64
+	epochs = 10
+	learning_rate = 1e-3
+
+	# Device configuration
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+	# Load MNIST dataset
+	train_dataset = datasets.MNIST(
+		root="./data", train=True, transform=transforms.ToTensor(), download=True
+	)
+	test_dataset = datasets.MNIST(
+		root="./data", train=False, transform=transforms.ToTensor()
+	)
+
+	train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+	test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+	# Initialize the model
+	if args.lenet:
+		model = LeNet(use_layernorm=args.layer_norm).to(device)
+	else:
+		model = MLP(use_layernorm=args.layer_norm).to(device)
+
+	# Optimizer and loss function
+	optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
+	criterion = nn.CrossEntropyLoss()
+
+	# Collect activations before training
+	initial_activations, initial_accuracy = evaluate(model, test_loader, device)
+	initial_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
+	print(f"Initial Test Accuracy: {initial_accuracy:.2f}%")
+
+	# Train the model
+	for epoch in range(epochs):
+		train(model, train_loader, optimizer, criterion, device)
+		print(f"Epoch {epoch+1}/{epochs} completed.")
+
+	# Collect activations after training
+	final_activations, final_accuracy = evaluate(model, test_loader, device)
+	final_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
+	print(f"Final Test Accuracy: {final_accuracy:.2f}%")
+	plot_overlaid_histograms(
+		initial_activations, initial_activations_permuted,
+		final_activations, final_activations_permuted,
+		"Activations (Layer 2)", use_cosine_similarity=True)
+
+if __name__ == "__main__":
+	main()
