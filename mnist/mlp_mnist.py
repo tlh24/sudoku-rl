@@ -135,16 +135,17 @@ def estimate_gaussian_volume(activations, k=1):
 	"""
 	covariance_matrix = np.cov(activations, rowvar=False)  # rowvar=False means each column is a variable
 	eigval, eigvec = np.linalg.eig(covariance_matrix) # checking
-	n = np.sum(np.log(eigval) > -10)
-	logdet1 = np.sum(np.log(eigval) * (np.log(eigval) > -10)) # they are the same.
+	n = np.sum(np.log(eigval) > -6)
+	logdet1 = np.sum(np.log(eigval) * (np.log(eigval) > -6)) # they are the same.
+	logdet1 = np.real(logdet1) # imaginary component is noise
 	sign, logdet = np.linalg.slogdet(covariance_matrix)
 	# We use slogdet which returns the sign and the log of the determinant
-	n = activations.shape[1]
+	# n = activations.shape[1]
 
 	# volume = (np.pi**(n/2) / math.gamma(n/2 + 1)) * (k**n) * np.sqrt(determinant)
 	log_volume = (n/2) * np.log(np.pi) - math.lgamma(n/2 + 1) + n * k + (1/2) * logdet1
 
-	return eigval, log_volume
+	return n, log_volume
 
 
 def plot_overlaid_histograms(initial_activations,
@@ -177,9 +178,9 @@ def plot_overlaid_histograms(initial_activations,
 			# Take upper triangle of the cosine similarity matrix (excluding diagonal)
 			mask = torch.triu(torch.ones_like(cosine_similarities), diagonal=1).bool()
 			values = cosine_similarities[mask].numpy()
-			eigval, vol = estimate_gaussian_volume(activations)
+			n, vol = estimate_gaussian_volume(activations)
 			# print(f'{label}, eig values: {eigval[:10]}')
-			print(f'{label}, log det: {vol}')
+			print(f'{label}, volume: {vol}, n: {n}')
 		else:
 			# Calculate L2 norms (vector length)
 			values = torch.linalg.norm(activations, dim=1).numpy()
@@ -190,17 +191,49 @@ def plot_overlaid_histograms(initial_activations,
 
 		plt.plot(bin_centers, hist, label=label, color=color, linestyle=linestyle)
 
+		return vol
+
 
 	# Get histogram data for each case, including control with last dimension permutation
-	plot_hist_data(initial_activations, "Initial", "blue", "-")
-	plot_hist_data(initial_activations, "Initial, permuted ctrl", "blue", "--", permute_last_dim=True)
-	plot_hist_data(initial_activations, "Initial, gaussian ctrl", "blue", ":", randn_last_dim=True)
-	plot_hist_data(initial_activations_permuted, "Initial, permuted-pixels", "green", "-.")
+	volume_initial = plot_hist_data(initial_activations, \
+		"Initial", "blue", "-")
+	volume_initial_permute = plot_hist_data(initial_activations, \
+		"Initial, permuted ctrl", "blue", "--", permute_last_dim=True)
+	volume_initial_gauss = plot_hist_data(initial_activations, \
+		"Initial, gaussian ctrl", "blue", ":", randn_last_dim=True)
+	volume_initial_permutepix = plot_hist_data(initial_activations_permuted, \
+		"Initial, permuted-pixels", "green", "-.")
 
-	plot_hist_data(final_activations, "Trained", "red", "-")
-	plot_hist_data(final_activations, "Trained, permuted ctrl", "red", "--", permute_last_dim=True)
-	plot_hist_data(final_activations, "Trained, gaussian ctrl", "red", ":", randn_last_dim=True)
-	plot_hist_data(final_activations_permuted, "Trained, permuted-pixels", "orange", "-.")
+	volume_trained = plot_hist_data(final_activations, \
+		"Trained", "red", "-")
+	volume_trained_permute = plot_hist_data(final_activations, \
+		"Trained, permuted ctrl", "red", "--", permute_last_dim=True)
+	volume_trained_gauss = plot_hist_data(final_activations, \
+		"Trained, gaussian ctrl", "red", ":", randn_last_dim=True)
+	volume_trained_permutepix = plot_hist_data(final_activations_permuted, \
+		"Trained, permuted-pixels", "orange", "-.")
+
+	# print out the volumes.
+	print("Initial, Δ Volume from permutation:", \
+		(volume_initial_permute - volume_initial) / math.log(2), "bits")
+	print("Initial, Δ Volume from gauss approx:", \
+		(volume_initial_gauss - volume_initial) / math.log(2), "bits")
+	print("Initial, Δ Volume from pixel permute:", \
+		(volume_initial_permutepix - volume_initial) / math.log(2), "bits")
+
+	print("Naive Δ Volume from training:", \
+		(volume_trained - volume_initial) / math.log(2), "bits")
+	print("Trained, Δ Volume from permutation:", \
+		(volume_trained_permute - volume_trained) / math.log(2), "bits")
+	print("Trained, Δ Volume from gauss approx:", \
+		(volume_trained_gauss - volume_trained) / math.log(2), "bits")
+	print("Trained, Δ Volume from pixel permute:", \
+		(volume_trained_permutepix - volume_trained) / math.log(2), "bits")
+	# if the permutation results in an increase in volume,
+	# we can use this to improve the estimate of the volume change from training
+	# (the trained network is smaller volume than the cov. matrix estimates)
+	print("Δ Volume from training:", \
+		(2*volume_trained - volume_initial - volume_trained_permutepix) / math.log(2), "bits")
 
 	plt.title(title)
 	if use_cosine_similarity:
