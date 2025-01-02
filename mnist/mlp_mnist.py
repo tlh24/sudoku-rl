@@ -5,10 +5,15 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 import matplotlib.pyplot as plt
 import argparse
 import pdb
+from sklearn.covariance import LedoitWolf
+from sklearn.covariance import OAS
+from sklearn.covariance import MinCovDet
+from sklearn.covariance import GraphicalLasso
+from sklearn.decomposition import PCA
 
 # Define the MLP model
 class MLP(nn.Module):
@@ -133,17 +138,38 @@ def estimate_gaussian_volume(activations, k=1):
 	Returns:
 		The estimated volume of the ellipsoid.
 	"""
-	covariance_matrix = np.cov(activations, rowvar=False)  # rowvar=False means each column is a variable
-	eigval, eigvec = np.linalg.eig(covariance_matrix) # checking
-	n = np.sum(np.log(eigval) > -6)
-	logdet1 = np.sum(np.log(eigval) * (np.log(eigval) > -6)) # they are the same.
-	logdet1 = np.real(logdet1) # imaginary component is noise
-	sign, logdet = np.linalg.slogdet(covariance_matrix)
-	# We use slogdet which returns the sign and the log of the determinant
-	# n = activations.shape[1]
+	# # covariance_matrix = np.cov(activations, rowvar=False)  # rowvar=False means each column is a variable
+	# lw = LedoitWolf()
+	# covariance_matrix = lw.fit(activations).covariance_
+	# cov = OAS()
+	cov = MinCovDet(support_fraction = 0.95)
+	# cov = GraphicalLasso()
+	cov.fit(activations)
+	covariance_matrix = cov.covariance_
+	if False:
+		# slogdet returns the sign and the log of the determinant
+		sign, logdet = np.linalg.slogdet(covariance_matrix)
+		n = activations.shape[1]
+	if False: # trim the noise eigenvalues
+		eigval, eigvec = np.linalg.eig(covariance_matrix) # checking
+		n = np.sum(np.log(eigval) > -10)
+		logdet = np.sum(np.log(eigval) * (np.log(eigval) > -10))
+		logdet = np.real(logdet1) # imaginary component is noise
+	if True:
+		print('covariance matrix condition number', np.linalg.cond(covariance_matrix))
+		variances = np.diag(covariance_matrix)
+		sign, logdet_covariance = np.linalg.slogdet(covariance_matrix)
+		logdet_variances = np.sum(np.log(variances))
+		# mutual info of a multidimensional gaussian is
+		# I(X) = (1/2) * log( (2πe)^n * det(Σ) ) - (1/2) * Σᵢ log(2πe * σᵢ²)
+		# = 1/2 *( n*log( 2πe ) + log det(Σ) ) - 1/2 Sum_i^n [ log(2πe) + 2*log(σᵢ) ]
+		# = 1/2 ( log det(Σ) - Sum_i^n log(σᵢ^2)
+		mutual_info = 0.5 * (logdet_covariance - logdet_variances)
+
+		return activations.shape[1], mutual_info
 
 	# volume = (np.pi**(n/2) / math.gamma(n/2 + 1)) * (k**n) * np.sqrt(determinant)
-	log_volume = (n/2) * np.log(np.pi) - math.lgamma(n/2 + 1) + n * k + (1/2) * logdet1
+	log_volume = (n/2) * np.log(np.pi) - math.lgamma(n/2 + 1) + n * k + (1/2) * logdet
 
 	return n, log_volume
 
@@ -233,7 +259,7 @@ def plot_overlaid_histograms(initial_activations,
 	# we can use this to improve the estimate of the volume change from training
 	# (the trained network is smaller volume than the cov. matrix estimates)
 	print("Δ Volume from training:", \
-		(2*volume_trained - volume_initial - volume_trained_permutepix) / math.log(2), "bits")
+		((volume_trained - volume_trained_permute) - (volume_initial - volume_initial_permute)) / math.log(2), "bits")
 
 	plt.title(title)
 	if use_cosine_similarity:
@@ -272,6 +298,8 @@ def main():
 
 	train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 	test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+	combined_dataset = ConcatDataset([train_dataset, test_dataset])
+	combined_loader = DataLoader(combined_dataset, batch_size=batch_size, shuffle=True)
 
 	# Initialize the model
 	if args.lenet:
@@ -284,8 +312,8 @@ def main():
 	criterion = nn.CrossEntropyLoss()
 
 	# Collect activations before training
-	initial_activations, initial_accuracy = evaluate(model, test_loader, device)
-	initial_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
+	initial_activations, initial_accuracy = evaluate(model, combined_loader, device)
+	initial_activations_permuted, _ = evaluate(model, combined_loader, device, permute_pixels=True)
 	print(f"Initial Test Accuracy: {initial_accuracy:.2f}%")
 
 	# Train the model
@@ -294,8 +322,8 @@ def main():
 		print(f"Epoch {epoch+1}/{epochs} completed.")
 
 	# Collect activations after training
-	final_activations, final_accuracy = evaluate(model, test_loader, device)
-	final_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
+	final_activations, final_accuracy = evaluate(model, combined_loader, device)
+	final_activations_permuted, _ = evaluate(model, combined_loader, device, permute_pixels=True)
 	print(f"Final Test Accuracy: {final_accuracy:.2f}%")
 	plot_overlaid_histograms(
 		initial_activations, initial_activations_permuted,
