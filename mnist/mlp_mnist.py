@@ -142,7 +142,8 @@ def estimate_gaussian_volume(activations, k=1):
 	# lw = LedoitWolf()
 	# covariance_matrix = lw.fit(activations).covariance_
 	# cov = OAS()
-	cov = MinCovDet(support_fraction = 0.95)
+	cov = LedoitWolf()
+	# cov = MinCovDet(support_fraction = 0.95)
 	# cov = GraphicalLasso()
 	cov.fit(activations)
 	covariance_matrix = cov.covariance_
