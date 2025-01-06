@@ -12,7 +12,7 @@ import utils
 
 plot_rows = 1
 plot_cols = 1
-figsize = (7 , 4)
+figsize = (12 ,7)
 plt.ion()
 plt.rcParams['font.size'] = 18
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
@@ -57,7 +57,12 @@ else:
 
 # Define colors for plotting, use default if not enough colors are provided
 colors = ['b', 'k', 'r', 'g', 'm', 'c']  # Extendable list of colors
-color_cycle = colors * (len(file_names) // len(colors) + 1)  # Repeat colors if N > len(colors)
+color_cycle = colors * (len(file_names) // len(colors) + 1)  # Repeat colors 
+
+# make a moving-average kernel
+window_size = 100
+kernel = np.ones(window_size) / window_size
+
 cont = True
 while cont:
 	ax.cla()
@@ -71,7 +76,10 @@ while cont:
 
 			# Plot the data in log scale for the second column
 			if len(data.shape) > 1 and data.shape[0] > 1:
-					ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.5, label=f"{fname} ({color_cycle[i]})")
+					ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.35, label=f"{fname} ({color_cycle[i]})")
+					smoothed = np.convolve(data[:, 1], kernel, mode='same')
+					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=0.45)
+					
 
 		except FileNotFoundError:
 			print(f"File {fname} not found. Skipping...")

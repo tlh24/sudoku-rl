@@ -104,19 +104,6 @@ def getDataLoaders(puzzles):
 
 	return train_dataloader, test_dataloader
 
-def getMemoryDict():
-	fd_board = make_mmf("board.mmap", [batch_size, token_cnt, world_dim])
-	fd_new_board = make_mmf("new_board.mmap", [batch_size, token_cnt, world_dim])
-	fd_boardp = make_mmf("boardp.mmap", [batch_size, token_cnt, world_dim])
-	fd_reward = make_mmf("reward.mmap", [batch_size, reward_dim])
-	fd_rewardp = make_mmf("rewardp.mmap", [batch_size, reward_dim])
-	fd_attention = make_mmf("attention.mmap", [2, token_cnt, token_cnt, n_heads])
-	fd_wqkv = make_mmf("wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
-	memory_dict = {'fd_board':fd_board, 'fd_new_board':fd_new_board, 'fd_boardp':fd_boardp,
-					 'fd_reward': fd_reward, 'fd_rewardp': fd_rewardp, 'fd_attention': fd_attention,
-					  'fd_wqkv':fd_wqkv }
-	return memory_dict
-
 
 def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 	if optimizer_name == "adam": 
@@ -132,6 +119,19 @@ def getOptimizer(optimizer_name, model, lr=2.5e-4, weight_decay=0):
 		# grad clipping at 2 seems to slow things a bit
 	return optimizer 
 
+	
+def getMemoryDict(prefix=""):
+	fd_board = make_mmf(f"{prefix}board.mmap", [batch_size, token_cnt, world_dim])
+	fd_new_board = make_mmf(f"{prefix}new_board.mmap", [batch_size, token_cnt, world_dim])
+	fd_boardp = make_mmf(f"{prefix}boardp.mmap", [batch_size, token_cnt, world_dim])
+	fd_reward = make_mmf(f"{prefix}reward.mmap", [batch_size, reward_dim])
+	fd_rewardp = make_mmf(f"{prefix}rewardp.mmap", [batch_size, reward_dim])
+	fd_attention = make_mmf(f"{prefix}attention.mmap", [2, token_cnt, token_cnt, n_heads])
+	fd_wqkv = make_mmf(f"{prefix}wqkv.mmap", [n_heads*2,2*xfrmr_dim,xfrmr_dim])
+	memory_dict = {'fd_board':fd_board, 'fd_new_board':fd_new_board, 'fd_boardp':fd_boardp,
+					 'fd_reward': fd_reward, 'fd_rewardp': fd_rewardp, 'fd_attention': fd_attention,
+					  'fd_wqkv':fd_wqkv }
+	return memory_dict
 
 def updateMemory(memory_dict, pred_dict): 
 	'''
@@ -144,8 +144,12 @@ def updateMemory(memory_dict, pred_dict):
 	write_mmap(memory_dict['fd_board'], pred_dict['old_board'].cpu())
 	write_mmap(memory_dict['fd_new_board'], pred_dict['new_board'].cpu())
 	write_mmap(memory_dict['fd_boardp'], pred_dict['new_state_preds'].cpu().detach())
-	write_mmap(memory_dict['fd_reward'], pred_dict['rewards'].cpu())
-	write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'].cpu().detach())
+	if 'rewards' in pred_dict: 
+		if pred_dict['rewards'] is not None: 
+			write_mmap(memory_dict['fd_reward'], pred_dict['rewards'].cpu())
+	if 'reward_preds' in pred_dict: 
+		if pred_dict['reward_preds'] is not None: 
+			write_mmap(memory_dict['fd_rewardp'], pred_dict['reward_preds'].cpu().detach())
 	if 'a1' in pred_dict and 'a2' in pred_dict:
 		if (pred_dict['a1'] is not None) and (pred_dict['a2'] is not None):
 			write_mmap(memory_dict['fd_attention'], torch.stack((pred_dict['a1'], pred_dict['a2']), 0))
@@ -525,11 +529,11 @@ def evaluateActionsBacktrack(model, mfun, qfun, puzzles, hcoo, nn):
 		# in these files, the board is the state resulting from the action.
 		# likewise for reward, which is updated through rollouts.
 		# parent indexes the board prior the action.
-		torch.save(rollouts_board, f'rollouts/rollouts_board_{n}.pt')
-		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{n}.pt')
-		torch.save(rollouts_reward_pred, f'rollouts/rollouts_reward_pred_{n}.pt')
-		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pt')
-		torch.save(rollouts_parent, f'rollouts/rollouts_parent_{n}.pt')
+		torch.save(rollouts_board, f'rollouts/rollouts_board_{n}.pth')
+		torch.save(rollouts_reward, f'rollouts/rollouts_reward_{n}.pth')
+		torch.save(rollouts_reward_pred, f'rollouts/rollouts_reward_pred_{n}.pth')
+		torch.save(rollouts_action, f'rollouts/rollouts_action_{n}.pth')
+		torch.save(rollouts_parent, f'rollouts/rollouts_parent_{n}.pth')
 
 def moveValueDataset(puzzles, hcoo, bs, nn):
 	''' for training the 'mouseizer':
@@ -538,9 +542,9 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 		then calculate the value of random moves from random positions
 		as the discrete derivative of this '''
 	try:
-		boards = torch.load(f'rollouts/move_boards.pt',weights_only=True)
-		actions = torch.load(f'rollouts/move_actions.pt',weights_only=True)
-		rewards = torch.load(f'rollouts/move_rewards.pt',weights_only=True)
+		boards = torch.load(f'rollouts/move_boards.pth',weights_only=True)
+		actions = torch.load(f'rollouts/move_actions.pth',weights_only=True)
+		rewards = torch.load(f'rollouts/move_rewards.pth',weights_only=True)
 		nn = 0
 	except Exception as error:
 		print(colored(f"could not load precomputed data {error}", "red"))
@@ -627,45 +631,79 @@ def moveValueDataset(puzzles, hcoo, bs, nn):
 						axs[k//2+1,k%2].imshow(dif.T.cpu().numpy())
 				plt.show()
 
-		torch.save(boards, 'rollouts/move_boards.pt')
-		torch.save(actions, 'rollouts/move_actions.pt')
-		torch.save(rewards, 'rollouts/move_rewards.pt')
+		torch.save(boards, 'rollouts/move_boards.pth')
+		torch.save(actions, 'rollouts/move_actions.pth')
+		torch.save(rewards, 'rollouts/move_rewards.pth')
 
 	return boards,actions,rewards
 
-def expandCoordinateVector(coo, a2a):
-	# first half of heads are kids to parents
-	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo)
+def expandCoordinateVector(coo, a2a, device):
+	# add [dst,dst] intra-token connections to the coordinate list. 
+	dst_set = set()
+	src_set = set()
+	for i in range(coo.shape[0]):
+		dst = coo[i,0].item()
+		src = coo[i,1].item()
+		dst_set.add(dst)
+		src_set.add(src)
+		
+	# turn on dst-dst or intra-token attention in the sparse layers
+	intra_attn = False 
+	
+	dst_arr = torch.tensor(list(dst_set), \
+		dtype=torch.int32).unsqueeze(-1).tile([1,2])
+	src_arr = torch.tensor(list(src_set), \
+		dtype=torch.int32).unsqueeze(-1).tile([1,2])
+	
 	# swap dst and src
-	coo_ = torch.zeros_like(coo) # type int32: indexes
-	coo_[:,0] = coo[:,1]
-	coo_[:,1] = coo[:,0]
-	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_)
+	coo_swap = torch.zeros_like(coo) # type int32: indexes
+	coo_swap[:,0] = coo[:,1]
+	coo_swap[:,1] = coo[:,0]
+	
+	if intra_attn: 
+		coo_dst = torch.cat([coo, dst_arr], axis=0)
+		coo_src = torch.cat([coo_swap, src_arr], axis=0)
+	else: 
+		coo_dst = coo
+		coo_src = coo_swap
+	
+	# first half of heads are kids to parents
+	kids2parents, dst_mxlen_k2p, _ = expandCoo(coo_dst)
+	parents2kids, dst_mxlen_p2k, _ = expandCoo(coo_src)
+	
+	# sort by src -- we don't have smart coalesced dst writes (yet)
+	# random permutation is, as expected, usually worse
+	# (but not by too much)
+	_,indx = torch.sort(kids2parents[:,1])
+	kids2parents = kids2parents[indx,:]
+	_,indx = torch.sort(parents2kids[:,1])
+	parents2kids = parents2kids[indx,:]
+
 	# and self attention (intra-token attention ops) -- either this or add a second MLP layer.
 	coo_ = torch.arange(token_cnt).unsqueeze(-1).tile([1,2])
 	self2self, dst_mxlen_s2s, _ = expandCoo(coo_)
 	# add top-level attention
 	all2all = torch.Tensor(a2a);
 
-	kids2parents = kids2parents.cuda()
-	parents2kids = parents2kids.cuda()
-	self2self = self2self.cuda()
-	all2all = all2all.cuda()
+	kids2parents = kids2parents.to(device)
+	parents2kids = parents2kids.to(device)
+	self2self = self2self.to(device)
+	all2all = all2all.to(device)
 	# hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), \
 		# (self2self, dst_mxlen_s2s), all2all]
 	hcoo = [(kids2parents,dst_mxlen_k2p), (parents2kids,dst_mxlen_p2k), "self", all2all]
 
 	return hcoo
 
-def getLayerCoordinateVectors():
+def getLayerCoordinateVectors(device):
 	sudoku = Sudoku(SuN, SuK)
 	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(sudoku, np.zeros((9,9)), np.zeros((9,9)), np.zeros((2,), dtype=int), 0, 0)
 
-	hcoo = expandCoordinateVector(coo, a2a)
+	hcoo = expandCoordinateVector(coo, a2a, device)
 
 	_,_,coo,a2a,_,reward_loc = board_ops.encodeBoard(sudoku, np.zeros((9,9)), np.zeros((9,9)), np.zeros((2,), dtype=int), 0, 0, many_reward=False) # FIXME
 
-	hcoo_m = expandCoordinateVector(coo, a2a)
+	hcoo_m = expandCoordinateVector(coo, a2a, device)
 	hcoo_m.append('dense') # for dense attention.
 
 	return hcoo, hcoo_m, reward_loc
@@ -683,7 +721,7 @@ if __name__ == '__main__':
 	cmd_args = parser.parse_args()
 	
 	try: 
-		puzzles = torch.load(f'puzzles_{SuN}_500000.pt',weights_only=True)
+		puzzles = torch.load(f'puzzles_{SuN}_500000.pth',weights_only=True)
 	except Exception as error:
 		print(colored(f"could not load puzzles {error}", "red"))
 		print(colored("please download the puzzles from https://drive.google.com/file/d/1_q7fK3ei7xocf2rqFjSd17LIAA7a_gp4/view?usp=sharing", "blue"))
@@ -702,7 +740,7 @@ if __name__ == '__main__':
 
 	hcoo,hcoo_m,reward_loc = getLayerCoordinateVectors()
 	
-	# allocate memory
+	# get refs to the memory-mapped files
 	memory_dict = getMemoryDict()
 	
 	# world model
@@ -808,11 +846,11 @@ if __name__ == '__main__':
 		rollouts_parent = torch.zeros(duration, bs*nfiles, dtype=int)
 		
 		for i in range(nfiles): 
-			r_board = torch.load(f'rollouts/rollouts_board_{i}.pt',weights_only=True)
-			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pt',weights_only=True)
-			r_rewardp = torch.load(f'rollouts/rollouts_reward_pred_{i}.pt',weights_only=True)
-			r_action = torch.load(f'rollouts/rollouts_action_{i}.pt',weights_only=True)
-			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pt',weights_only=True)
+			r_board = torch.load(f'rollouts/rollouts_board_{i}.pth',weights_only=True)
+			r_reward = torch.load(f'rollouts/rollouts_reward_{i}.pth',weights_only=True)
+			r_rewardp = torch.load(f'rollouts/rollouts_reward_pred_{i}.pth',weights_only=True)
+			r_action = torch.load(f'rollouts/rollouts_action_{i}.pth',weights_only=True)
+			r_parent = torch.load(f'rollouts/rollouts_parent_{i}.pth',weights_only=True)
 			
 			rollouts_board[:,bs*i:bs*(i+1),:,:] = r_board
 			rollouts_reward[:,bs*i:bs*(i+1)] = r_reward
@@ -821,7 +859,7 @@ if __name__ == '__main__':
 				lin = torch.arange(bs)
 				rollouts_parent_board[j,lin+bs*i,:,:] = \
 					r_board[r_parent[j,lin],lin,:,:] 
-			print(f"loaded rollouts/board - reward - action {i} .pt")
+			print(f"loaded rollouts/board - reward - action {i} .pth")
 			
 			# pdb.set_trace()
 			# for j in range(bs//2): 
