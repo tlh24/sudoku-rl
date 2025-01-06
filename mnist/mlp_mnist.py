@@ -126,7 +126,7 @@ def evaluate(model, data_loader, device, permute_pixels=False):
 	accuracy = 100 * correct / total
 	return torch.cat(activations), accuracy
 
-def estimate_gaussian_volume(activations, k=1):
+def estimate_gaussian_volume(activations, k=2):
 	"""
 	Estimates the log volume of an n-dimensional ellipsoid approximating a Gaussian
 	distribution from activation data.
@@ -139,8 +139,6 @@ def estimate_gaussian_volume(activations, k=1):
 		The estimated volume of the ellipsoid.
 	"""
 	# # covariance_matrix = np.cov(activations, rowvar=False)  # rowvar=False means each column is a variable
-	# lw = LedoitWolf()
-	# covariance_matrix = lw.fit(activations).covariance_
 	# cov = OAS()
 	cov = LedoitWolf()
 	# cov = MinCovDet(support_fraction = 0.95)
@@ -151,28 +149,33 @@ def estimate_gaussian_volume(activations, k=1):
 		# slogdet returns the sign and the log of the determinant
 		sign, logdet = np.linalg.slogdet(covariance_matrix)
 		n = activations.shape[1]
-	if False: # trim the noise eigenvalues
-		eigval, eigvec = np.linalg.eig(covariance_matrix) # checking
-		n = np.sum(np.log(eigval) > -10)
-		logdet = np.sum(np.log(eigval) * (np.log(eigval) > -10))
-		logdet = np.real(logdet1) # imaginary component is noise
-	if True:
-		print('covariance matrix condition number', np.linalg.cond(covariance_matrix))
+	if True: # trim the noise eigenvalues
+		eigval, eigvec = np.linalg.eigh(covariance_matrix) # checking
+		mx = np.mean(np.log(eigval[-14:]))
+		# mx = np.max(np.log(eigval))
+		# ghetto version of: https://pmc.ncbi.nlm.nih.gov/articles/PMC3667751/
+		logeig = np.log(eigval)
+		logeig = np.clip(logeig, mx-10, mx+5)
+		n = np.sum(logeig > mx-8)
+		logdet = np.sum(logeig * (logeig > mx-8))
+		logdet = np.real(logdet) # imaginary component is noise
+		cov_cond_no = np.linalg.cond(covariance_matrix)
+	if False:
 		variances = np.diag(covariance_matrix)
-		sign, logdet_covariance = np.linalg.slogdet(covariance_matrix)
-		logdet_variances = np.sum(np.log(variances))
+		# sign, logdet_covariance = np.linalg.slogdet(covariance_matrix)
+		logdet_variances = np.sum(np.log(variances) * (np.log(variances) > mx-8) )
 		# mutual info of a multidimensional gaussian is
 		# I(X) = (1/2) * log( (2πe)^n * det(Σ) ) - (1/2) * Σᵢ log(2πe * σᵢ²)
 		# = 1/2 *( n*log( 2πe ) + log det(Σ) ) - 1/2 Sum_i^n [ log(2πe) + 2*log(σᵢ) ]
 		# = 1/2 ( log det(Σ) - Sum_i^n log(σᵢ^2)
-		mutual_info = 0.5 * (logdet_covariance - logdet_variances)
+		mutual_info = 0.5 * (logdet - logdet_variances)
 
-		return activations.shape[1], mutual_info
+		return n, mutual_info, cov_cond_no
 
 	# volume = (np.pi**(n/2) / math.gamma(n/2 + 1)) * (k**n) * np.sqrt(determinant)
 	log_volume = (n/2) * np.log(np.pi) - math.lgamma(n/2 + 1) + n * k + (1/2) * logdet
 
-	return n, log_volume
+	return n, log_volume, cov_cond_no
 
 
 def plot_overlaid_histograms(initial_activations,
@@ -205,9 +208,9 @@ def plot_overlaid_histograms(initial_activations,
 			# Take upper triangle of the cosine similarity matrix (excluding diagonal)
 			mask = torch.triu(torch.ones_like(cosine_similarities), diagonal=1).bool()
 			values = cosine_similarities[mask].numpy()
-			n, vol = estimate_gaussian_volume(activations)
+			n, vol, cond_no = estimate_gaussian_volume(activations)
 			# print(f'{label}, eig values: {eigval[:10]}')
-			print(f'{label}, volume: {vol}, n: {n}')
+			print(f'{label}, volume: {vol}, n: {n}, cond_no: {int(cond_no)}')
 		else:
 			# Calculate L2 norms (vector length)
 			values = torch.linalg.norm(activations, dim=1).numpy()
@@ -240,27 +243,29 @@ def plot_overlaid_histograms(initial_activations,
 	volume_trained_permutepix = plot_hist_data(final_activations_permuted, \
 		"Trained, permuted-pixels", "orange", "-.")
 
-	# print out the volumes.
-	print("Initial, Δ Volume from permutation:", \
-		(volume_initial_permute - volume_initial) / math.log(2), "bits")
-	print("Initial, Δ Volume from gauss approx:", \
-		(volume_initial_gauss - volume_initial) / math.log(2), "bits")
-	print("Initial, Δ Volume from pixel permute:", \
-		(volume_initial_permutepix - volume_initial) / math.log(2), "bits")
-
-	print("Naive Δ Volume from training:", \
-		(volume_trained - volume_initial) / math.log(2), "bits")
-	print("Trained, Δ Volume from permutation:", \
-		(volume_trained_permute - volume_trained) / math.log(2), "bits")
-	print("Trained, Δ Volume from gauss approx:", \
-		(volume_trained_gauss - volume_trained) / math.log(2), "bits")
-	print("Trained, Δ Volume from pixel permute:", \
-		(volume_trained_permutepix - volume_trained) / math.log(2), "bits")
+	# # print out the volumes.
+	# print("Initial, Δ Volume from permutation:", \
+	# 	(volume_initial_permute - volume_initial) / math.log(2), "bits")
+	# print("Initial, Δ Volume from gauss approx:", \
+	# 	(volume_initial_gauss - volume_initial) / math.log(2), "bits")
+	# print("Initial, Δ Volume from pixel permute:", \
+	# 	(volume_initial_permutepix - volume_initial) / math.log(2), "bits")
+ #
+	# print("Trained, Δ Volume from permutation:", \
+	# 	(volume_trained_permute - volume_trained) / math.log(2), "bits")
+	# print("Trained, Δ Volume from gauss approx:", \
+	# 	(volume_trained_gauss - volume_trained) / math.log(2), "bits")
+	# print("Trained, Δ Volume from pixel permute:", \
+	# 	(volume_trained_permutepix - volume_trained) / math.log(2), "bits")
 	# if the permutation results in an increase in volume,
 	# we can use this to improve the estimate of the volume change from training
 	# (the trained network is smaller volume than the cov. matrix estimates)
-	print("Δ Volume from training:", \
-		((volume_trained - volume_trained_permute) - (volume_initial - volume_initial_permute)) / math.log(2), "bits")
+	print("Naive Δ Volume from training:", \
+		(volume_trained - volume_initial) / math.log(2), "bits")
+	print("Corrected Δ Volume from training:", \
+		(volume_trained - volume_trained_permute - volume_initial) / math.log(2), "bits")
+	print("Corrected Δ Volume:", \
+		((volume_trained - volume_trained_permute - volume_initial) / math.log(2)) / initial_activations.shape[1], "bits/dim")
 
 	plt.title(title)
 	if use_cosine_similarity:
@@ -269,7 +274,7 @@ def plot_overlaid_histograms(initial_activations,
 		plt.xlabel("L2 Norm of Activation")
 	plt.ylabel("Frequency")
 	plt.legend()
-	plt.show()
+	# plt.show()
 
 
 # Main function
@@ -313,8 +318,8 @@ def main():
 	criterion = nn.CrossEntropyLoss()
 
 	# Collect activations before training
-	initial_activations, initial_accuracy = evaluate(model, combined_loader, device)
-	initial_activations_permuted, _ = evaluate(model, combined_loader, device, permute_pixels=True)
+	initial_activations, initial_accuracy = evaluate(model, test_loader, device)
+	initial_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
 	print(f"Initial Test Accuracy: {initial_accuracy:.2f}%")
 
 	# Train the model
@@ -323,8 +328,8 @@ def main():
 		print(f"Epoch {epoch+1}/{epochs} completed.")
 
 	# Collect activations after training
-	final_activations, final_accuracy = evaluate(model, combined_loader, device)
-	final_activations_permuted, _ = evaluate(model, combined_loader, device, permute_pixels=True)
+	final_activations, final_accuracy = evaluate(model, test_loader, device)
+	final_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
 	print(f"Final Test Accuracy: {final_accuracy:.2f}%")
 	plot_overlaid_histograms(
 		initial_activations, initial_activations_permuted,
