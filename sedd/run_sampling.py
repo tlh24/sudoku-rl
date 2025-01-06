@@ -87,7 +87,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--model_path", default='experiments/10-18-2024-12:22')
+    parser.add_argument("--model_path", default='experiments/10-22-2024-15:05')
     parser.add_argument("--checkpoint_num", type=int, required=True)
     parser.add_argument("--dataset", type=str, default='rrn')
     parser.add_argument("--num_to_eval", type=int, default=512) #number of puzzles to evaluate

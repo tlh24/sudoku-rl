@@ -195,4 +195,4 @@ def load_config_from_run(load_dir='./'):
 
 if __name__ == "__main__":
     #save_loss_graph('experiments/09-04-2024-15:34/logs')
-    save_loss_graph('experiments/09-05-2024-13:15/logs')
+    save_loss_graph('experiments/10-18-2024-12:22/logs')
