@@ -13,3 +13,7 @@
 - [X] Figure out what cfg should be 
 
 
+## Adding guidance
+- [] Figure out the denoiser in sampling.py 
+- [] 
+
