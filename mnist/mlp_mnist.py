@@ -143,15 +143,15 @@ def estimate_gaussian_volume(activations, k=2):
 	cov = LedoitWolf()
 	# cov = MinCovDet(support_fraction = 0.95)
 	# cov = GraphicalLasso()
-	cov.fit(activations)
+	cov.fit(activations.numpy().astype(np.double)) # more precision
 	covariance_matrix = cov.covariance_
 	if False:
 		# slogdet returns the sign and the log of the determinant
 		sign, logdet = np.linalg.slogdet(covariance_matrix)
 		n = activations.shape[1]
-	if True: # trim the noise eigenvalues
+	if False: # trim the noise eigenvalues
 		eigval, eigvec = np.linalg.eigh(covariance_matrix) # checking
-		mx = np.mean(np.log(eigval[-14:]))
+		mx = np.mean(np.log(eigval[-14:])) # sorted ascending
 		# mx = np.max(np.log(eigval))
 		# ghetto version of: https://pmc.ncbi.nlm.nih.gov/articles/PMC3667751/
 		logeig = np.log(eigval)
@@ -160,10 +160,26 @@ def estimate_gaussian_volume(activations, k=2):
 		logdet = np.sum(logeig * (logeig > mx-8))
 		logdet = np.real(logdet) # imaginary component is noise
 		cov_cond_no = np.linalg.cond(covariance_matrix)
-	if False:
+	if True: 
+		# center the activations so SVD is eq. to cov calc
+		pdb.set_trace()
+		activations = activations - torch.mean(activations, axis=0)
+		U, S, V_transpose = np.linalg.svd( \
+			activations.numpy().astype(np.double), full_matrices=False )
+		eigval = S**2
+		idx = eigval.argsort()[::-1]
+		eigval = eigval[idx]
+		mx = np.mean(np.log(eigval[:14])) # sorted descending
+		logeig = np.log(eigval)
+		logeig = np.clip(logeig, mx-10, mx+5)
+		n = np.sum(logeig > mx-8)
+		logdet = np.sum(logeig * (logeig > mx-8))
+		logdet = np.real(logdet) # imaginary component is noise
+		cov_cond_no = np.linalg.cond(covariance_matrix)
+	if True:
 		variances = np.diag(covariance_matrix)
 		# sign, logdet_covariance = np.linalg.slogdet(covariance_matrix)
-		logdet_variances = np.sum(np.log(variances) * (np.log(variances) > mx-8) )
+		logdet_variances = np.sum(np.log(variances))
 		# mutual info of a multidimensional gaussian is
 		# I(X) = (1/2) * log( (2πe)^n * det(Σ) ) - (1/2) * Σᵢ log(2πe * σᵢ²)
 		# = 1/2 *( n*log( 2πe ) + log det(Σ) ) - 1/2 Sum_i^n [ log(2πe) + 2*log(σᵢ) ]
@@ -210,7 +226,7 @@ def plot_overlaid_histograms(initial_activations,
 			values = cosine_similarities[mask].numpy()
 			n, vol, cond_no = estimate_gaussian_volume(activations)
 			# print(f'{label}, eig values: {eigval[:10]}')
-			print(f'{label}, volume: {vol}, n: {n}, cond_no: {int(cond_no)}')
+			print(f'{label}, MI: {vol}, n: {n}, cond_no: {int(cond_no)}')
 		else:
 			# Calculate L2 norms (vector length)
 			values = torch.linalg.norm(activations, dim=1).numpy()
