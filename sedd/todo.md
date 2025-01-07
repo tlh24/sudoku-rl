@@ -1,6 +1,6 @@
 ## Training the score entropy discrete diffusion model
 ### Logistics
--[] Add a virtual env for sedd 
+-[X] Add a virtual env for sedd 
 
 ### Build the training dataset
 - [X] Generate sudoku trajectories (including the masks)
@@ -14,6 +14,6 @@
 
 
 ## Adding guidance
-- [] Figure out the denoiser in sampling.py 
-- [] 
+- [X] Figure out the denoiser in sampling.py 
+- [X] 
 
