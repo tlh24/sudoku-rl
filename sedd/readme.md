@@ -30,7 +30,7 @@ In the config file, here are few things that may be relevant to modify.
 - The model configuration. You can increase the size of the model by changing ```model:n_blocks``` and ```model:n_heads```. If the sequence length is not 81, please change the sequence length ```model:length```
 
 ## Inference and evaluation 
-The inference problem is $$f(x) \to y$$ where the model takes in an initial sudoku board $$x$$ and outputs a sudoku solution $$y$$. Since our diffusion model learns the distribution of completed solved puzzles $$y$$, to do inference we do conditional generation. At each diffusion timestep, for all given cells in the initial sudoku board, we replace the corresponding cells in the diffusion output with the correct initial cell in $$x$$.
+The inference problem is $$f(x) \to y$$ where the model takes in an initial sudoku board $$x$$ and outputs a sudoku solution $$y$$. Since our diffusion model learns the distribution of completed solved puzzles $$y$$, to do inference we do conditional generation. At each diffusion timestep, for all given cells in the initial sudoku board (say with set of indices $$I$$), we replace the cells in the diffusion output with indices in $$I$$ with the correct initial cell in $$x$$. (i.e we paste the initial sudoku board onto the diffusion output at each timestep, leaving cell indices without a hint in $x$ unchanged.)
 
 You can simply run ```python run_sampling.py``` and make sure to add the relevant arg flags, described below
 
