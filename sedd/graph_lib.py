@@ -1,3 +1,4 @@
+'''from sedd https://github.com/louaaron/Score-Entropy-Discrete-Diffusion'''
 import abc
 import torch
 import numpy as np

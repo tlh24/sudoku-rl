@@ -1,6 +1,6 @@
 # General settings
 ngpus: 1
-tokens: 9 #encode trajs as series of numbers [0-8] (note that these are 0-indexed, so correspond to 1-9)
+tokens: 9 #represents the number of tokens. Since we encode trajs as series of numbers [0-8] (note that these are 0-indexed, so correspond to 1-9), we have 9 tokens.
 #tokens: 50257
 
 # Training settings

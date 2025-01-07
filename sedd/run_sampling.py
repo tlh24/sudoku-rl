@@ -1,3 +1,4 @@
+'''Inference driver code'''
 import torch
 from load_model import load_model_local
 import argparse 
@@ -90,7 +91,6 @@ def main(args):
 		
 		print(f"Total boards correct: {num_valid}/{len(samples)}={num_valid/len(samples):.4f}\n")
 		file.write(f"Total boards correct: {num_valid}/{len(samples)}\n")
-
 
 
 if __name__ == "__main__":

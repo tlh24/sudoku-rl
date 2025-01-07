@@ -1,3 +1,4 @@
+'''from sedd https://github.com/louaaron/Score-Entropy-Discrete-Diffusion'''
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
