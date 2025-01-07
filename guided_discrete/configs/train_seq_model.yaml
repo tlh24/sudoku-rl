@@ -15,7 +15,7 @@ valid: satnet
 max_samples: 1000 # maximum number of samples any dataset (train, val, or test) should have 
 infill_dataset: satnet # dataset used for conditional generation at inference time 
 is_sudoku: True 
-data_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/data # Not used in sudoku 
+data_dir: ./data # Not used in sudoku 
 train_fn: train_*.csv # Not used in sudoku
 val_fn: val_iid.csv # Not used in sudoku 
 
@@ -23,14 +23,14 @@ val_fn: val_iid.csv # Not used in sudoku
 
 ### Vocabulary ### 
 #vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/alphabet_vocab.txt
-vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/sudoku_vocab.txt
+vocab_file: ${hydra:runtime.cwd}/sudoku_vocab.txt
 #vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/protein_vocab.txt 
 vocab_size: 10
 #vocab_size: 22
 
 
 ### Logging ### 
-log_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs 
+log_dir: logs 
 exp_name: mlm_test
 #exp_name: nos_test
 exp_dir: ${log_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}

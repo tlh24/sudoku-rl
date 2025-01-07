@@ -15,6 +15,7 @@ import torch
 import pickle 
 import pandas as pd 
 import csv 
+import pdb
 
 
 
@@ -215,30 +216,30 @@ def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, num_trainin
         return chunked_dataset
 
     elif dataset_path == 'satnet':
-            satnet_dataset = Sudoku_SATNet()
-            satnet_inital_puzzles = SatNet_Shell(satnet_dataset, True)
-            satnet_solutions = SatNet_Shell(satnet_dataset, False)
+        satnet_dataset = Sudoku_SATNet()
+        satnet_inital_puzzles = SatNet_Shell(satnet_dataset, True)
+        satnet_solutions = SatNet_Shell(satnet_dataset, False)
 
-            indices = list(range(len(satnet_dataset)))
-            if mode == 'train':
-                if num_training_samples is not None:
-                    end_idx = num_training_samples
-                else:
-                    end_idx = 8000
-                assert num_training_samples <= 8000, "Training samples should be at most 8000"
-                
-                initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[:end_idx])
-                solutions = torch.utils.data.Subset(satnet_solutions, indices[:end_idx])
-            elif mode == "validation":
-                initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[8000:-1000])
-                solutions = torch.utils.data.Subset(satnet_solutions, indices[8000:-1000])
+        indices = list(range(len(satnet_dataset)))
+        if mode == 'train':
+            if num_training_samples is not None:
+                end_idx = num_training_samples
             else:
-                initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[-1000:])
-                solutions = torch.utils.data.Subset(satnet_solutions, indices[-1000:])
-        
-            if with_initial_puzzles:
-                return initial_puzzles, solutions 
-            return solutions     
+                end_idx = 8000
+            assert end_idx <= 8000, "Training samples should be at most 8000"
+
+            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[:end_idx])
+            solutions = torch.utils.data.Subset(satnet_solutions, indices[:end_idx])
+        elif mode == "validation":
+            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[8000:-1000])
+            solutions = torch.utils.data.Subset(satnet_solutions, indices[8000:-1000])
+        else:
+            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[-1000:])
+            solutions = torch.utils.data.Subset(satnet_solutions, indices[-1000:])
+
+        if with_initial_puzzles:
+            return initial_puzzles, solutions
+        return solutions
         
     elif dataset_path == 'larger_satnet':
         if with_initial_puzzles:
