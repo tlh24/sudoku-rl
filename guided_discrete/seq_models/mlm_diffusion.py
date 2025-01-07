@@ -190,7 +190,7 @@ class MLMDiffusion(BaseModel):
         out['nll'] = nll.mean()
 
         if labels is not None:
-            raise ValueError() #this shouldn't happen for now 
+            raise ValueError() #this shouldn't happen for now, we don't have a sepearte regression head used for guidance  
             pred_labels = self.network.regression_head(hiddens.detach())
             regression_loss = (pred_labels - labels).pow(2)
             out["regression_mse"] = regression_loss.mean()

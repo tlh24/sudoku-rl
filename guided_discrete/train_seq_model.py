@@ -15,7 +15,6 @@ import wandb
 from data_utils import get_protein_loaders, get_dataloader 
 
 
-
 @hydra.main(config_path="./configs", config_name="train_seq_model")
 def main(config):
     Path(config.exp_dir).mkdir(parents=True, exist_ok=True) 

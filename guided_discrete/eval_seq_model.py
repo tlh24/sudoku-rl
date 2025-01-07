@@ -12,7 +12,7 @@ from pytorch_lightning import LightningModule
 import re 
 import torch 
 
-# NOTE: You must change the config path to be the saved model config!
+# NOTE: You must change the config_path to be the eval_ckpt in eval_seq_model.yaml config!
 @hydra.main(config_path="/home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/mlm_test/2024-10-17_12-20-19/.hydra", config_name="config")
 def eval(config):
     # this initializes a model (ex: MLMDiffusion model) based on the parameters in config
@@ -21,7 +21,6 @@ def eval(config):
     # this uses the evaluation config to ensure that we load the right eval parameters 
     saved_config = OmegaConf.load("/home/justin/Desktop/Code/sudoku-rl/guided_discrete/configs/eval_seq_model.yaml") 
     merged_config = OmegaConf.merge(saved_config, config)
-    # TODO: find a fix to force priority to saved_config 
     merged_config.eval_ckpt = saved_config.eval_ckpt
     merged_config.num_eval_samples = saved_config.num_eval_samples
     merged_config.infill_dataset = saved_config.infill_dataset
@@ -52,5 +51,5 @@ def eval(config):
 
 
 if __name__ == "__main__":
-    print("EVAL SEQ MODEL WARNING: must change in hydra.main the config file path to match saved model\n")
+    print("EVAL SEQ MODEL WARNING: must change in hydra.main() above the config_path to match saved model in eval_seq_model.yaml \n")
     eval()

@@ -1,3 +1,5 @@
+### General project settings ### 
+# Currently directory only supports masked language model 
 defaults:
   - model: mlm
 
@@ -5,56 +7,71 @@ seed: ${trial_id}
 trial_id: 0
 project_name: guided_seq
 
-data_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/data
-train_fn: train_*.csv 
-val_fn: val_iid.csv
-train: satnet #larger_satnet
+### Data Settings ### 
+train: satnet 
 #train: larger_satnet
-valid: satnet #larger_satnet
+valid: satnet 
 #valid: larger_satnet
-max_samples: 1000
-infill_dataset: satnet
+max_samples: 1000 # maximum number of samples any dataset (train, val, or test) should have 
+infill_dataset: satnet # dataset used for conditional generation at inference time 
 is_sudoku: True 
+data_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/data # Not used in sudoku 
+train_fn: train_*.csv # Not used in sudoku
+val_fn: val_iid.csv # Not used in sudoku 
 
-target_cols: null 
-discr_batch_ratio: null
+
+
+### Vocabulary ### 
 #vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/alphabet_vocab.txt
 vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/sudoku_vocab.txt
 #vocab_file: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/protein_vocab.txt 
 vocab_size: 10
 #vocab_size: 22
-use_alignment_tokens: True
 
+
+### Logging ### 
 log_dir: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs 
 exp_name: mlm_test
 #exp_name: nos_test
 exp_dir: ${log_dir}/${exp_name}/${now:%Y-%m-%d_%H-%M-%S}
 
+### Checkpoint continuation ###
 resume_ckpt: null
 #resume_ckpt: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/nos_test/2024-09-25_19-57-16/models/best_by_train/epoch=7-step=4432.ckpt
+
+
+### Evaluation and validation ###
 # Bad code, but boolean is_eval determines if you are running evaluation vs training
 is_eval: false  
+val_sample_frequency: 1000 # number of epochs need to wait before running a validation loop as in trainer.py
 
-val_sample_frequency: 100000 #5
+### Inference ###
 num_solutions_generate: 1 #10 
-infill_seeds_fn: null #/home/nvg7279/src/seq-struct/infill_test_seeds.txt
 guidance_kwargs: null
 autoregressive_sample: False
 num_samples: 16
 
-
+### Unused for sudoku but included for original protein dataset functionality ###
+infill_seeds_fn: null #/home/nvg7279/src/seq-struct/infill_test_seeds.txt  
 max_seq_len: 300
 min_seq_len: 128
 trim_strategy: "randomcrop"
+target_cols: null 
+discr_batch_ratio: null
+use_alignment_tokens: True
 
+### Training hyperparameters ### 
 gradient_clip: 10.0
 min_epochs: 50
 max_epochs: 500
 early_stop_patience: 0
 batch_size: 32
-loader_workers: 4
 
+### GPU optimization ### 
+loader_workers: 4
 ngpu: 1
+
+
 
 use_wandb: false 
 
