@@ -54,6 +54,22 @@ Then you can simply run ```python eval_seq_model.py```
 - ```trainer.py``` File contains pytorch lightning code which defines training loop and also validation and logging
 
 ## Better understanding Guided Discrete Diffusion from the original Gruver paper
-- Most helpful would be to first read through the poster which explains the overall method and guidance method
+- Most helpful would be to first read through the poster which explains the overall method and guidance method. Also it would be helpful to read the reference Gruver paper. However note that the Gruver paper does not match what their github contains. Adding the email thread with Gruver below 
 - In the code, you may note that in ```data_utils.py``` our dataset contains not just the token sequence but also a *corrupt_mask* and *attn_mask*. These are initialized to all ones vector. For our purpose, *attn_mask* remains as one vector and so effectively can be ignored. However the *corrupt_mask* defines which tokens should be corrupted (based on some flipping of a coin of probability $$\beta_t$$), see ```noise_schedule.py```. 
 In our mask likelihood objective, we only care about the likelihood of tokens that were corrupted, so we can use the corrupt mask for this purpose.
+
+
+#### Email thread clarifying Gruver code
+> One question, I am having trouble seeing the Langevin dynamics sample step in the code for categorical diffusion.
+<img src="https://github.com/user-attachments/assets/b457b7de-778f-4c65-88f5-cbcad11d7a7c" width="500"/>
+
+> Specifically, I cannot identify where \(\sum_{\hat{w}} p(w_{t-1} | w_t, \hat{w}) p_\theta (\hat{w} | w_t)\) is calculated to be used in the KL divergence loss.  
+Looking at the `guidance_steps()` function in `mlm_diffusion.py`, it seems that the KL divergence is calculating with respect to the logits that is outputted from the denoiser model (in this case `self.network`), \(f(x_t)\) based on some \(x_t\) that is a noised sample coming from the previous logits.
+
+> <img src="https://github.com/user-attachments/assets/0d6d8857-51d2-4115-b917-ebc78258d391" width="500"/>
+
+
+His response
+> Great question! You're right that there's a slight mismatch between the appendix algorithm and the implementation here. Also notably I'm using Adagrad which has some higher order terms that aren't in the appendix algorithm because I found that in practice it allowed me to take less gradient steps on the value function :). Re: using the KL on p(w_{t-1} | w_t)) vs p(\hat{w}|w_t), I believe it should result in something roughly similar but with a slightly different weighting over the tokens. I suspect I tried it and found that it worked slightly worse or similar, but you could try it out! Note that I'm also using the unweighted loss here: https://github.com/ngruver/NOS/blob/main/seq_models/model/mlm_diffusion.py#L177. I believe it's common to use an unweighted loss when the priority is sample quality and weighted losses when the priority is good likelihoods/perplexity.
+
+
