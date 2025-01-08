@@ -169,9 +169,13 @@ def estimate_gaussian_volume(activations, k=2):
 
 		mx = np.mean(np.log(eigval[:14])) # sorted descending
 		logeig = np.log(eigval)
-		logeig = np.clip(logeig, mx-10, mx+5)
-		n = np.sum(logeig > mx-8)
-		logdet = np.sum(logeig * (logeig > mx-8))
+		if True:
+			logeig = np.clip(logeig, mx-10, mx+5)
+			n = np.sum(logeig > mx-8)
+			logdet = np.sum(logeig * (logeig > mx-8))
+		else:
+			n = logeig.shape[0]
+			logdet = np.sum(logeig)
 		logdet = np.real(logdet) # imaginary component is noise
 		joint_entropy = 0.5 * logdet + n/2*(1 + np.log(2*3.1415926))
 		# https://math.stackexchange.com/questions/2029707/entropy-of-the-multivariate-gaussian
@@ -312,7 +316,7 @@ def main():
 
 	# Hyperparameters
 	batch_size = 64
-	epochs = 10
+	epochs = 30
 	learning_rate = 1e-3
 
 	# Device configuration
@@ -338,7 +342,7 @@ def main():
 		model = MLP(use_layernorm=args.layer_norm, hidden_size=args.hidden).to(device)
 
 	# Optimizer and loss function
-	optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
+	optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.05)
 	criterion = nn.CrossEntropyLoss()
 
 	# Collect activations before training
