@@ -162,19 +162,27 @@ def estimate_gaussian_volume(activations, k=2):
 		cov_cond_no = np.linalg.cond(covariance_matrix)
 	if True: 
 		# center the activations so SVD is eq. to cov calc
-		pdb.set_trace()
 		activations = activations - torch.mean(activations, axis=0)
 		U, S, V_transpose = np.linalg.svd( \
 			activations.numpy().astype(np.double), full_matrices=False )
-		eigval = S**2
-		idx = eigval.argsort()[::-1]
-		eigval = eigval[idx]
+		eigval = S**2 # these are sorted descending
+
 		mx = np.mean(np.log(eigval[:14])) # sorted descending
 		logeig = np.log(eigval)
 		logeig = np.clip(logeig, mx-10, mx+5)
 		n = np.sum(logeig > mx-8)
 		logdet = np.sum(logeig * (logeig > mx-8))
 		logdet = np.real(logdet) # imaginary component is noise
+		joint_entropy = 0.5 * logdet + n/2*(1 + np.log(2*3.1415926))
+		# https://math.stackexchange.com/questions/2029707/entropy-of-the-multivariate-gaussian
+
+		covariance_matrix = V_transpose.T @ np.diag( S**2 ) @ V_transpose
+		variances = np.diag(covariance_matrix)
+		ind_entropy = 0.5 * np.sum(np.log(variances) + np.log(2*3.1315926*2.71828))
+		# https://en.wikipedia.org/wiki/Differential_entropy
+		# should be OK since the scale is identical.
+		mutual_info = ind_entropy - joint_entropy
+
 		cov_cond_no = np.linalg.cond(covariance_matrix)
 	if True:
 		variances = np.diag(covariance_matrix)
@@ -184,7 +192,7 @@ def estimate_gaussian_volume(activations, k=2):
 		# I(X) = (1/2) * log( (2πe)^n * det(Σ) ) - (1/2) * Σᵢ log(2πe * σᵢ²)
 		# = 1/2 *( n*log( 2πe ) + log det(Σ) ) - 1/2 Sum_i^n [ log(2πe) + 2*log(σᵢ) ]
 		# = 1/2 ( log det(Σ) - Sum_i^n log(σᵢ^2)
-		mutual_info = 0.5 * (logdet - logdet_variances)
+		# mutual_info = 0.5 * (logdet_variances - logdet)
 
 		return n, mutual_info, cov_cond_no
 
@@ -276,12 +284,12 @@ def plot_overlaid_histograms(initial_activations,
 	# if the permutation results in an increase in volume,
 	# we can use this to improve the estimate of the volume change from training
 	# (the trained network is smaller volume than the cov. matrix estimates)
-	print("Naive Δ Volume from training:", \
-		(volume_trained - volume_initial) / math.log(2), "bits")
-	print("Corrected Δ Volume from training:", \
-		(volume_trained - volume_trained_permute - volume_initial) / math.log(2), "bits")
-	print("Corrected Δ Volume:", \
-		((volume_trained - volume_trained_permute - volume_initial) / math.log(2)) / initial_activations.shape[1], "bits/dim")
+	# print("Naive Δ Volume from training:", \
+	# 	(volume_trained - volume_initial) / math.log(2), "bits")
+	# print("Corrected Δ Volume from training:", \
+	# 	(volume_trained - volume_trained_permute - volume_initial) / math.log(2), "bits")
+	# print("Corrected Δ Volume:", \
+	# 	((volume_trained - volume_trained_permute - volume_initial) / math.log(2)) / initial_activations.shape[1], "bits/dim")
 
 	plt.title(title)
 	if use_cosine_similarity:

@@ -1,4 +1,5 @@
 #!/usr/bin/bash
+python mlp_mnist.py --hidden 256
 python mlp_mnist.py --hidden 512
 python mlp_mnist.py --hidden 1024
 python mlp_mnist.py --hidden 2048
