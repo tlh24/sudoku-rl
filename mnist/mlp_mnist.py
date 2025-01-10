@@ -227,14 +227,8 @@ def plot_overlaid_histograms(initial_activations,
 				activations = a
 			# Permute the last dimension (if requested)
 			if permute_dim >= 0:
-				if permute_dim == 0:
-					for i in range(activations.shape[1]):
-						idx = torch.randperm(activations.shape[0])
-						activations[:, i] = activations[idx, i]
-				if permute_dim == 1:
-					for i in range(activations.shape[0]):
-						idx = torch.randperm(activations.shape[1])
-						activations[i, :] = activations[i, idx]
+				idx = np.random.rand(*activations.shape).argsort(axis=permute_dim)
+				activations = np.take_along_axis(a, idx, axis=axis)
 			# Calculate cosine similarities between all pairs of activations
 			norm_activations = F.normalize(activations, p=2, dim=1)  # Normalize to unit vectors
 			cosine_similarities = torch.matmul(norm_activations, norm_activations.t())
@@ -273,6 +267,7 @@ def plot_overlaid_histograms(initial_activations,
 		"Initial, permuted ctrl 1", "cyan", "--", permute_dim=1)
 	# volume_initial_gauss = plot_hist_data(initial_activations, \
 	# 	"Initial, gaussian ctrl", "blue", ":", randn_last_dim=True)
+	# gaussian is always the same as permuting along axis 1
 	volume_initial_permutepix = plot_hist_data(initial_activations_permuted, \
 		"Initial, permuted-pixels", "green", "-.")
 
