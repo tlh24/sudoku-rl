@@ -229,7 +229,7 @@ def plot_overlaid_histograms(initial_activations,
 			# Permute the last dimension (if requested)
 			if permute_dim >= 0:
 				idx = np.random.rand(*activations.shape).argsort(axis=permute_dim)
-				activations = np.take_along_axis(a, idx, axis=axis)
+				activations = np.take_along_axis(activations, idx, axis=axis)
 			# Calculate cosine similarities between all pairs of activations
 			norm_activations = F.normalize(activations, p=2, dim=1)  # Normalize to unit vectors
 			cosine_similarities = torch.matmul(norm_activations, norm_activations.t())
