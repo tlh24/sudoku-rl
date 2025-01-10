@@ -271,8 +271,8 @@ def plot_overlaid_histograms(initial_activations,
 		"Initial, permuted ctrl 0", "blue", "--", permute_dim=0)
 	volume_initial_permute1 = plot_hist_data(initial_activations, \
 		"Initial, permuted ctrl 1", "cyan", "--", permute_dim=1)
-	volume_initial_gauss = plot_hist_data(initial_activations, \
-		"Initial, gaussian ctrl", "blue", ":", randn_last_dim=True)
+	# volume_initial_gauss = plot_hist_data(initial_activations, \
+	# 	"Initial, gaussian ctrl", "blue", ":", randn_last_dim=True)
 	volume_initial_permutepix = plot_hist_data(initial_activations_permuted, \
 		"Initial, permuted-pixels", "green", "-.")
 
@@ -282,8 +282,8 @@ def plot_overlaid_histograms(initial_activations,
 		"Trained, permuted ctrl0", "red", "--", permute_dim=0)
 	volume_trained_permute1 = plot_hist_data(final_activations, \
 		"Trained, permuted ctrl1", "magenta", "--", permute_dim=1)
-	volume_trained_gauss = plot_hist_data(final_activations, \
-		"Trained, gaussian ctrl", "red", ":", randn_last_dim=True)
+	# volume_trained_gauss = plot_hist_data(final_activations, \
+	# 	"Trained, gaussian ctrl", "red", ":", randn_last_dim=True)
 	volume_trained_permutepix = plot_hist_data(final_activations_permuted, \
 		"Trained, permuted-pixels", "orange", "-.")
 
@@ -378,12 +378,12 @@ def main():
 		fid.write("Initial\t")
 		fid.write("Init ctrl 0\t")
 		fid.write("Init ctrl 1\t")
-		fid.write("Init gauss ctrl\t")
+		# fid.write("Init gauss ctrl\t")
 		fid.write("Init permuted pixels\t")
 		fid.write("Trained\t")
 		fid.write("Train ctrl 0\t")
 		fid.write("Train ctrl 1\t")
-		fid.write("Train gauss ctrl\t")
+		# fid.write("Train gauss ctrl\t")
 		fid.write("Train permuted pixels\n")
 		fid.close()
 
