@@ -1,0 +1,7 @@
+Hidden	Initial	Initial permute ctrl 0	Initial permute ctrl 1	Initial gaussian ctrl	Initial permuted pixels	Trained	Trained permute ctrl 0	Trained permute ctrl 1	Trained gaussian ctrl	Trained permuted pixels
+128	203	422	582	582	218	749	1363	1406	1406	539	
+256	396	859	1106	1106	370	1151	2667	2777	2777	767	
+512	699	1696	2166	2165	703	1578	5283	5472	5472	1039	
+1024	1234	3337	4213	4213	1247	2121	10606	11007	11007	1535	
+2048	2216	6635	8324	8326	2203	2628	20945	21990	21991	1998	
+4096	3669	

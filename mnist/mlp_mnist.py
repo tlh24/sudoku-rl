@@ -167,7 +167,7 @@ def estimate_gaussian_volume(activations, k=2):
 			activations.numpy().astype(np.double), full_matrices=False )
 		eigval = S**2 # these are sorted descending
 
-		mx = np.mean(np.log(eigval[:14])) # sorted descending
+		mx = np.mean(np.log(eigval[:16])) # sorted descending
 		logeig = np.log(eigval)
 		if True:
 			logeig = np.clip(logeig, mx-10, mx+5)
@@ -198,7 +198,7 @@ def estimate_gaussian_volume(activations, k=2):
 		# = 1/2 ( log det(Σ) - Sum_i^n log(σᵢ^2)
 		# mutual_info = 0.5 * (logdet_variances - logdet)
 
-		return n, mutual_info, cov_cond_no
+		return n, logdet, cov_cond_no
 
 	# volume = (np.pi**(n/2) / math.gamma(n/2 + 1)) * (k**n) * np.sqrt(determinant)
 	log_volume = (n/2) * np.log(np.pi) - math.lgamma(n/2 + 1) + n * k + (1/2) * logdet
@@ -214,7 +214,7 @@ def plot_overlaid_histograms(initial_activations,
 	plt.figure(figsize=figsize)
 
 	# Function to calculate cosine similarities or L2 norms and prepare histogram data
-	def plot_hist_data(activations, label, color, linestyle, permute_last_dim=False, randn_last_dim=False):
+	def plot_hist_data(activations, label, color, linestyle, permute_dim=-1, randn_last_dim=False):
 		# center data.
 		# activations = activations - torch.mean(activations, 0)
 		# approximate (via a gaussian) the volume occupied by the activations.
@@ -226,10 +226,15 @@ def plot_overlaid_histograms(initial_activations,
 				a = torch.randn_like(activations) * s[...,:]
 				activations = a
 			# Permute the last dimension (if requested)
-			if permute_last_dim:
-				for i in range(activations.shape[0]):
-					idx = torch.randperm(activations.shape[1])
-					activations[i, :] = activations[i, idx]
+			if permute_dim >= 0:
+				if permute_dim == 0:
+					for i in range(activations.shape[1]):
+						idx = torch.randperm(activations.shape[0])
+						activations[:, i] = activations[idx, i]
+				if permute_dim == 1:
+					for i in range(activations.shape[0]):
+						idx = torch.randperm(activations.shape[1])
+						activations[i, :] = activations[i, idx]
 			# Calculate cosine similarities between all pairs of activations
 			norm_activations = F.normalize(activations, p=2, dim=1)  # Normalize to unit vectors
 			cosine_similarities = torch.matmul(norm_activations, norm_activations.t())
@@ -249,14 +254,23 @@ def plot_overlaid_histograms(initial_activations,
 
 		plt.plot(bin_centers, hist, label=label, color=color, linestyle=linestyle)
 
+		# save the volume to the file
+		fid = open('mlp_mnist_table.csv', 'a')
+		fid.write(f"{round(vol)}\t")
+		fid.close()
 		return vol
 
+	fid = open('mlp_mnist_table.csv', 'a')
+	fid.write(f"{initial_activations.shape[1]}\t")
+	fid.close()
 
 	# Get histogram data for each case, including control with last dimension permutation
 	volume_initial = plot_hist_data(initial_activations, \
 		"Initial", "blue", "-")
-	volume_initial_permute = plot_hist_data(initial_activations, \
-		"Initial, permuted ctrl", "blue", "--", permute_last_dim=True)
+	volume_initial_permute0 = plot_hist_data(initial_activations, \
+		"Initial, permuted ctrl 0", "blue", "--", permute_dim=0)
+	volume_initial_permute1 = plot_hist_data(initial_activations, \
+		"Initial, permuted ctrl 1", "cyan", "--", permute_dim=1)
 	volume_initial_gauss = plot_hist_data(initial_activations, \
 		"Initial, gaussian ctrl", "blue", ":", randn_last_dim=True)
 	volume_initial_permutepix = plot_hist_data(initial_activations_permuted, \
@@ -264,8 +278,10 @@ def plot_overlaid_histograms(initial_activations,
 
 	volume_trained = plot_hist_data(final_activations, \
 		"Trained", "red", "-")
-	volume_trained_permute = plot_hist_data(final_activations, \
-		"Trained, permuted ctrl", "red", "--", permute_last_dim=True)
+	volume_trained_permute0 = plot_hist_data(final_activations, \
+		"Trained, permuted ctrl0", "red", "--", permute_dim=0)
+	volume_trained_permute1 = plot_hist_data(final_activations, \
+		"Trained, permuted ctrl1", "magenta", "--", permute_dim=1)
 	volume_trained_gauss = plot_hist_data(final_activations, \
 		"Trained, gaussian ctrl", "red", ":", randn_last_dim=True)
 	volume_trained_permutepix = plot_hist_data(final_activations_permuted, \
@@ -292,8 +308,13 @@ def plot_overlaid_histograms(initial_activations,
 	# 	(volume_trained - volume_initial) / math.log(2), "bits")
 	# print("Corrected Δ Volume from training:", \
 	# 	(volume_trained - volume_trained_permute - volume_initial) / math.log(2), "bits")
-	# print("Corrected Δ Volume:", \
-	# 	((volume_trained - volume_trained_permute - volume_initial) / math.log(2)) / initial_activations.shape[1], "bits/dim")
+	print("Δ Volumes:", \
+	 	(volume_initial - volume_initial_permute0), \
+		(volume_trained - volume_trained_permute0),)
+
+	fid = open('mlp_mnist_table.csv', 'a')
+	fid.write(f"\n")
+	fid.close()
 
 	plt.title(title)
 	if use_cosine_similarity:
@@ -310,13 +331,14 @@ def main():
 	# Parse command-line arguments
 	parser = argparse.ArgumentParser(description="MLP MNIST Example")
 	parser.add_argument("--layer_norm", action="store_true", help="Use LayerNorm")
+	parser.add_argument("--reset", action="store_true", help="reset the table")
 	parser.add_argument("--lenet", action="store_true", help="Use LeNet5 instead of MLP")
 	parser.add_argument('--hidden', type=int, default=512, help='hidden size')
 	args = parser.parse_args()
 
 	# Hyperparameters
 	batch_size = 64
-	epochs = 30
+	epochs = 10
 	learning_rate = 1e-3
 
 	# Device configuration
@@ -342,13 +364,28 @@ def main():
 		model = MLP(use_layernorm=args.layer_norm, hidden_size=args.hidden).to(device)
 
 	# Optimizer and loss function
-	optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.00)
+	optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
 	criterion = nn.CrossEntropyLoss()
 
 	# Collect activations before training
 	initial_activations, initial_accuracy = evaluate(model, test_loader, device)
 	initial_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
 	print(f"Initial Test Accuracy: {initial_accuracy:.2f}%")
+
+	if args.reset:
+		fid = open('mlp_mnist_table.csv', 'w')
+		fid.write("Hidden\t")
+		fid.write("Initial\t")
+		fid.write("Init ctrl 0\t")
+		fid.write("Init ctrl 1\t")
+		fid.write("Init gauss ctrl\t")
+		fid.write("Init permuted pixels\t")
+		fid.write("Trained\t")
+		fid.write("Train ctrl 0\t")
+		fid.write("Train ctrl 1\t")
+		fid.write("Train gauss ctrl\t")
+		fid.write("Train permuted pixels\n")
+		fid.close()
 
 	# Train the model
 	for epoch in range(epochs):
