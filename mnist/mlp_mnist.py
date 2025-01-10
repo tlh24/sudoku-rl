@@ -140,11 +140,12 @@ def estimate_gaussian_volume(activations, k=2):
 	"""
 	# # covariance_matrix = np.cov(activations, rowvar=False)  # rowvar=False means each column is a variable
 	# cov = OAS()
-	cov = LedoitWolf()
-	# cov = MinCovDet(support_fraction = 0.95)
-	# cov = GraphicalLasso()
-	cov.fit(activations.numpy().astype(np.double)) # more precision
-	covariance_matrix = cov.covariance_
+	if False:
+		cov = LedoitWolf()
+		# cov = MinCovDet(support_fraction = 0.95)
+		# cov = GraphicalLasso()
+		cov.fit(activations.numpy().astype(np.double)) # more precision
+		covariance_matrix = cov.covariance_
 	if False:
 		# slogdet returns the sign and the log of the determinant
 		sign, logdet = np.linalg.slogdet(covariance_matrix)
