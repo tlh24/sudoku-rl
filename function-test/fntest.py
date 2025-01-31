@@ -70,8 +70,8 @@ def genData(bs, puzzl):
 			c = index % 2
 			m = puzzl[b, r:r+2, c:c+2]
 			y[b] = np.sum(m == digit)
-		# make it simple as a control - count the number of 1's in the first row. 
-		y[b] = np.sum(puzzl[b, :, :] == 1)
+		# make it simple as a control - count the number of 'digits' in the first row. 
+		y[b] = np.sum(puzzl[b, :, :] == digit)
 			
 	# add in position encoding -- without any structural hints
 	x[:,:,-1] = np.arange(16*12)
