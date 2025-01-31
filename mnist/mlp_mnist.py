@@ -360,7 +360,7 @@ def main():
 		model = MLP(use_layernorm=args.layer_norm, hidden_size=args.hidden).to(device)
 
 	# Optimizer and loss function
-	optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
+	optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.0)
 	criterion = nn.CrossEntropyLoss()
 
 	# Collect activations before training
