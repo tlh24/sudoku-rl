@@ -334,7 +334,7 @@ def main():
 
 	# Hyperparameters
 	batch_size = 64
-	epochs = 10
+	epochs = 30
 	learning_rate = 1e-3
 
 	# Device configuration
