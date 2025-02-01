@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import argparse
 import itertools
 import numpy as np
@@ -65,6 +66,7 @@ def genData(bs, puzzl):
 		index = np.random.randint(4) 
 		# index = 1 # FIXME
 		digit = np.random.randint(4) + 1
+		# digit = 1 # FIXME
 		x[b,-7,1] = 5+3 # 'request'
 		x[b,-6,1] = 5+2 # 'axis'
 		x[b,-5,0] = axis
@@ -109,6 +111,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.l1a_f = l1attn_cuda.L1Attn()
 
 		self.gelu = QuickGELU()
+		self.rms_norm = nn.RMSNorm(d_model)
 
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
@@ -154,9 +157,30 @@ class ResidualAttentionBlock(nn.Module):
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
 		return b # residual sum later.
+		
+	def attentionDP(self, x:torch.Tensor): 
+		n_head = self.n_head
+		d_head = self.d_model ## no sub-spaces!
+		batch_size = x.shape[0]
+		ntok = x.shape[1]
 
-	def forward(self, x:torch.Tensor):
-		y = self.attention(x)
+		o = self.wqv(x)
+		o = torch.reshape(o, (batch_size, ntok, 3*self.n_head, d_head))
+		q,k,v = torch.split(o, self.n_head, 2)
+		# q,k,v are shape [batch_size, ntok, n_head, d_head]
+		
+		a = torch.einsum('bthw, bshw -> btsh', q, k) / math.sqrt(d_head)
+		a = F.softmax(a, 1)
+		b = torch.einsum('btsh, bshw -> bthw', a, v)
+		b = torch.sum(b, dim=2) # sum along the heads
+		return b
+		
+
+	def forward(self, x:torch.Tensor, use_dp:bool):
+		if use_dp: 
+			y = self.attentionDP( self.rms_norm(x) )
+		else: 
+			y = self.attention(x)
 		y = self.gelu(y)
 		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		return x + y
@@ -175,7 +199,7 @@ class Transformer(nn.Module):
 		self.out_proj = nn.Linear(d_model, 1, bias=True)
 		self.embedding_layer = nn.Embedding(num_embeddings=10, embedding_dim=d_model-4)
 
-	def forward(self, x:torch.Tensor):
+	def forward(self, x:torch.Tensor, use_dp:bool):
 		# x is dtype int to interface with the embedding layer
 		bs,n_tok,_ = x.shape
 		x_flat = x[:,:,1].view(-1)
@@ -184,7 +208,7 @@ class Transformer(nn.Module):
 		x = self.in_proj(x)
 		for i in range(self.repeat):
 			for j, layer in enumerate(self.resblocks):
-				x = layer(x)
+				x = layer(x, use_dp)
 		return self.out_proj(x)
 
 	def fixedInit(self):
@@ -206,10 +230,11 @@ if __name__ == '__main__':
 	# print(y)
 	
 	parser = argparse.ArgumentParser()
-	parser.add_argument('-d', type=int, default=0, help='CUDA device')
-	parser.add_argument('-b', type=int, default=64, help='batch size')
+	parser.add_argument('-b', type=int, default=128, help='batch size')
 	parser.add_argument('-c', action='store_true', help='start fresh, dont load a model')
 	parser.add_argument('-a', action='store_true', help='use AdamW')
+	parser.add_argument('-v', action='store_true', help='validate only')
+	parser.add_argument('-d', action='store_true', help='dot product attention')
 	cmd_args = parser.parse_args()
 
 	batch_size = cmd_args.b
@@ -234,7 +259,7 @@ if __name__ == '__main__':
 	else: 
 		optimizer = psgd.LRA(model.module.parameters(),\
 			lr_params=0.01,lr_preconditioner= 0.01, momentum=0.9,\
-			preconditioner_update_probability=0.2, \
+			preconditioner_update_probability=0.25, \
 			exact_hessian_vector_product=False, \
 			rank_of_approximation=20, grad_clip_max_norm=5.0)
 	
@@ -244,14 +269,14 @@ if __name__ == '__main__':
 	input_thread.start()
 	
 	def train(uu):
-		puzzl = np.random.randint(5, size=(8*2048,4,4))
-		x,y = genData(8*2048, puzzl)
+		puzzl = np.random.randint(5, size=(16*2048,4,4))
+		x,y = genData(16*2048, puzzl)
 		x = torch.tensor(x) # leave as int
 		y = torch.tensor(y).float()
 		x = x.cuda()
 		y = y.cuda()
 
-		for i in range(16*2000):
+		for i in range(24*2000):
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
@@ -259,14 +284,14 @@ if __name__ == '__main__':
 
 			if cmd_args.a: 
 				optimizer.zero_grad()
-				pred = model(xx)
+				pred = model(xx, cmd_args.d)
 				loss = torch.sum( (pred[:,-1,0] - target)**2 )
 				torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 				loss.backward()
 				optimizer.step()
 			else: 
 				def closure():
-					pred = model(xx)
+					pred = model(xx, cmd_args.d)
 					# only look at the last token
 					loss = torch.sum( (pred[:,-1,0] - target)**2 ) + \
 						sum( \
@@ -300,7 +325,7 @@ if __name__ == '__main__':
 			indx = torch.arange(i*batch_size, (i+1)*batch_size)
 			xx = x[indx,:,:]
 			target = y[indx]
-			pred = model(xx)
+			pred = model(xx, cmd_args.d)
 			loss = torch.sum( (pred[:,-1,0] - target)**2 )
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)
@@ -309,7 +334,8 @@ if __name__ == '__main__':
 			uu += 1
 
 	uu = 0
-	# uu = train(uu)
+	if not cmd_args.v: 
+		uu = train(uu)
 	test(uu)
 	
 	fd_losslog.close()
