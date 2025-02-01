@@ -1,3 +1,5 @@
+import sys
+import os
 import argparse
 import itertools
 import numpy as np
@@ -11,6 +13,9 @@ import psgd
 import pdb
 import threading
 import multiprocessing
+
+# Add the parent directory to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import utils
 
 '''
@@ -35,6 +40,7 @@ Goal is implement hasA(axis,index,digit)
 '''
 
 def genData(bs, puzzl): 
+	indx_offset = 1
 	x = np.zeros((bs, 16 * 12, 4), dtype=int)
 	for row in range(4): 
 		for col in range(4): 
@@ -43,34 +49,34 @@ def genData(bs, puzzl):
 			x[:, i+1 , 1] = puzzl[:,row,col]+1 # *word* encoding
 			x[:, i+2 , 1] = 5+2 # 'axis'
 			x[:, i+3 , 0] = 1 # axis 1
-			x[:, i+4 , 0] = row+1 # position
+			x[:, i+4 , 0] = row + indx_offset # position
 			x[:, i+5 , 1] = 5+2 # 'axis'
 			x[:, i+6 , 0] = 2 # axis 2
-			x[:, i+7 , 0] = col+1 # position
+			x[:, i+7 , 0] = col + indx_offset # position
 			x[:, i+8 , 1] = 5+2 # 'axis'
-			x[:, i+9 , 0] = 3 # axis 3
-			x[:, i+10, 0] = (row // 2)*2 + (col // 2) # block
+			x[:, i+9 , 0] = 3  # axis 3
+			x[:, i+10, 0] = (row // 2)*2 + (col // 2) + indx_offset # block
 	
 	y = np.zeros((bs,))
 	for b in range(bs): 
 		# provide the arguments to the function. 
 		axis = np.random.randint(3) + 1
-		axis = 1 # FIXME
-		index = np.random.randint(4) + 1
+		# axis = 1 # FIXME
+		index = np.random.randint(4) 
 		# index = 1 # FIXME
 		digit = np.random.randint(4) + 1
 		x[b,-7,1] = 5+3 # 'request'
 		x[b,-6,1] = 5+2 # 'axis'
 		x[b,-5,0] = axis
-		x[b,-4,0] = index
+		x[b,-4,0] = index + indx_offset # was + 0
 		x[b,-3,1] = 5+1 # 'cell'
 		x[b,-2,1] = digit # word encoding
 		x[b,-1,1] = 5+4 # 'answer'
 		# now, calculate it.  
 		if axis == 1: 
-			y[b] = np.sum(puzzl[b, index-1, :] == digit)
+			y[b] = np.sum(puzzl[b, index, :] == digit)
 		if axis == 2: 
-			y[b] = np.sum(puzzl[b, :, index-1] == digit)
+			y[b] = np.sum(puzzl[b, :, index] == digit)
 		if axis == 3: 
 			r = index // 2
 			c = index % 2
@@ -192,17 +198,18 @@ class Transformer(nn.Module):
 		print(f"Number of model parameters:{trainable_params}")
 	
 if __name__ == '__main__':
-	batch_size = 1
-	puzzl = np.random.randint(5, size=(batch_size,4,4))
-	x, y = genData(batch_size, puzzl)
-	print(puzzl)
-	print(x)
-	print(y)
+	# batch_size = 1
+	# puzzl = np.random.randint(5, size=(batch_size,4,4))
+	# x, y = genData(batch_size, puzzl)
+	# print(puzzl)
+	# print(x)
+	# print(y)
 	
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-d', type=int, default=0, help='CUDA device')
 	parser.add_argument('-b', type=int, default=64, help='batch size')
 	parser.add_argument('-c', action='store_true', help='start fresh, dont load a model')
+	parser.add_argument('-a', action='store_true', help='use AdamW')
 	cmd_args = parser.parse_args()
 
 	batch_size = cmd_args.b
@@ -222,9 +229,12 @@ if __name__ == '__main__':
 	model = nn.DataParallel(model)
 	model = model.cuda()
 
-	optimizer = psgd.LRA(model.module.parameters(),\
+	if cmd_args.a: 
+		optimizer = optim.AdamW(model.module.parameters(), lr=2.5e-4, amsgrad=True)
+	else: 
+		optimizer = psgd.LRA(model.module.parameters(),\
 			lr_params=0.01,lr_preconditioner= 0.01, momentum=0.9,\
-			preconditioner_update_probability=0.5, \
+			preconditioner_update_probability=0.2, \
 			exact_hessian_vector_product=False, \
 			rank_of_approximation=20, grad_clip_max_norm=5.0)
 	
@@ -247,16 +257,23 @@ if __name__ == '__main__':
 			xx = x[indx,:,:]
 			target = y[indx]
 
-			def closure():
+			if cmd_args.a: 
+				optimizer.zero_grad()
 				pred = model(xx)
-				# only look at the last token
-				loss = torch.sum( (pred[:,-1,0] - target)**2 ) + \
-					sum( \
-						[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) \
-					for param in model.module.parameters()])
-				return loss
-
-			loss = optimizer.step(closure)
+				loss = torch.sum( (pred[:,-1,0] - target)**2 )
+				torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+				loss.backward()
+				optimizer.step()
+			else: 
+				def closure():
+					pred = model(xx)
+					# only look at the last token
+					loss = torch.sum( (pred[:,-1,0] - target)**2 ) + \
+						sum( \
+							[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) \
+						for param in model.module.parameters()])
+					return loss
+				loss = optimizer.step(closure)
 			lloss = loss.detach().cpu().item()
 			if i % 10 == 0:
 				print(lloss)
@@ -292,7 +309,7 @@ if __name__ == '__main__':
 			uu += 1
 
 	uu = 0
-	uu = train(uu)
+	# uu = train(uu)
 	test(uu)
 	
 	fd_losslog.close()
