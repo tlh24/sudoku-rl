@@ -3,11 +3,15 @@ import itertools
 import numpy as np
 import torch
 import torch.nn.functional as F
+from termcolor import colored
 from torch import nn, optim
 import l1attn_cuda
 import matplotlib.pyplot as plt
 import psgd
 import pdb
+import threading
+import multiprocessing
+import utils
 
 '''
 Goal: test if a transformer (either L1 or DP) can implement 
@@ -51,7 +55,9 @@ def genData(bs, puzzl):
 	for b in range(bs): 
 		# provide the arguments to the function. 
 		axis = np.random.randint(3) + 1
+		axis = 1 # FIXME
 		index = np.random.randint(4) + 1
+		# index = 1 # FIXME
 		digit = np.random.randint(4) + 1
 		x[b,-7,1] = 5+3 # 'request'
 		x[b,-6,1] = 5+2 # 'axis'
@@ -71,7 +77,7 @@ def genData(bs, puzzl):
 			m = puzzl[b, r:r+2, c:c+2]
 			y[b] = np.sum(m == digit)
 		# make it simple as a control - count the number of 'digits' in the first row. 
-		y[b] = np.sum(puzzl[b, :, :] == digit)
+		# y[b] = np.sum(puzzl[b, :, :] == digit) # FIXME
 			
 	# add in position encoding -- without any structural hints
 	x[:,:,-1] = np.arange(16*12)
@@ -195,16 +201,28 @@ if __name__ == '__main__':
 	
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-d', type=int, default=0, help='CUDA device')
-	parser.add_argument('-b', type=int, default=128, help='batch size')
+	parser.add_argument('-b', type=int, default=64, help='batch size')
+	parser.add_argument('-c', action='store_true', help='start fresh, dont load a model')
 	cmd_args = parser.parse_args()
 
 	batch_size = cmd_args.b
 	
-	model = Transformer(d_model=64, layers=2, repeat=2, n_head=4)
+	model = Transformer(d_model=64, layers=3, repeat=3, n_head=4)
 	model.printParamCount()
-	model = model.cuda(cmd_args.d)
+	if cmd_args.c: 
+		print(colored("not loading any model weights.", "blue"))
+	else: 
+		try: 
+			model.load_state_dict(\
+				torch.load('fntest.pt',weights_only=True,map_location='cpu'))
+			print(colored("loaded model.", "green"))
+		except Exception as error:
+			print(error)
+		
+	model = nn.DataParallel(model)
+	model = model.cuda()
 
-	optimizer = psgd.LRA(model.parameters(),\
+	optimizer = psgd.LRA(model.module.parameters(),\
 			lr_params=0.01,lr_preconditioner= 0.01, momentum=0.9,\
 			preconditioner_update_probability=0.5, \
 			exact_hessian_vector_product=False, \
@@ -212,15 +230,18 @@ if __name__ == '__main__':
 	
 	fd_losslog = open('losslog.txt', 'w')
 	
+	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
+	input_thread.start()
+	
 	def train(uu):
-		puzzl = np.random.randint(5, size=(4*2048,4,4))
-		x,y = genData(4*2048, puzzl)
+		puzzl = np.random.randint(5, size=(8*2048,4,4))
+		x,y = genData(8*2048, puzzl)
 		x = torch.tensor(x) # leave as int
 		y = torch.tensor(y).float()
-		x = x.cuda(cmd_args.d)
-		y = y.cuda(cmd_args.d)
+		x = x.cuda()
+		y = y.cuda()
 
-		for i in range(4*2000):
+		for i in range(16*2000):
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
@@ -232,7 +253,7 @@ if __name__ == '__main__':
 				loss = torch.sum( (pred[:,-1,0] - target)**2 ) + \
 					sum( \
 						[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) \
-					for param in model.parameters()])
+					for param in model.module.parameters()])
 				return loss
 
 			loss = optimizer.step(closure)
@@ -242,8 +263,36 @@ if __name__ == '__main__':
 				fd_losslog.write(f'{uu}\t{lloss}\n')
 				fd_losslog.flush()
 			uu += 1
+			if uu % 1000 == 0: 
+				torch.save(model.module.state_dict(), 'fntest.pt')
+				print(colored('saved model', 'blue'))
+			if utils.switch_to_validation:
+				break
+			
 		return uu
+		
+	def test(uu): 
+		puzzl = np.random.randint(5, size=(2048,4,4))
+		x,y = genData(2048, puzzl)
+		x = torch.tensor(x) # leave as int
+		y = torch.tensor(y).float()
+		x = x.cuda()
+		y = y.cuda()
+		
+		for i in range(2048 // batch_size):
+			indx = torch.arange(i*batch_size, (i+1)*batch_size)
+			xx = x[indx,:,:]
+			target = y[indx]
+			pred = model(xx)
+			loss = torch.sum( (pred[:,-1,0] - target)**2 )
+			lloss = loss.detach().cpu().item()
+			print('v',lloss)
+			fd_losslog.write(f'{uu}\t{lloss}\n')
+			fd_losslog.flush()
+			uu += 1
 
-	train(0)
+	uu = 0
+	uu = train(uu)
+	test(uu)
 	
 	fd_losslog.close()
