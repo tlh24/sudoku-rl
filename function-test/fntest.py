@@ -21,7 +21,7 @@ import utils
 
 '''
 Goal: test if a transformer (either L1 or DP) can implement 
-general functions that take an argument (or two?) 
+general functions that take an argument (or three?)
 and can generalize out of the training data.
 
 Input data is maximally-tokenized 4x4 mini-sudoku. 
@@ -32,31 +32,42 @@ c:2,axis:1:1,axis:2:2,axis:3:2; c:3,axis:1:1,axis:2:4,axis:3:2
 axis 1 is row
 axis 2 is column
 axis 3 is block
-Hence these are addresses
+Hence these are addresses.
 
-Integers are encoded directly.  
-Vocabulary is encoded with learnable vectors.  
+An even more maximally-tokenixed version would be:
+cell,axis:1:<digit>,axis:2:<row>,axis:3:<col>,axis:4:<block>
+'cell','axis','request','answer' are all one-hot vocabulary.
+integers, including the axis name, and row column and block,
+are directly encoded.
+axis on [1]
+digits, however, are encoded as vocabularies themselves.
+
 
 Goal is implement hasA(axis,index,digit) 
 '''
 
 def genData(bs, puzzl): 
+	# vocabulary
+	v_cell = 5+1
+	v_axis = 5+2
+	v_request = 5+3
+	v_answer = 5+4
 	indx_offset = 1
 	x = np.zeros((bs, 16 * 12, 4), dtype=int)
 	for row in range(4): 
 		for col in range(4): 
 			i = (row*4 + col) * 11
-			x[:, i, 1] = 5+1 # 'cell'
-			x[:, i+1 , 1] = puzzl[:,row,col]+1 # *word* encoding
-			x[:, i+2 , 1] = 5+2 # 'axis'
-			x[:, i+3 , 0] = 1 # axis 1
-			x[:, i+4 , 0] = row + indx_offset # position
-			x[:, i+5 , 1] = 5+2 # 'axis'
-			x[:, i+6 , 0] = 2 # axis 2
-			x[:, i+7 , 0] = col + indx_offset # position
-			x[:, i+8 , 1] = 5+2 # 'axis'
-			x[:, i+9 , 0] = 3  # axis 3
-			x[:, i+10, 0] = (row // 2)*2 + (col // 2) + indx_offset # block
+			x[:, i   , 0] = v_cell
+			x[:, i+1 , 2] = puzzl[:,row,col]+1 # *vocab* encoding
+			x[:, i+2 , 0] = v_axis
+			x[:, i+3 , 1] = 1 # axis 1
+			x[:, i+4 , 2] = row + indx_offset # position
+			x[:, i+5 , 0] = v_axis
+			x[:, i+6 , 1] = 2 # axis 2
+			x[:, i+7 , 2] = col + indx_offset # position
+			x[:, i+8 , 0] = v_axis
+			x[:, i+9 , 1] = 3  # axis 3
+			x[:, i+10, 2] = (row // 2)*2 + (col // 2) + indx_offset # block
 	
 	y = np.zeros((bs,))
 	for b in range(bs): 
@@ -67,13 +78,13 @@ def genData(bs, puzzl):
 		# index = 1 # FIXME
 		digit = np.random.randint(4) + 1
 		# digit = 1 # FIXME
-		x[b,-7,1] = 5+3 # 'request'
-		x[b,-6,1] = 5+2 # 'axis'
-		x[b,-5,0] = axis
-		x[b,-4,0] = index + indx_offset # was + 0
-		x[b,-3,1] = 5+1 # 'cell'
-		x[b,-2,1] = digit # word encoding
-		x[b,-1,1] = 5+4 # 'answer'
+		x[b,-7, 0] = v_request
+		x[b,-6, 0] = v_axis
+		x[b,-5, 1] = axis
+		x[b,-4, 2] = index + indx_offset # was + 0
+		x[b,-3, 0] = v_cell
+		x[b,-2, 0] = digit # word encoding
+		x[b,-1, 0] = v_answer
 		# now, calculate it.  
 		if axis == 1: 
 			y[b] = np.sum(puzzl[b, index, :] == digit)
@@ -84,6 +95,8 @@ def genData(bs, puzzl):
 			c = index % 2
 			m = puzzl[b, r:r+2, c:c+2]
 			y[b] = np.sum(m == digit)
+		# y[b] = np.clip(y[b], 0, 1) # don't worry about duplicates, just presence or absence.
+
 		# make it simple as a control - count the number of 'digits' in the first row. 
 		# y[b] = np.sum(puzzl[b, :, :] == digit) # FIXME
 			
@@ -202,7 +215,7 @@ class Transformer(nn.Module):
 	def forward(self, x:torch.Tensor, use_dp:bool):
 		# x is dtype int to interface with the embedding layer
 		bs,n_tok,_ = x.shape
-		x_flat = x[:,:,1].view(-1)
+		x_flat = x[:,:,0].view(-1)
 		embed = self.embedding_layer(x_flat)
 		x = torch.cat((x.float(), embed.view(bs,n_tok,self.d_model-4)), dim=-1)
 		x = self.in_proj(x)
@@ -269,7 +282,8 @@ if __name__ == '__main__':
 	input_thread.start()
 	
 	def train(uu):
-		puzzl = np.random.randint(5, size=(16*2048,4,4))
+		puzzl = np.random.randint(6, size=(16*2048,4,4)) # [0 .. 5]
+		puzzl = np.clip(puzzl-1, 0, 4) # [0 .. 4]
 		x,y = genData(16*2048, puzzl)
 		x = torch.tensor(x) # leave as int
 		y = torch.tensor(y).float()
