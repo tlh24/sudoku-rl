@@ -58,7 +58,7 @@ def genData(bs, puzzl):
 		for col in range(4): 
 			i = (row*4 + col) * 11
 			x[:, i   , 0] = v_cell
-			x[:, i+1 , 2] = puzzl[:,row,col]+1 # *vocab* encoding
+			x[:, i+1 , 0] = puzzl[:,row,col]+1 # *vocab* encoding
 			x[:, i+2 , 0] = v_axis
 			x[:, i+3 , 1] = 1 # axis 1
 			x[:, i+4 , 2] = row + indx_offset # position
