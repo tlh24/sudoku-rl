@@ -22,86 +22,28 @@ import utils
 '''
 Goal: test if a transformer (either L1 or DP) can implement 
 general functions that take an argument (or three?)
-and can generalize out of the training data.
+and can generalize out of training data.
 
-Input data is maximally-tokenized 4x4 mini-sudoku. 
-This is designed to look like a tagged datastructure, ala JSON. 
-	(a C datastructure would have bare values and pointers)
-c:1,axis:1:1,axis:2:1,axis:3:1; c:0,axis:1:1,axis:2:2,axis:3:1
-c:2,axis:1:1,axis:2:2,axis:3:2; c:3,axis:1:1,axis:2:4,axis:3:2
-axis 1 is row
-axis 2 is column
-axis 3 is block
-Hence these are addresses.
-
-An even more maximally-tokenixed version would be:
-cell,axis:1:<digit>,axis:2:<row>,axis:3:<col>,axis:4:<block>
-'cell','axis','request','answer' are all one-hot vocabulary.
-integers, including the axis name, and row column and block,
-are directly encoded.
-axis on [1]
-digits, however, are encoded as vocabularies themselves.
-
-
-Goal is implement hasA(axis,index,digit) 
+as opposed to fntest.py, this one is just a pointer op.  
 '''
 
-def genData(bs, puzzl): 
-	# vocabulary
-	v_cell = 5+1
-	v_axis = 5+2
-	v_request = 5+3
-	v_answer = 5+4
-	indx_offset = 1
-	x = np.zeros((bs, 16 * 12, 4), dtype=int)
-	for row in range(4): 
-		for col in range(4): 
-			i = (row*4 + col) * 11
-			x[:, i   , 0] = v_cell
-			x[:, i+1 , 0] = puzzl[:,row,col]+1 # *vocab* encoding
-			x[:, i+2 , 0] = v_axis
-			x[:, i+3 , 1] = 1 # axis 1
-			x[:, i+4 , 2] = row + indx_offset # position
-			x[:, i+5 , 0] = v_axis
-			x[:, i+6 , 1] = 2 # axis 2
-			x[:, i+7 , 2] = col + indx_offset # position
-			x[:, i+8 , 0] = v_axis
-			x[:, i+9 , 1] = 3  # axis 3
-			x[:, i+10, 2] = (row // 2)*2 + (col // 2) + indx_offset # block
-	
-	y = np.zeros((bs,))
-	for b in range(bs): 
-		# provide the arguments to the function. 
-		axis = np.random.randint(3) + 1
-		# axis = 1 # FIXME
-		index = np.random.randint(4) 
-		# index = 1 # FIXME
-		digit = np.random.randint(4) + 1
-		# digit = 1 # FIXME
-		x[b,-7, 0] = v_request
-		x[b,-6, 0] = v_axis
-		x[b,-5, 1] = axis
-		x[b,-4, 2] = index + indx_offset # was + 0
-		x[b,-3, 0] = v_cell
-		x[b,-2, 0] = digit # word encoding
-		x[b,-1, 0] = v_answer
-		# now, calculate it.  
-		if axis == 1: 
-			y[b] = np.sum(puzzl[b, index, :] == digit)
-		if axis == 2: 
-			y[b] = np.sum(puzzl[b, :, index] == digit)
-		if axis == 3: 
-			r = index // 2
-			c = index % 2
-			m = puzzl[b, r:r+2, c:c+2]
-			y[b] = np.sum(m == digit)
-		# y[b] = np.clip(y[b], 0, 1) # don't worry about duplicates, just presence or absence.
+def genData(bs, span): 
+	assert(span < 32)
+	x = np.random.randn(bs, 48, 16)*1 # 32 tokens, 16 dims
+	x[:, :,:1] = 0 # first 2 latent dims are zero
+	x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer
+	x[:,-1,0] = -1 #  answer token.  
+	x[:,:,-1] = np.mod(np.arange(48), 7) # position encoding
+	x[:,:,-2] = np.arange(48) // 7
 
-		# make it simple as a control - count the number of 'digits' in the first row. 
-		# y[b] = np.sum(puzzl[b, :, :] == digit) # FIXME
-			
-	# add in position encoding -- without any structural hints
-	x[:,:,-1] = np.arange(16*12)
+	row = np.random.randint(0, span, size=bs)
+	col = np.random.randint(0, span, size=bs)
+	i = row * 7 + col
+	y = x[np.arange(bs),i,:].copy()
+	x[:,-2,0] = 1 #  arg1. 
+	x[:,-3,0] = 2 #  arg2.
+	x[:,-2,1] = row # pointer address.
+	x[:,-3,1] = col # pointer address.
 	return x,y
 	
 	
@@ -165,7 +107,7 @@ class ResidualAttentionBlock(nn.Module):
 		# (hence max attention is 0.5, not 1)
 		# a is [b,src,dst,heads]
 		a = F.softmax(a, 1) # see l1attn.py -- sm over src
-		a = a[:, :ntok, :ntok, :] # remove noop
+		# a = a[:, :ntok, :ntok, :] # remove noop
 		bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
 		bb = torch.einsum('bdsh, bshw -> bdhw', a, vb) # note transpose!
 		b = bf + bb
@@ -210,17 +152,14 @@ class Transformer(nn.Module):
 		self.resblocks = nn.ModuleList(\
 			[ResidualAttentionBlock(d_model, n_head) \
 				for _ in range(layers)])
-		self.in_proj = nn.Linear(d_model, d_model, bias=True)
-		self.out_proj = nn.Linear(d_model, 1, bias=True)
-		self.embedding_layer = nn.Embedding(num_embeddings=10, embedding_dim=d_model-4)
+		self.in_proj = nn.Linear(16, d_model, bias=True)
+		self.out_proj = nn.Linear(d_model, 16, bias=True)
 
 	def forward(self, x:torch.Tensor, use_dp:bool):
 		# x is dtype int to interface with the embedding layer
-		bs,n_tok,_ = x.shape
-		x_flat = x[:,:,0].view(-1)
-		embed = self.embedding_layer(x_flat)
-		x = torch.cat((x.float(), embed.view(bs,n_tok,self.d_model-4)), dim=-1)
+		bs,n_tok,inw = x.shape
 		x = self.in_proj(x)
+		# x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
 		for i in range(self.repeat):
 			for j, layer in enumerate(self.resblocks):
 				x = layer(x, use_dp)
@@ -238,11 +177,12 @@ class Transformer(nn.Module):
 	
 if __name__ == '__main__':
 	# batch_size = 1
-	# puzzl = np.random.randint(5, size=(batch_size,4,4))
-	# x, y = genData(batch_size, puzzl)
-	# print(puzzl)
-	# print(x)
-	# print(y)
+	# x, y = genData(batch_size, 16)
+	# fig,axs = plt.subplots(1,2)
+	# axs[0].imshow(np.squeeze(x))
+	# axs[1].imshow(y)
+	# plt.show()
+	# exit()
 	
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-b', type=int, default=128, help='batch size')
@@ -254,7 +194,7 @@ if __name__ == '__main__':
 
 	batch_size = cmd_args.b
 	
-	model = Transformer(d_model=64, layers=3, repeat=1, n_head=4)
+	model = Transformer(d_model=64, layers=2, repeat=1, n_head=2)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
@@ -266,13 +206,13 @@ if __name__ == '__main__':
 		except Exception as error:
 			print(error)
 		
-	model = nn.DataParallel(model)
+	# model = nn.DataParallel(model)
 	model = model.cuda()
 
 	if cmd_args.a: 
-		optimizer = optim.AdamW(model.module.parameters(), lr=2.5e-4, amsgrad=True)
+		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True)
 	else: 
-		optimizer = psgd.LRA(model.module.parameters(),\
+		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner= 0.01, momentum=0.9,\
 			preconditioner_update_probability=0.25, \
 			exact_hessian_vector_product=False, \
@@ -284,15 +224,13 @@ if __name__ == '__main__':
 	input_thread.start()
 	
 	def train(uu):
-		puzzl = np.random.randint(6, size=(16*2048,4,4)) # [0 .. 5]
-		puzzl = np.clip(puzzl-1, 0, 4) # [0 .. 4]
-		x,y = genData(16*2048, puzzl)
-		x = torch.tensor(x) # leave as int
+		x,y = genData(16*2048, 4)
+		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
 		y = y.cuda()
 
-		for i in range(24*2000):
+		for i in range(24*2000): # num iters
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
@@ -301,7 +239,7 @@ if __name__ == '__main__':
 			if cmd_args.a: 
 				optimizer.zero_grad()
 				pred = model(xx, cmd_args.d)
-				loss = torch.sum( (pred[:,-1,0] - target)**2 )
+				loss = torch.sum( (pred[:,-1,:] - target)**2 )
 				torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 				loss.backward()
 				optimizer.step()
@@ -309,10 +247,10 @@ if __name__ == '__main__':
 				def closure():
 					pred = model(xx, cmd_args.d)
 					# only look at the last token
-					loss = torch.sum( (pred[:,-1,0] - target)**2 ) + \
+					loss = torch.sum( (pred[:,-1,:] - target)**2 ) + \
 						sum( \
 							[torch.sum(5e-4 * torch.rand_like(param) * torch.abs(param) ) \
-						for param in model.module.parameters()])
+						for param in model.parameters()])
 					return loss
 				loss = optimizer.step(closure)
 			lloss = loss.detach().cpu().item()
@@ -322,7 +260,7 @@ if __name__ == '__main__':
 				fd_losslog.flush()
 			uu += 1
 			if uu % 1000 == 0: 
-				torch.save(model.module.state_dict(), 'fntest.pt')
+				torch.save(model.state_dict(), 'fntest.pt')
 				print(colored('saved model', 'blue'))
 			if utils.switch_to_validation:
 				break
@@ -330,9 +268,8 @@ if __name__ == '__main__':
 		return uu
 		
 	def test(uu): 
-		puzzl = np.random.randint(5, size=(2048,4,4))
-		x,y = genData(2048, puzzl)
-		x = torch.tensor(x) # leave as int
+		x,y = genData(2048, 6)
+		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
 		y = y.cuda()
@@ -342,7 +279,7 @@ if __name__ == '__main__':
 			xx = x[indx,:,:]
 			target = y[indx]
 			pred = model(xx, cmd_args.d)
-			loss = torch.sum( (pred[:,-1,0] - target)**2 )
+			loss = torch.sum( (pred[:,-1,:] - target)**2 )
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)
 			fd_losslog.write(f'{uu}\t{lloss}\n')
