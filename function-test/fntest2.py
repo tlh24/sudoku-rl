@@ -26,24 +26,36 @@ and can generalize out of training data.
 
 as opposed to fntest.py, this one is just a pointer op.  
 '''
+gendata_dim = 10
 
 def genData(bs, span): 
-	assert(span < 32)
-	x = np.random.randn(bs, 48, 16)*1 # 32 tokens, 16 dims
-	x[:, :,:1] = 0 # first 2 latent dims are zero
-	x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer
-	x[:,-1,0] = -1 #  answer token.  
+	# x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens
+	# # random address; amplify it a bit.
+	# # makes me think of a hopfield net -- without any training!
+	# # (the network is filling it in with a memory access)
+	# x[:,:,-2:0] = x[:,:,-2:0] * 4 
+	# x[:, :,:4] = 0 # first 4 latent dims are zero
+	# x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer
+	x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens, 16 dims
+	# add offset noise: forces the points to be in a random loc, 
+	# but equidistant.
+	noiz = np.random.randn(bs, 2)
 	x[:,:,-1] = np.mod(np.arange(48), 7) # position encoding
-	x[:,:,-2] = np.arange(48) // 7
+	x[:,:,-1] = x[:,:,-1] + np.expand_dims(noiz[:,0], axis=1)
+	x[:,:,-2] = np.arange(48) // 7 
+	x[:,:,-2] = x[:,:,-2] + np.expand_dims(noiz[:,1], axis=1)
+	x[:, :,:4] = 0 # first 2 latent dims are zero
+	x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer 
 
 	row = np.random.randint(0, span, size=bs)
 	col = np.random.randint(0, span, size=bs)
 	i = row * 7 + col
 	y = x[np.arange(bs),i,:].copy()
-	x[:,-2,0] = 1 #  arg1. 
-	x[:,-3,0] = 2 #  arg2.
-	x[:,-2,1] = row # pointer address.
-	x[:,-3,1] = col # pointer address.
+	x[:,-3:,0] = 1 #  answer & arg token labels  
+	x[:,-2,1] = 1 #  arg1. 
+	x[:,-3,2] = 1 #  arg2.
+	x[:,-2,3] = y[:,-1] # pointer address.
+	x[:,-3,3] = y[:,-2] # pointer address.
 	return x,y
 	
 	
@@ -152,8 +164,8 @@ class Transformer(nn.Module):
 		self.resblocks = nn.ModuleList(\
 			[ResidualAttentionBlock(d_model, n_head) \
 				for _ in range(layers)])
-		self.in_proj = nn.Linear(16, d_model, bias=True)
-		self.out_proj = nn.Linear(d_model, 16, bias=True)
+		self.in_proj = nn.Linear(gendata_dim, d_model, bias=True)
+		self.out_proj = nn.Linear(d_model, gendata_dim, bias=True)
 
 	def forward(self, x:torch.Tensor, use_dp:bool):
 		# x is dtype int to interface with the embedding layer
@@ -176,21 +188,24 @@ class Transformer(nn.Module):
 		print(f"Number of model parameters:{trainable_params}")
 	
 if __name__ == '__main__':
-	# batch_size = 1
-	# x, y = genData(batch_size, 16)
-	# fig,axs = plt.subplots(1,2)
-	# axs[0].imshow(np.squeeze(x))
-	# axs[1].imshow(y)
-	# plt.show()
-	# exit()
 	
 	parser = argparse.ArgumentParser()
+	parser.add_argument('-t', action='store_true', help='make test data and plot it')
 	parser.add_argument('-b', type=int, default=128, help='batch size')
 	parser.add_argument('-c', action='store_true', help='start fresh, dont load a model')
 	parser.add_argument('-a', action='store_true', help='use AdamW')
 	parser.add_argument('-v', action='store_true', help='validate only')
 	parser.add_argument('-d', action='store_true', help='dot product attention')
 	cmd_args = parser.parse_args()
+	
+	if cmd_args.t: 
+		batch_size = 1
+		x, y = genData(batch_size, 6)
+		fig,axs = plt.subplots(1,2)
+		axs[0].imshow(np.squeeze(x))
+		axs[1].imshow(y)
+		plt.show()
+		exit()
 
 	batch_size = cmd_args.b
 	
@@ -224,7 +239,7 @@ if __name__ == '__main__':
 	input_thread.start()
 	
 	def train(uu):
-		x,y = genData(16*2048, 4)
+		x,y = genData(16*2048, 5)
 		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
@@ -268,13 +283,13 @@ if __name__ == '__main__':
 		return uu
 		
 	def test(uu): 
-		x,y = genData(2048, 6)
+		x,y = genData(4*2048, 6)
 		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
 		y = y.cuda()
 		
-		for i in range(2048 // batch_size):
+		for i in range(4*2048 // batch_size):
 			indx = torch.arange(i*batch_size, (i+1)*batch_size)
 			xx = x[indx,:,:]
 			target = y[indx]
