@@ -26,7 +26,7 @@ and can generalize out of training data.
 
 as opposed to fntest.py, this one is just a pointer op.  
 '''
-gendata_dim = 10
+gendata_dim = 16
 
 def genData(bs, span): 
 	# x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens
@@ -73,6 +73,11 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.initWeights(self.wqv)
+		# add in some identity
+		with torch.no_grad(): 
+			for i in range(3): 
+				self.wqv.weight[i*d_model:(i+1)*d_model, :] += torch.eye(self.d_model, device=self.wqv.weight.device) * 0.01
+			
 		self.fanin = nn.Linear(d_model, d_model)
 
 		self.l1a_f = l1attn_cuda.L1Attn()
@@ -82,7 +87,7 @@ class ResidualAttentionBlock(nn.Module):
 
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
-			torch.nn.init.normal_(module.weight, mean=0.0, std=0.005) # FIXME
+			torch.nn.init.normal_(module.weight, mean=0.0, std=0.0005) # FIXME was 0.005
 			if module.bias is not None:
 				torch.nn.init.zeros_(module.bias)
 
@@ -118,10 +123,11 @@ class ResidualAttentionBlock(nn.Module):
 		# adds in e^0=1 as a 'noop' option
 		# (hence max attention is 0.5, not 1)
 		# a is [b,src,dst,heads]
-		a = F.softmax(a, 1) # see l1attn.py -- sm over src
+		af = F.softmax(a, 1) # see l1attn.py -- sm over src
+		ab = F.softmax(a, 2)
 		# a = a[:, :ntok, :ntok, :] # remove noop
-		bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
-		bb = torch.einsum('bdsh, bshw -> bdhw', a, vb) # note transpose!
+		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
+		bb = torch.einsum('bdsh, bshw -> bdhw', ab, vb) # note transpose!
 		b = bf + bb
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))

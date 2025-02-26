@@ -5,6 +5,7 @@ losslog_*
 rrn-hard
 fntest.pt
 MNIST
+*losslog.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
