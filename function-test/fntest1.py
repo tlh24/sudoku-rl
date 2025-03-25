@@ -101,11 +101,12 @@ class ResidualAttentionBlock(nn.Module):
 		# adds in e^0=1 as a 'noop' option
 		# (hence max attention is 0.5, not 1)
 		# a is [b,src,dst,heads]
-		a = F.softmax(a, 1) # see l1attn.py -- sm over src
+		af = F.softmax(a, 1) # see l1attn.py -- sm over src
+		ab = F.softmax(a, 2)
 		# a = a[:, :ntok, :ntok, :] # remove noop
-		bf = torch.einsum('bsdh, bshw -> bdhw', a, vf)
-		bb = torch.einsum('bdsh, bshw -> bdhw', a, vb) # note transpose!
-		b = bf + bb
+		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
+		bb = torch.einsum('bdsh, bshw -> bdhw', ab, vb) # note transpose!
+		b = bf + bb 
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
 		return b # residual sum later.
