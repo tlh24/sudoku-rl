@@ -53,8 +53,8 @@ def genData(bs, span):
 	x[:,-2,1] = 1 #  arg1. 
 	x[:,-3,2] = 1 #  arg2.
 	x[:,-1,3] = 1
-	x[:,-2,-1] = y[:,-1] # pointer address.
-	x[:,-3,-2] = y[:,-2] # pointer address.
+	x[:,-2,3] = y[:,-1] # pointer address.
+	x[:,-3,3] = y[:,-2] # pointer address.
 	# print(y[0,:])
 	# plt.imshow(x[0,:,:])
 	# plt.show()
@@ -71,7 +71,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wk = nn.Parameter( 1.0 * torch.ones(n_head, d_model) )
+		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.initWeights(self.wqv)
@@ -144,11 +144,12 @@ class ResidualAttentionBlock(nn.Module):
 		# adds in e^0=1 as a 'noop' option
 		# (hence max attention is 0.5, not 1)
 		# a is [b,src,dst,heads]
-		af = F.softmax(a, 1) # see l1attn.py -- sm over src
-		ab = F.softmax(a, 2)
+		af = F.softmax(a, 1) # see l1attn.py -- softmax over src
+		ab = F.softmax(a, 2) # fix feb 2025: softmax over dst
 		# a = a[:, :ntok, :ntok, :] # remove noop
 		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
-		bb = torch.einsum('bdsh, bshw -> bdhw', ab, vb) # note transpose!
+		bb = torch.einsum('bsdh, bdhw -> bshw', ab, vb) # note transpose!
+				# eliminate over dest (the softmax dim)
 		b = bf + bb
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (batch_size, ntok, self.d_model))
@@ -176,7 +177,7 @@ class ResidualAttentionBlock(nn.Module):
 		if use_dp: 
 			y = self.attentionDP( self.rms_norm(x) )
 		else: 
-			y = self.attention( self.rms_norm(x) )
+			y = self.attention( x )
 		y = self.gelu(y)
 		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		return x + y
@@ -272,7 +273,7 @@ if __name__ == '__main__':
 		x = x.cuda()
 		y = y.cuda()
 
-		for i in range(24*2000): # num iters
+		for i in range(17000): # num iters
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
