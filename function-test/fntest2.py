@@ -71,7 +71,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
+		self.wk = nn.Parameter( torch.ones(n_head, d_model) )
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.initWeights(self.wqv)
@@ -86,6 +86,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.gelu = QuickGELU()
 		self.rms_norm = nn.RMSNorm(d_model)
+		self.layer_norm = nn.LayerNorm(d_model)
 
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
@@ -107,8 +108,9 @@ class ResidualAttentionBlock(nn.Module):
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
-		wk = self.wk.unsqueeze(0).unsqueeze(0)
-		k = k * wk
+		# wk = self.wk.unsqueeze(0).unsqueeze(0)
+		# k = k * wk
+		# k = self.layer_norm(k) # only norm the k - allow the Q's to float.
 
 		# normal dense attention over all tokens
 		# pad out to BLKSIZ tokens (for CUDA kernel).
@@ -256,7 +258,7 @@ if __name__ == '__main__':
 		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
-			lr_params=0.01,lr_preconditioner= 0.01, momentum=0.9,\
+			lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
 			preconditioner_update_probability=0.25, \
 			exact_hessian_vector_product=False, \
 			rank_of_approximation=20, grad_clip_max_norm=5.0)
@@ -273,7 +275,7 @@ if __name__ == '__main__':
 		x = x.cuda()
 		y = y.cuda()
 
-		for i in range(17000): # num iters
+		for i in range(12000): # num iters
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
