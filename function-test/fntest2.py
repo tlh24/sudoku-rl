@@ -24,18 +24,16 @@ Goal: test if a transformer (either L1 or DP) can implement
 general functions that take an argument (or three?)
 and can generalize out of training data.
 
-as opposed to fntest.py, this one is just a pointer op.  
+as opposed to fntest.py, this one is just a pointer op:
+	given two x & y locs (as address tokens),
+	retrieve the (random) data at that position.
+	Data is uniformly spaced, with a random offset per datapoint.
+	Position is linearly encoded.
 '''
-gendata_dim = 10
+gendata_dim = 16
 
 def genData(bs, span): 
-	# x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens
-	# # random address; amplify it a bit.
-	# # makes me think of a hopfield net -- without any training!
-	# # (the network is filling it in with a memory access)
-	# x[:,:,-2:0] = x[:,:,-2:0] * 4 
-	# x[:, :,:4] = 0 # first 4 latent dims are zero
-	# x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer
+	# create random data vectors:
 	x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens, 16 dims
 	# add offset noise: forces the points to be in a random loc, 
 	# but equidistant.
@@ -44,7 +42,7 @@ def genData(bs, span):
 	x[:,:,-1] = x[:,:,-1] + np.expand_dims(noiz[:,0], axis=1)
 	x[:,:,-2] = np.arange(48) // 7 
 	x[:,:,-2] = x[:,:,-2] + np.expand_dims(noiz[:,1], axis=1)
-	x[:, :,:4] = 0 # first 2 latent dims are zero
+	x[:, :,:4] = 0 # first 4 latent dims are zero
 	x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer 
 
 	row = np.random.randint(0, span, size=bs)
@@ -54,8 +52,12 @@ def genData(bs, span):
 	x[:,-3:,0] = 1 #  answer & arg token labels  
 	x[:,-2,1] = 1 #  arg1. 
 	x[:,-3,2] = 1 #  arg2.
-	x[:,-2,3] = y[:,-1] # pointer address.
-	x[:,-3,3] = y[:,-2] # pointer address.
+	x[:,-1,3] = 1
+	x[:,-2,-1] = y[:,-1] # pointer address.
+	x[:,-3,-2] = y[:,-2] # pointer address.
+	# print(y[0,:])
+	# plt.imshow(x[0,:,:])
+	# plt.show()
 	return x,y
 	
 	
@@ -69,7 +71,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
+		self.wk = nn.Parameter( 1.0 * torch.ones(n_head, d_model) )
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.initWeights(self.wqv)
@@ -82,7 +84,7 @@ class ResidualAttentionBlock(nn.Module):
 
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
-			torch.nn.init.normal_(module.weight, mean=0.0, std=0.005) # FIXME
+			torch.nn.init.normal_(module.weight, mean=0.0, std=0.05) # FIXME
 			if module.bias is not None:
 				torch.nn.init.zeros_(module.bias)
 
@@ -112,7 +114,26 @@ class ResidualAttentionBlock(nn.Module):
 		# kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
 		qq = q
 		kk = k
-		a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
+		a = self.l1a_f(qq, kk) # includes -1 / sqrt(head)
+			# a <= 0 by construction, so that softmax works.
+		# pdb.set_trace()
+		if False:
+			pdb.set_trace()
+			# attention in both the heads.
+			a0 = a[20, :, :, 0].squeeze().cpu().detach().numpy()
+			a1 = a[20, :, :, 1].squeeze().cpu().detach().numpy()
+			fig, axs = plt.subplots(1,2)
+			im = axs[0].imshow(a0)
+			plt.colorbar(im,ax=axs[0])
+			im = axs[1].imshow(a1)
+			plt.colorbar(im,ax=axs[1])
+			plt.show()
+		# a = a - 0.5*torch.mean(a, dim=(1,2)).unsqueeze(1).unsqueeze(1) # makes very little difference, surprisingly: might be doing it wrong?
+
+		# try making the nonlinearity smoother - zero derivative at origin.
+		# a = -1*torch.exp(-1*a*a) * a*a + (1-torch.exp(-1*a*a))*a
+		# also seems to make very little difference.
+
 		# a = a[:, :ntok+1, :ntok, :]
 		# a[:, ntok, :,:] = 0.0 # slight improvement:
 		# adds in e^0=1 as a 'noop' option
@@ -149,7 +170,7 @@ class ResidualAttentionBlock(nn.Module):
 		if use_dp: 
 			y = self.attentionDP( self.rms_norm(x) )
 		else: 
-			y = self.attention(x)
+			y = self.attention( self.rms_norm(x) )
 		y = self.gelu(y)
 		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		return x + y
@@ -239,7 +260,7 @@ if __name__ == '__main__':
 	input_thread.start()
 	
 	def train(uu):
-		x,y = genData(16*2048, 5)
+		x,y = genData(24*2048, 5)
 		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
