@@ -108,8 +108,8 @@ class ResidualAttentionBlock(nn.Module):
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
-		# wk = self.wk.unsqueeze(0).unsqueeze(0)
-		# k = k * wk
+		wk = self.wk.unsqueeze(0).unsqueeze(0)
+		k = k * wk
 		# k = self.layer_norm(k) # only norm the k - allow the Q's to float.
 
 		# normal dense attention over all tokens
@@ -124,15 +124,30 @@ class ResidualAttentionBlock(nn.Module):
 		a = self.l1a_f(qq, kk) # includes -1 / sqrt(head)
 			# a <= 0 by construction, so that softmax works.
 		# pdb.set_trace()
-		if False:
-			pdb.set_trace()
+		if True:
+			figs,axs = plt.subplots(2,2)
+			axs[0,0].plot(q[0,0,0,:].detach().cpu().numpy(), label='Q tok 0')
+			axs[0,0].plot(k[0,0,0,:].detach().cpu().numpy(), label='K tok 0')
+			axs[0,0].legend()
+			axs[0,1].plot(q[0,-1,0,:].detach().cpu().numpy(), label='Q tok -1')
+			axs[0,1].plot(k[0,-1,0,:].detach().cpu().numpy(), label='K tok -1')
+			axs[0,1].legend()
+			axs[1,0].plot(q[0,-2,0,:].detach().cpu().numpy(), label='Q tok -2')
+			axs[1,0].plot(k[0,-2,0,:].detach().cpu().numpy(), label='K tok -2')
+			axs[1,0].legend()
+			axs[1,1].plot(q[0,-3,0,:].detach().cpu().numpy(), label='Q tok -3')
+			axs[1,1].plot(k[0,-3,0,:].detach().cpu().numpy(), label='K tok -3')
+			axs[1,1].legend()
+			plt.show()
 			# attention in both the heads.
 			a0 = a[20, :, :, 0].squeeze().cpu().detach().numpy()
 			a1 = a[20, :, :, 1].squeeze().cpu().detach().numpy()
 			fig, axs = plt.subplots(1,2)
 			im = axs[0].imshow(a0)
+			axs[0].set_title('attention head 0')
 			plt.colorbar(im,ax=axs[0])
 			im = axs[1].imshow(a1)
+			axs[1].set_title('attention head 1')
 			plt.colorbar(im,ax=axs[1])
 			plt.show()
 		# a = a - 0.5*torch.mean(a, dim=(1,2)).unsqueeze(1).unsqueeze(1) # makes very little difference, surprisingly: might be doing it wrong?
@@ -275,7 +290,7 @@ if __name__ == '__main__':
 		x = x.cuda()
 		y = y.cuda()
 
-		for i in range(12000): # num iters
+		for i in range(36000): # num iters
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
