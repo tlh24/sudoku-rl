@@ -14,17 +14,18 @@ import psgd
 import pdb
 import threading
 import multiprocessing
+from model import Transformer
 
 # Add the parent directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import utils
-
 '''
 Goal: test if a transformer (either L1 or DP) can implement 
 general functions that take an argument (or three?)
 and can generalize out of training data.
 
-as opposed to fntest.py, this one is just a pointer op.  
+In particular: test the pointer op: access an addressed
+(possibly computed in a different layer) token.
 '''
 
 def genData(bs, span): 
@@ -33,7 +34,7 @@ def genData(bs, span):
 	x = np.random.randn(bs, 32, 16)*1 # 32 tokens, 16 dims
 	x[:, :,0] = 0 # first latent dim is zero
 	x[:,-1,:] = 0 # last token zeroed / answer
-	x[:,-1,0] = indicator #  answer token.  model is very sensitive to this: larger works better. 
+	x[:,-1,0] = indicator #  answer token.  model is very sensitive to this: larger works better. (why?)
 	x[:,:,-1] = np.arange(32) # position encoding
 
 	i = np.random.randint(0, span, size=bs)
@@ -42,155 +43,30 @@ def genData(bs, span):
 	return x,y
 	
 	
-class QuickGELU(nn.Module):
-	def forward(self, x: torch.Tensor):
-		return x * torch.sigmoid(1.702 * x)
-
-class ResidualAttentionBlock(nn.Module):
-	def __init__(self, d_model: int, n_head: int):
-		super().__init__()
-
-		self.n_head = n_head
-		self.d_model = d_model
-		self.wk = nn.Parameter( 0.005 * torch.ones(n_head, d_model) )
-
-		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
-		self.initWeights(self.wqv)
-		self.fanin = nn.Linear(d_model, d_model)
-
-		self.l1a_f = l1attn_cuda.L1Attn()
-
-		self.gelu = QuickGELU()
-		self.rms_norm = nn.RMSNorm(d_model)
-
-	def initWeights(self, module):
-		if isinstance(module, nn.Linear):
-			torch.nn.init.normal_(module.weight, mean=0.0, std=0.005) # FIXME
-			if module.bias is not None:
-				torch.nn.init.zeros_(module.bias)
-
-	def attention(self, x:torch.Tensor):
-		n_head = self.n_head
-		d_head = self.d_model ## no sub-spaces!
-		batch_size = x.shape[0]
-		ntok = x.shape[1]
-		width = x.shape[2]
-
-		v = self.wqv(x)
-		v = torch.reshape(v, (batch_size, ntok, 3*self.n_head, d_head))
-		q,vf,vb = torch.split(v, self.n_head, 2)
-
-		# per-axis gate k by wk, uniformly across tokens; different per head.
-		# this should be information-preserving.
-		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
-		wk = self.wk.unsqueeze(0).unsqueeze(0)
-		k = k * wk
-
-		# normal dense attention over all tokens
-		# pad out to BLKSIZ tokens (for CUDA kernel).
-		# padn = ((ntok + 15) // 16) * 16 - ntok
-		# if padn == 0: 
-		# 	padn = 16
-		# qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-		# kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-		qq = q
-		kk = k
-		a = self.l1a_f(qq, kk) # includes 1 / sqrt(head)
-		# a = a[:, :ntok+1, :ntok, :]
-		# a[:, ntok, :,:] = 0.0 # slight improvement:
-		# adds in e^0=1 as a 'noop' option
-		# (hence max attention is 0.5, not 1)
-		# a is [b,src,dst,heads]
-		af = F.softmax(a, 1) # see l1attn.py -- sm over src
-		ab = F.softmax(a, 2)
-		# a = a[:, :ntok, :ntok, :] # remove noop
-		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
-		bb = torch.einsum('bdsh, bshw -> bdhw', ab, vb) # note transpose!
-		b = bf + bb 
-		b = torch.sum(b, dim=2) # sum along the heads
-		b = torch.reshape(b, (batch_size, ntok, self.d_model))
-		return b # residual sum later.
-		
-	def attentionDP(self, x:torch.Tensor): 
-		n_head = self.n_head
-		d_head = self.d_model ## no sub-spaces!
-		batch_size = x.shape[0]
-		ntok = x.shape[1]
-
-		o = self.wqv(x)
-		o = torch.reshape(o, (batch_size, ntok, 3*self.n_head, d_head))
-		q,k,v = torch.split(o, self.n_head, 2)
-		# q,k,v are shape [batch_size, ntok, n_head, d_head]
-		
-		a = torch.einsum('bthw, bshw -> btsh', q, k) / math.sqrt(d_head)
-		a = F.softmax(a, 1)
-		b = torch.einsum('btsh, bshw -> bthw', a, v)
-		b = torch.sum(b, dim=2) # sum along the heads
-		return b
-		
-
-	def forward(self, x:torch.Tensor, use_dp:bool):
-		if use_dp: 
-			y = self.attentionDP( self.rms_norm(x) )
-		else: 
-			y = self.attention(x)
-		y = self.gelu(y)
-		y = self.fanin(y) # allow sign inversions & mixing; no dim change
-		return x + y
-
-class Transformer(nn.Module):
-	def __init__(self, d_model:int, layers:int, repeat:int, n_head:int):
-		super().__init__()
-		self.d_model = d_model
-		self.n_head = n_head
-		self.layers = layers
-		self.repeat = repeat
-		self.resblocks = nn.ModuleList(\
-			[ResidualAttentionBlock(d_model, n_head) \
-				for _ in range(layers)])
-		self.in_proj = nn.Linear(16, d_model, bias=True)
-		self.out_proj = nn.Linear(d_model, 16, bias=True)
-
-	def forward(self, x:torch.Tensor, use_dp:bool):
-		# x is dtype int to interface with the embedding layer
-		bs,n_tok,inw = x.shape
-		x = self.in_proj(x)
-		# x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
-		for i in range(self.repeat):
-			for j, layer in enumerate(self.resblocks):
-				x = layer(x, use_dp)
-		return self.out_proj(x)
-
-	def fixedInit(self):
-		for layer in self.resblocks:
-			layer.fixedInit()
-
-	def printParamCount(self):
-		trainable_params = sum(
-			p.numel() for p in self.parameters() if p.requires_grad
-		)
-		print(f"Number of model parameters:{trainable_params}")
-	
 if __name__ == '__main__':
-	# batch_size = 1
-	# x, y = genData(batch_size, 16)
-	# fig,axs = plt.subplots(1,2)
-	# axs[0].imshow(np.squeeze(x))
-	# axs[1].imshow(y)
-	# plt.show()
-	# exit()
-	
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-b', type=int, default=128, help='batch size')
 	parser.add_argument('-c', action='store_true', help='start fresh, dont load a model')
 	parser.add_argument('-a', action='store_true', help='use AdamW')
 	parser.add_argument('-v', action='store_true', help='validate only')
 	parser.add_argument('-d', action='store_true', help='dot product attention')
+	parser.add_argument('-t', action='store_true', help='test genData')
 	cmd_args = parser.parse_args()
 
 	batch_size = cmd_args.b
 	
-	model = Transformer(d_model=64, layers=1, repeat=1, n_head=1)
+	if cmd_args.t:
+		batch_size = 1
+		x, y = genData(batch_size, 16)
+		fig,axs = plt.subplots(1,2)
+		axs[0].imshow(np.squeeze(x))
+		axs[0].set_title('X')
+		axs[1].imshow(y)
+		axs[1].set_title('Y')
+		plt.show()
+		exit()
+
+	model = Transformer(d_model=64, layers=1, repeat=1, n_head=1, gendata_dim=16)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
