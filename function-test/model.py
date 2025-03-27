@@ -25,7 +25,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.wqkv = nn.Linear(d_model, 4*n_head*d_model) 
-		self.initWeights(self.wqv)
+		# self.initWeights(self.wqv)
 		# # add in some identity
 		# with torch.no_grad():
 		# 	for i in range(3):
@@ -48,12 +48,14 @@ class ResidualAttentionBlock(nn.Module):
 	def attention(self, x:torch.Tensor):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
-		batch_size = x.shape[0]
+		bs = x.shape[0]
 		ntok = x.shape[1]
 		width = x.shape[2]
 
+		# zscore data along *all* dimensions first
+		x = (x - torch.mean(x)) / (1*torch.std(x))
 		v = self.wqv(x)
-		v = torch.reshape(v, (batch_size, ntok, 3*self.n_head, d_head))
+		v = torch.reshape(v, (bs, ntok, 3*self.n_head, d_head))
 		q,vf,vb = torch.split(v, self.n_head, 2)
 
 		# per-axis gate k by wk, uniformly across tokens; different per head.
@@ -70,12 +72,40 @@ class ResidualAttentionBlock(nn.Module):
 		# padn = ((ntok + 15) // 16) * 16 - ntok
 		# if padn == 0:
 		# 	padn = 16
-		# qq = torch.cat((q, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-		# kk = torch.cat((k, torch.zeros(batch_size, padn, n_head, width, device=v.device)), axis=1)
-		qq = q
+		# qq = torch.cat((q, torch.zeros(bs, padn, n_head, width, device=v.device)), axis=1)
+		# kk = torch.cat((k, torch.zeros(bs, padn, n_head, width, device=v.device)), axis=1)
+		qq = q # shape bs, ntok, nhead, width
 		kk = k
 		a = self.l1a_f(qq, kk) # includes -1 / sqrt(head)
 			# a <= 0 by construction, so that softmax works.
+		a = a * -1 * math.sqrt(width) # reverse the scaling!
+		ac = 0.7071 * ( \
+			torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
+			torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
+			# i think this is correct..
+		# figs,axs = plt.subplots(2,3)
+		# im = axs[0,0].imshow(a[0,:,:,0].cpu().detach().numpy())
+		# plt.colorbar(im,ax=axs[0,0])
+		# axs[0,0].set_title('a')
+		# im = axs[0,1].imshow(ac[0,:,:,0].cpu().detach().numpy())
+		# plt.colorbar(im,ax=axs[0,1])
+		# axs[0,1].set_title('ac')
+
+		a = (a - ac)/10 # idk...
+		pdb.set_trace()
+
+		# im = axs[0,2].imshow(a[0,:,:,0].cpu().detach().numpy())
+		# plt.colorbar(im,ax=axs[0,2])
+		# axs[0,2].set_title('a - ac')
+  #
+		# im = axs[1,0].imshow(qq[0,:,0,:].cpu().detach().numpy())
+		# plt.colorbar(im,ax=axs[1,0])
+		# axs[1,0].set_title('qq')
+		# im = axs[1,1].imshow(kk[0,:,0,:].cpu().detach().numpy())
+		# plt.colorbar(im,ax=axs[1,1])
+		# axs[1,1].set_title('kk')
+		# plt.show()
+
 		if False:
 			figs,axs = plt.subplots(2,2)
 			wq,wvf,wvb = torch.split(self.wqv.weight, d_head*n_head, 0)
@@ -135,11 +165,11 @@ class ResidualAttentionBlock(nn.Module):
 		ab = F.softmax(a, 2) # fix feb 2025: softmax over dst
 		# a = a[:, :ntok, :ntok, :] # remove noop
 		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
-		bb = torch.einsum('bsdh, bdhw -> bshw', ab, vb) # note transpose!
+		bb = torch.einsum('bsdh, bdhw -> bshw', ab, vb)
 				# eliminate over dest (the softmax dim)
 		b = bf + bb
 		b = torch.sum(b, dim=2) # sum along the heads
-		b = torch.reshape(b, (batch_size, ntok, self.d_model))
+		b = torch.reshape(b, (bs, ntok, self.d_model))
 		return b # residual sum later.
 
 	def attentionDP(self, x:torch.Tensor):
