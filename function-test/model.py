@@ -83,13 +83,13 @@ class ResidualAttentionBlock(nn.Module):
 			torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
 			torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
 			# i think this is correct..
-		# figs,axs = plt.subplots(2,3)
-		# im = axs[0,0].imshow(a[0,:,:,0].cpu().detach().numpy())
-		# plt.colorbar(im,ax=axs[0,0])
-		# axs[0,0].set_title('a')
-		# im = axs[0,1].imshow(ac[0,:,:,0].cpu().detach().numpy())
-		# plt.colorbar(im,ax=axs[0,1])
-		# axs[0,1].set_title('ac')
+		figs,axs = plt.subplots(2,3)
+		im = axs[0,0].imshow(a[0,:,:,0].cpu().detach().numpy())
+		plt.colorbar(im,ax=axs[0,0])
+		axs[0,0].set_title('a')
+		im = axs[0,1].imshow(ac[0,:,:,0].cpu().detach().numpy())
+		plt.colorbar(im,ax=axs[0,1])
+		axs[0,1].set_title('ac')
 
 		a = (a - ac)/10 # idk...
 		pdb.set_trace()
