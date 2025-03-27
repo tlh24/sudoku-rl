@@ -15,7 +15,7 @@ plot_cols = 1
 figsize = (12 ,7)
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 60
+plt.rcParams['figure.dpi'] = 120
 
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
@@ -63,8 +63,9 @@ colors = ['b', 'k', 'r', 'g', 'm', 'c']  # Extendable list of colors
 color_cycle = colors * (len(file_names) // len(colors) + 1)  # Repeat colors 
 
 # make a moving-average kernel
-window_size = 100
-kernel = np.ones(window_size) / window_size
+window_size = 128
+kernel = 1-(np.cos(np.linspace(0, 2*3.1415926, window_size)))
+kernel = kernel / np.sum(kernel)
 
 cont = True
 while cont:
@@ -80,9 +81,9 @@ while cont:
 			# Plot the data in log scale for the second column
 			if len(data.shape) > 1 and data.shape[0] > 1:
 
-				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.45, label=f"{fname} ({color_cycle[i]})")
+				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.25)
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
-				# ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=0.45)
+				ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1, label=f"{fname} ({color_cycle[i]})")
 					
 
 		except FileNotFoundError:

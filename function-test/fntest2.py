@@ -35,10 +35,11 @@ gendata_dim = 16
 
 def genData(bs, span): 
 	# create random data vectors:
+	indicator = 10
 	x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens, 16 dims
 	# add offset noise: forces the points to be in a random loc, 
 	# but equidistant.
-	noiz = np.random.randn(bs, 2)
+	noiz = np.random.randn(bs, 2)*1.5
 	x[:,:,-1] = np.mod(np.arange(48), 7) # position encoding
 	x[:,:,-1] = x[:,:,-1] + np.expand_dims(noiz[:,0], axis=1)
 	x[:,:,-2] = np.arange(48) // 7 
@@ -50,16 +51,32 @@ def genData(bs, span):
 	col = np.random.randint(0, span, size=bs)
 	i = row * 7 + col
 	y = x[np.arange(bs),i,:].copy()
-	x[:,-3:,0] = 1 #  answer & arg token labels  
-	x[:,-2,1] = 1 #  arg1. 
-	x[:,-3,2] = 1 #  arg2.
-	x[:,-1,3] = 1
+	x[:,-3:,0] = indicator # answer & arg token labels  
+	x[:,-2,0] = indicator # arg1. 
+	x[:,-3,1] = indicator # arg2.
+	x[:,-1,2] = indicator
 	x[:,-2,3] = y[:,-1] # pointer address.
 	x[:,-3,3] = y[:,-2] # pointer address.
 	# print(y[0,:])
 	# plt.imshow(x[0,:,:])
 	# plt.show()
 	return x,y
+	
+def positiveControl(x): 
+	# make sure the task can be done 'manually'. 
+	bs = x.shape[0]
+	ntok = x.shape[1]
+	y = np.zeros((bs,gendata_dim))
+	for b in range(bs): 
+		p1 = x[b,-2,3]
+		p2 = x[b,-3,3]
+		targ = np.zeros((ntok,2))
+		targ[:,0] = p2
+		targ[:,1] = p1
+		dist = np.sum(np.abs(x[b,:,-2:] - targ), axis=1)
+		indx = np.argmin(dist)
+		y[b,:] = x[b,indx,:]
+	return y
 	
 if __name__ == '__main__':
 	
@@ -70,9 +87,13 @@ if __name__ == '__main__':
 	parser.add_argument('-a', action='store_true', help='use AdamW')
 	parser.add_argument('-v', action='store_true', help='validate only')
 	parser.add_argument('-d', action='store_true', help='dot product attention')
+	parser.add_argument('-l', type=str, default='', help='losslog label')
 	cmd_args = parser.parse_args()
 	
 	if cmd_args.t: 
+		x, y = genData(256, 6)
+		pred = positiveControl(x)
+		print("positive control error:", np.sum( (y - pred)**2 ) )
 		batch_size = 1
 		x, y = genData(batch_size, 6)
 		fig,axs = plt.subplots(1,2)
@@ -99,7 +120,7 @@ if __name__ == '__main__':
 	model = model.cuda()
 
 	if cmd_args.a: 
-		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True)
+		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True, weight_decay=0.01)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
@@ -107,7 +128,7 @@ if __name__ == '__main__':
 			exact_hessian_vector_product=False, \
 			rank_of_approximation=20, grad_clip_max_norm=5.0)
 	
-	fd_losslog = open('losslog.txt', 'w')
+	fd_losslog = open(f'losslog_{cmd_args.l}.txt', 'w')
 	
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
@@ -119,7 +140,7 @@ if __name__ == '__main__':
 		x = x.cuda()
 		y = y.cuda()
 
-		for i in range(36000): # num iters
+		for i in range(25000): # num iters
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
@@ -157,13 +178,14 @@ if __name__ == '__main__':
 		return uu
 		
 	def test(uu): 
-		x,y = genData(4*2048, 6)
+		test_size = 32*2048
+		x,y = genData(test_size, 6)
 		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
 		y = y.cuda()
 		
-		for i in range(4*2048 // batch_size):
+		for i in range(test_size // batch_size):
 			indx = torch.arange(i*batch_size, (i+1)*batch_size)
 			xx = x[indx,:,:]
 			target = y[indx]

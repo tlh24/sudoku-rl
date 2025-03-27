@@ -30,7 +30,7 @@ In particular: test the pointer op: access an addressed
 
 def genData(bs, span): 
 	assert(span < 32)
-	indicator = 1
+	indicator = 10
 	x = np.random.randn(bs, 32, 16)*1 # 32 tokens, 16 dims
 	x[:, :,0] = 0 # first latent dim is zero
 	x[:,-1,:] = 0 # last token zeroed / answer

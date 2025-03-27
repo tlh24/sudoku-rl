@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -23,11 +24,12 @@ class ResidualAttentionBlock(nn.Module):
 		self.wk = nn.Parameter( torch.ones(n_head, d_model) )
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
+		self.wqkv = nn.Linear(d_model, 4*n_head*d_model) 
 		self.initWeights(self.wqv)
-		# add in some identity
-		with torch.no_grad():
-			for i in range(3):
-				self.wqv.weight[i*d_model:(i+1)*d_model, :] += torch.eye(self.d_model, device=self.wqv.weight.device) * 0.01
+		# # add in some identity
+		# with torch.no_grad():
+		# 	for i in range(3):
+		# 		self.wqv.weight[i*d_model:(i+1)*d_model, :] += torch.eye(self.d_model, device=self.wqv.weight.device) * 0.01
 
 		self.fanin = nn.Linear(d_model, d_model)
 
@@ -59,8 +61,9 @@ class ResidualAttentionBlock(nn.Module):
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		wk = self.wk.unsqueeze(0).unsqueeze(0)
 		k = k * wk
-		q = q * wk # TEST test! seems to help, March 26
+		q = q * wk # TEST test! definite improvement!   
 		# k = self.layer_norm(k) # only norm the k - allow the Q's to float.
+		# layerNorm does not seem to help.  N=4
 
 		# normal dense attention over all tokens
 		# pad out to BLKSIZ tokens (for CUDA kernel).
@@ -75,7 +78,7 @@ class ResidualAttentionBlock(nn.Module):
 			# a <= 0 by construction, so that softmax works.
 		if False:
 			figs,axs = plt.subplots(2,2)
-			wq,wvf,wvb = torch.split(self.wqv.weight, d_head, 0)
+			wq,wvf,wvb = torch.split(self.wqv.weight, d_head*n_head, 0)
 			im = axs[0,0].imshow(wq.cpu().detach().numpy())
 			plt.colorbar(im,ax=axs[0,0])
 			axs[0,0].set_title('WQ')
@@ -145,14 +148,17 @@ class ResidualAttentionBlock(nn.Module):
 		batch_size = x.shape[0]
 		ntok = x.shape[1]
 
-		o = self.wqv(x)
-		o = torch.reshape(o, (batch_size, ntok, 3*self.n_head, d_head))
-		q,k,v = torch.split(o, self.n_head, 2)
+		o = self.wqkv(x)
+		o = torch.reshape(o, (batch_size, ntok, 4*self.n_head, d_head))
+		q,k,vf,vb = torch.split(o, self.n_head, 2)
 		# q,k,v are shape [batch_size, ntok, n_head, d_head]
 
 		a = torch.einsum('bthw, bshw -> btsh', q, k) / math.sqrt(d_head)
-		a = F.softmax(a, 1)
-		b = torch.einsum('btsh, bshw -> bthw', a, v)
+		af = F.softmax(a, 2) # sm over eliminated s dim
+		bf = torch.einsum('btsh, bshw -> bthw', af, vf)
+		ab = F.softmax(a, 1) # sm over eliminated t dim
+		bb = torch.einsum('btsh, bthw -> bshw', af, vb)
+		b = bf + bb
 		b = torch.sum(b, dim=2) # sum along the heads
 		return b
 
