@@ -91,7 +91,7 @@ class ResidualAttentionBlock(nn.Module):
 		# plt.colorbar(im,ax=axs[0,1])
 		# axs[0,1].set_title('ac')
 
-		a = (a - ac)/1 # idk...
+		a = (a - ac)/5 # idk...
 
 		# im = axs[0,2].imshow(a[0,:,:,0].cpu().detach().numpy())
 		# plt.colorbar(im,ax=axs[0,2])
