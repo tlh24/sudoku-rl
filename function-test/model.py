@@ -53,7 +53,7 @@ class ResidualAttentionBlock(nn.Module):
 		width = x.shape[2]
 
 		# zscore data along *all* dimensions first
-		# x = (x - torch.mean(x)) / (1*torch.std(x))
+		x = (x - torch.mean(x)) / (1*torch.std(x))
 		v = self.wqv(x)
 		v = torch.reshape(v, (bs, ntok, 3*self.n_head, d_head))
 		q,vf,vb = torch.split(v, self.n_head, 2)
