@@ -53,7 +53,7 @@ class ResidualAttentionBlock(nn.Module):
 		width = x.shape[2]
 
 		# zscore data along *all* dimensions first
-		# x = (x - torch.mean(x)) / (1*torch.std(x))
+		x = (x - torch.mean(x, dim=[0,1])) / (1*torch.std(x, dim=[0,1]))
 		v = self.wqv(x)
 		v = torch.reshape(v, (bs, ntok, 3*self.n_head, d_head))
 		q,vf,vb = torch.split(v, self.n_head, 2)
@@ -78,13 +78,13 @@ class ResidualAttentionBlock(nn.Module):
 		kk = k
 		a = self.l1a_f(qq, kk) # includes -1 / sqrt(head)
 			# a <= 0 by construction, so that softmax works.
-		ad = a * -1 * math.sqrt(width) # reverse the scaling!
-		# a is [b,src,dst,heads]
-		ac = 0.7071 * ( \
-			torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
-			torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
-			# i think this is correct..
-		a = (ad - ac)/10	 # idk...
+		# ad = a * -1 * math.sqrt(width) # reverse the scaling!
+		# # a is [b,src,dst,heads]
+		# ac = 0.7071 * ( \
+		# 	torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
+		# 	torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
+		# 	# i think this is correct..
+		# a = (ad - ac)/10	 # idk...
 
 		if False:
 			for h in range(n_head):
@@ -92,6 +92,8 @@ class ResidualAttentionBlock(nn.Module):
 				im = axs[0,0].imshow(ad[0,:,:,h].cpu().detach().numpy())
 				plt.colorbar(im,ax=axs[0,0])
 				axs[0,0].set_title('ad, direct')
+				axs[0,0].set_xlabel("dest")
+				axs[0,0].set_ylabel("src")
 				im = axs[0,1].imshow(ac[0,:,:,h].cpu().detach().numpy())
 				plt.colorbar(im,ax=axs[0,1])
 				axs[0,1].set_title('ac, correction')
