@@ -25,7 +25,7 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
 		self.wqkv = nn.Linear(d_model, 4*n_head*d_model) 
-		# self.initWeights(self.wqv)
+		# self.initWeights(self.wqv) # use the default init
 		# # add in some identity
 		# with torch.no_grad():
 		# 	for i in range(3):
@@ -53,7 +53,7 @@ class ResidualAttentionBlock(nn.Module):
 		width = x.shape[2]
 
 		# zscore data along *all* dimensions first
-		x = (x - torch.mean(x)) / (1*torch.std(x))
+		# x = (x - torch.mean(x)) / (1*torch.std(x))
 		v = self.wqv(x)
 		v = torch.reshape(v, (bs, ntok, 3*self.n_head, d_head))
 		q,vf,vb = torch.split(v, self.n_head, 2)
@@ -83,16 +83,15 @@ class ResidualAttentionBlock(nn.Module):
 			torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
 			torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
 			# i think this is correct..
-		figs,axs = plt.subplots(2,3)
-		im = axs[0,0].imshow(a[0,:,:,0].cpu().detach().numpy())
-		plt.colorbar(im,ax=axs[0,0])
-		axs[0,0].set_title('a')
-		im = axs[0,1].imshow(ac[0,:,:,0].cpu().detach().numpy())
-		plt.colorbar(im,ax=axs[0,1])
-		axs[0,1].set_title('ac')
+		# figs,axs = plt.subplots(2,3)
+		# im = axs[0,0].imshow(a[0,:,:,0].cpu().detach().numpy())
+		# plt.colorbar(im,ax=axs[0,0])
+		# axs[0,0].set_title('a')
+		# im = axs[0,1].imshow(ac[0,:,:,0].cpu().detach().numpy())
+		# plt.colorbar(im,ax=axs[0,1])
+		# axs[0,1].set_title('ac')
 
-		a = (a - ac)/10 # idk...
-		pdb.set_trace()
+		a = (a - ac)/1 # idk...
 
 		# im = axs[0,2].imshow(a[0,:,:,0].cpu().detach().numpy())
 		# plt.colorbar(im,ax=axs[0,2])
