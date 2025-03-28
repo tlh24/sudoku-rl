@@ -1,6 +1,7 @@
 import numpy as np
 import csv
 import pdb
+import argparse
 import matplotlib
 import matplotlib.pyplot as plt
 import time
@@ -10,12 +11,16 @@ import sys
 import utils
 # import sklearn
 
+# parser = argparse.ArgumentParser()
+# parser.add_argument('--dpi', type=int, default=60, help='dpi')
+# cmd_args = parser.parse_args()
+
 plot_rows = 1
 plot_cols = 1
 figsize = (12 ,7)
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 120
+plt.rcParams['figure.dpi'] = 90
 
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)

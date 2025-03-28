@@ -78,32 +78,34 @@ class ResidualAttentionBlock(nn.Module):
 		kk = k
 		a = self.l1a_f(qq, kk) # includes -1 / sqrt(head)
 			# a <= 0 by construction, so that softmax works.
-		a = a * -1 * math.sqrt(width) # reverse the scaling!
+		ad = a * -1 * math.sqrt(width) # reverse the scaling!
+		# a is [b,src,dst,heads]
 		ac = 0.7071 * ( \
 			torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
 			torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
 			# i think this is correct..
-		# figs,axs = plt.subplots(2,3)
-		# im = axs[0,0].imshow(a[0,:,:,0].cpu().detach().numpy())
-		# plt.colorbar(im,ax=axs[0,0])
-		# axs[0,0].set_title('a')
-		# im = axs[0,1].imshow(ac[0,:,:,0].cpu().detach().numpy())
-		# plt.colorbar(im,ax=axs[0,1])
-		# axs[0,1].set_title('ac')
+		a = (ad - ac)/10	 # idk...
 
-		a = (a - ac)/1 # idk...
+		if False:
+			for h in range(n_head):
+				figs,axs = plt.subplots(2,3, figsize=(15,8))
+				im = axs[0,0].imshow(ad[0,:,:,h].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[0,0])
+				axs[0,0].set_title('ad, direct')
+				im = axs[0,1].imshow(ac[0,:,:,h].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[0,1])
+				axs[0,1].set_title('ac, correction')
 
-		# im = axs[0,2].imshow(a[0,:,:,0].cpu().detach().numpy())
-		# plt.colorbar(im,ax=axs[0,2])
-		# axs[0,2].set_title('a - ac')
-  #
-		# im = axs[1,0].imshow(qq[0,:,0,:].cpu().detach().numpy())
-		# plt.colorbar(im,ax=axs[1,0])
-		# axs[1,0].set_title('qq')
-		# im = axs[1,1].imshow(kk[0,:,0,:].cpu().detach().numpy())
-		# plt.colorbar(im,ax=axs[1,1])
-		# axs[1,1].set_title('kk')
-		# plt.show()
+				im = axs[0,2].imshow(a[0,:,:,h].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[0,2])
+				axs[0,2].set_title('a = ad - ac')
+				im = axs[1,0].imshow(qq[0,:,h,:].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[1,0])
+				axs[1,0].set_title('qq')
+				im = axs[1,1].imshow(kk[0,:,h,:].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[1,1])
+				axs[1,1].set_title('kk')
+				plt.show()
 
 		if False:
 			figs,axs = plt.subplots(2,2)
