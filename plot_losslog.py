@@ -20,7 +20,7 @@ plot_cols = 1
 figsize = (12 ,7)
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 90
+plt.rcParams['figure.dpi'] = 120
 
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
@@ -64,7 +64,7 @@ else:
 	file_names = sys.argv[1:]  # Skip the script name
 
 # Define colors for plotting, use default if not enough colors are provided
-colors = ['b', 'k', 'r', 'g', 'm', 'c']  # Extendable list of colors
+colors = ['k','tab:brown','r','tab:orange','y','g','c','b','tab:purple','tab:pink','tab:gray']  # Extendable list of colors
 color_cycle = colors * (len(file_names) // len(colors) + 1)  # Repeat colors 
 
 # make a moving-average kernel

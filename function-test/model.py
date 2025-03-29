@@ -23,7 +23,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.d_model = d_model
 		self.wk = nn.Parameter( torch.ones(n_head, d_model) )
 
-		self.wqv = nn.Linear(d_model, 3*n_head*d_model)
+		self.wqv = nn.Linear(d_model, 3*n_head*d_model, bias=True)
 		self.wqkv = nn.Linear(d_model, 4*n_head*d_model) 
 		# self.initWeights(self.wqv) # use the default init
 		# # add in some identity
@@ -39,6 +39,8 @@ class ResidualAttentionBlock(nn.Module):
 		self.rms_norm = nn.RMSNorm(d_model)
 		self.layer_norm = nn.LayerNorm(d_model)
 
+		self.means = torch.zeros(d_model)
+
 	def initWeights(self, module):
 		if isinstance(module, nn.Linear):
 			torch.nn.init.normal_(module.weight, mean=0.0, std=0.005)
@@ -51,9 +53,12 @@ class ResidualAttentionBlock(nn.Module):
 		bs = x.shape[0]
 		ntok = x.shape[1]
 		width = x.shape[2]
+		self.means = self.means.to(x.device)
 
 		# zscore data along *all* dimensions first
-		# x = (x - torch.mean(x, dim=[0,1])) / (1*torch.std(x, dim=[0,1]))
+		# with torch.no_grad():
+		# 	self.means = 0.99 * self.means + 0.01 * torch.mean(x, dim=[0,1])
+		# 	x = x - self.means # removing the mean should have no effect.
 		v = self.wqv(x)
 		v = torch.reshape(v, (bs, ntok, 3*self.n_head, d_head))
 		q,vf,vb = torch.split(v, self.n_head, 2)
@@ -63,7 +68,7 @@ class ResidualAttentionBlock(nn.Module):
 		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		wk = self.wk.unsqueeze(0).unsqueeze(0)
 		k = k * wk
-		q = q * wk # TEST test! definite improvement!   
+		q = q * wk # TEST test! definite improvement!
 		# k = self.layer_norm(k) # only norm the k - allow the Q's to float.
 		# layerNorm does not seem to help.  N=4
 
@@ -86,27 +91,26 @@ class ResidualAttentionBlock(nn.Module):
 		# 	# i think this is correct..
 		# a = (ad - ac)/10	 # idk...
 
+		# a is [b,src,dst,heads]
+		af = F.softmax(a, 1) # see l1attn.py -- softmax over src
+		ab = F.softmax(a, 2) # fix feb 2025: softmax over dst
+
 		if False:
 			for h in range(n_head):
-				figs,axs = plt.subplots(2,3, figsize=(15,8))
-				im = axs[0,0].imshow(ad[0,:,:,h].cpu().detach().numpy())
-				plt.colorbar(im,ax=axs[0,0])
-				axs[0,0].set_title('ad, direct')
-				axs[0,0].set_xlabel("dest")
-				axs[0,0].set_ylabel("src")
-				im = axs[0,1].imshow(ac[0,:,:,h].cpu().detach().numpy())
-				plt.colorbar(im,ax=axs[0,1])
-				axs[0,1].set_title('ac, correction')
+				figs,axs = plt.subplots(1,3, figsize=(15,8))
+				im = axs[0].imshow(a[0,:,:,h].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[0])
+				axs[0].set_title('a, direct')
+				axs[0].set_xlabel("dest")
+				axs[0].set_ylabel("src")
 
-				im = axs[0,2].imshow(a[0,:,:,h].cpu().detach().numpy())
-				plt.colorbar(im,ax=axs[0,2])
-				axs[0,2].set_title('a = ad - ac')
-				im = axs[1,0].imshow(qq[0,:,h,:].cpu().detach().numpy())
-				plt.colorbar(im,ax=axs[1,0])
-				axs[1,0].set_title('qq')
-				im = axs[1,1].imshow(kk[0,:,h,:].cpu().detach().numpy())
-				plt.colorbar(im,ax=axs[1,1])
-				axs[1,1].set_title('kk')
+				im = axs[1].imshow(qq[0,:,h,:].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[1])
+				axs[1].set_title('qq')
+
+				im = axs[2].imshow(kk[0,:,h,:].cpu().detach().numpy())
+				plt.colorbar(im,ax=axs[2])
+				axs[2].set_title('kk')
 				plt.show()
 
 		if False:
@@ -121,32 +125,48 @@ class ResidualAttentionBlock(nn.Module):
 			im = axs[1,0].imshow(wvb.cpu().detach().numpy())
 			plt.colorbar(im,ax=axs[1,0])
 			axs[1,0].set_title('WVB')
-			axs[1,1].plot(self.wk.squeeze().cpu().detach().numpy())
+			axs[1,1].plot(self.wk.T.squeeze().cpu().detach().numpy())
 			axs[1,1].set_title('WK')
 			plt.show()
 
 			figs,axs = plt.subplots(2,2)
-			axs[0,0].plot(q[0,0,0,:].detach().cpu().numpy(), label='Q tok 0')
-			axs[0,0].plot(k[0,0,0,:].detach().cpu().numpy(), label='K tok 0')
+			axs[0,0].plot(q[0,-1,0,:].detach().cpu().numpy(), label='Q tok -1')
+			axs[0,0].plot(k[0,-2,0,:].detach().cpu().numpy(), label='K tok -2')
 			axs[0,0].legend()
 			axs[0,1].plot(q[0,-1,0,:].detach().cpu().numpy(), label='Q tok -1')
-			axs[0,1].plot(k[0,-1,0,:].detach().cpu().numpy(), label='K tok -1')
+			axs[0,1].plot(k[0,-3,0,:].detach().cpu().numpy(), label='K tok -3')
 			axs[0,1].legend()
 			axs[1,0].plot(q[0,-2,0,:].detach().cpu().numpy(), label='Q tok -2')
-			axs[1,0].plot(k[0,-2,0,:].detach().cpu().numpy(), label='K tok -2')
+			axs[1,0].plot(k[0,-1,0,:].detach().cpu().numpy(), label='K tok -1')
 			axs[1,0].legend()
 			axs[1,1].plot(q[0,-3,0,:].detach().cpu().numpy(), label='Q tok -3')
-			axs[1,1].plot(k[0,-3,0,:].detach().cpu().numpy(), label='K tok -3')
+			axs[1,1].plot(k[0,-1,0,:].detach().cpu().numpy(), label='K tok -1')
 			axs[1,1].legend()
 			plt.show()
 			# attention in the heads.
-			fig, axs = plt.subplots(1,n_head)
+			fig, axs = plt.subplots(3,n_head)
 			if n_head > 1:
 				for h in range(n_head):
 					a0 = a[20, :, :, h].squeeze().cpu().detach().numpy()
-					im = axs[h].imshow(a0)
-					axs[h].set_title(f'attention head {h}')
-					plt.colorbar(im,ax=axs[h])
+					im = axs[0,h].imshow(a0)
+					axs[0,h].set_title(f'attention head {h}')
+					plt.colorbar(im,ax=axs[0,h])
+					axs[0,h].set_xlabel("dest")
+					axs[0,h].set_ylabel("src")
+
+					a0 = af[20, :, :, h].squeeze().cpu().detach().numpy()
+					im = axs[1,h].imshow(a0)
+					axs[1,h].set_title(f'attention forward head {h}')
+					plt.colorbar(im,ax=axs[1,h])
+					axs[1,h].set_xlabel("dest")
+					axs[1,h].set_ylabel("src")
+
+					a0 = ab[20, :, :, h].squeeze().cpu().detach().numpy()
+					im = axs[2,h].imshow(a0)
+					axs[2,h].set_title(f'attention backward head {h}')
+					plt.colorbar(im,ax=axs[2,h])
+					axs[2,h].set_xlabel("dest")
+					axs[2,h].set_ylabel("src")
 			else:
 				a0 = a[20, :, :, 0].squeeze().cpu().detach().numpy()
 				im = axs.imshow(a0)
@@ -163,9 +183,7 @@ class ResidualAttentionBlock(nn.Module):
 		# a[:, ntok, :,:] = 0.0 # slight improvement:
 		# adds in e^0=1 as a 'noop' option
 		# (hence max attention is 0.5, not 1)
-		# a is [b,src,dst,heads]
-		af = F.softmax(a, 1) # see l1attn.py -- softmax over src
-		ab = F.softmax(a, 2) # fix feb 2025: softmax over dst
+
 		# a = a[:, :ntok, :ntok, :] # remove noop
 		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
 		bb = torch.einsum('bsdh, bdhw -> bshw', ab, vb)

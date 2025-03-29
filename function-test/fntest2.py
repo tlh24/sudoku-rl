@@ -51,10 +51,9 @@ def genData(bs, span):
 	col = np.random.randint(0, span, size=bs)
 	i = row * 7 + col
 	y = x[np.arange(bs),i,:].copy()
-	x[:,-3:,0] = indicator # answer & arg token labels  
-	x[:,-2,0] = indicator # arg1. 
-	x[:,-3,1] = indicator # arg2.
-	x[:,-1,2] = indicator
+	x[:,-3:,0] = indicator # answer & arg token labels
+	x[:,-2,1] = indicator # arg1.
+	x[:,-3,2] = indicator # arg2.
 	x[:,-2,3] = y[:,-1] # pointer address.
 	x[:,-3,3] = y[:,-2] # pointer address.
 	# print(y[0,:])
