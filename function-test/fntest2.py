@@ -31,11 +31,11 @@ as opposed to fntest.py, this one is just a pointer op:
 	Data is uniformly spaced, with a random offset per datapoint.
 	Position is linearly encoded.
 '''
-gendata_dim = 16
+gendata_dim = 24
 
 def genData(bs, span): 
 	# create random data vectors:
-	indicator = 10
+	indicator = 17
 	x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens, 16 dims
 	# add offset noise: forces the points to be in a random loc, 
 	# but equidistant.
@@ -44,18 +44,22 @@ def genData(bs, span):
 	x[:,:,-1] = x[:,:,-1] + np.expand_dims(noiz[:,0], axis=1)
 	x[:,:,-2] = np.arange(48) // 7 
 	x[:,:,-2] = x[:,:,-2] + np.expand_dims(noiz[:,1], axis=1)
-	x[:, :,:4] = 0 # first 4 latent dims are zero
+	x[:, :,:5] = 0 # first 6 latent dims are zero
 	x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer 
 
 	row = np.random.randint(0, span, size=bs)
 	col = np.random.randint(0, span, size=bs)
 	i = row * 7 + col
 	y = x[np.arange(bs),i,:].copy()
-	x[:,-3:,0] = indicator # answer & arg token labels
-	x[:,-2,1] = indicator # arg1.
-	x[:,-3,2] = indicator # arg2.
+	x[:,-3,0] = indicator # arg1
+	x[:,-1,0] = indicator # output
+	x[:,-2,1] = indicator # arg2.
+	x[:,-1,1] = indicator # output
+	x[:,-1,2] = indicator # output only
 	x[:,-2,3] = y[:,-1] # pointer address.
 	x[:,-3,3] = y[:,-2] # pointer address.
+	x[:,-2,4] = y[:,-1] # pointer address.
+	x[:,-3,4] = y[:,-2] # pointer address.
 	# print(y[0,:])
 	# plt.imshow(x[0,:,:])
 	# plt.show()
@@ -67,8 +71,8 @@ def positiveControl(x):
 	ntok = x.shape[1]
 	y = np.zeros((bs,gendata_dim))
 	for b in range(bs): 
-		p1 = x[b,-2,3]
-		p2 = x[b,-3,3]
+		p1 = x[b,-2,4]
+		p2 = x[b,-3,4]
 		targ = np.zeros((ntok,2))
 		targ[:,0] = p2
 		targ[:,1] = p1

@@ -83,7 +83,7 @@ class ResidualAttentionBlock(nn.Module):
 		kk = k
 		a = self.l1a_f(qq, kk) # includes -1 / sqrt(head)
 			# a <= 0 by construction, so that softmax works.
-		# ad = a * -1 * math.sqrt(width) # reverse the scaling!
+		# a = a / 2 # more scaling!
 		# # a is [b,src,dst,heads]
 		# ac = 0.7071 * ( \
 		# 	torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
