@@ -20,7 +20,7 @@ plot_cols = 1
 figsize = (12 ,7)
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 120
+plt.rcParams['figure.dpi'] = 60
 
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
@@ -87,7 +87,7 @@ while cont:
 			if len(data.shape) > 1 and data.shape[0] > 1:
 				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.25)
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
-				if smoothed.shape[0] == data.shape[1]:
+				if smoothed.shape[0] == data.shape[0]:
 					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1, label=f"{fname} ({color_cycle[i]})")
 					
 
