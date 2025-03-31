@@ -79,16 +79,16 @@ while cont:
 	for i, fname in enumerate(file_names):
 		try:
 			with open(fname, 'r') as x:
-					data = list(csv.reader(x, delimiter="\t"))
+				data = list(csv.reader(x, delimiter="\t"))
 			data = np.array(data)
 			data = data.astype(float)
 
 			# Plot the data in log scale for the second column
-			if len(data.shape) > 1 and data.shape[0] > 1:
-
+			if len(data.shape) > 1 and data.shape[0] > 1
 				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.25)
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
-				ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1, label=f"{fname} ({color_cycle[i]})")
+				if smoothed.shape[0] == data.shape[1]:
+					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1, label=f"{fname} ({color_cycle[i]})")
 					
 
 		except FileNotFoundError:

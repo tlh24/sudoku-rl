@@ -35,7 +35,7 @@ gendata_dim = 24
 
 def genData(bs, span): 
 	# create random data vectors:
-	indicator = 17
+	indicator = 10
 	x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens, 16 dims
 	# add offset noise: forces the points to be in a random loc, 
 	# but equidistant.
@@ -52,14 +52,15 @@ def genData(bs, span):
 	i = row * 7 + col
 	y = x[np.arange(bs),i,:].copy()
 	x[:,-3,0] = indicator # arg1
-	x[:,-1,0] = indicator # output
+	# x[:,-1,0] = indicator*2 # output
 	x[:,-2,1] = indicator # arg2.
-	x[:,-1,1] = indicator # output
+	# x[:,-1,1] = indicator*2 # output
 	x[:,-1,2] = indicator # output only
 	x[:,-2,3] = y[:,-1] # pointer address.
 	x[:,-3,3] = y[:,-2] # pointer address.
 	x[:,-2,4] = y[:,-1] # pointer address.
 	x[:,-3,4] = y[:,-2] # pointer address.
+	y[:,:-2] = x[:,-1,:-2] # copy everything but the pointer loc
 	# print(y[0,:])
 	# plt.imshow(x[0,:,:])
 	# plt.show()
@@ -107,7 +108,7 @@ if __name__ == '__main__':
 
 	batch_size = cmd_args.b
 	
-	model = Transformer(d_model=64, layers=2, repeat=1, n_head=2, gendata_dim=gendata_dim)
+	model = Transformer(d_model=64, layers=1, repeat=1, n_head=2, gendata_dim=gendata_dim)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
