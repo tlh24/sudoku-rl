@@ -47,7 +47,7 @@ class ResidualAttentionBlock(nn.Module):
 			if module.bias is not None:
 				torch.nn.init.zeros_(module.bias)
 
-	def attention(self, x:torch.Tensor):
+	def attention(self, x:torch.Tensor, layer:int):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
 		bs = x.shape[0]
@@ -90,10 +90,22 @@ class ResidualAttentionBlock(nn.Module):
 		# 	torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
 		# 	# i think this is correct..
 		# a = (ad - ac)/10	 # idk...
+		
+		# # add a mask! 
+		am = torch.zeros_like(a)
+		if layer == 0: 
+			am[:,:,:,-2:] = 10 # last two heads
+			am[:,-3:,-3:,-2:] = 0 # focus on the last three tokens
+		else: 
+			am[:,-3:,-3:,:-2] = 10 # first two heads
+			# focus on everything but the last three tokens.
+		a = a - am
+		# # first two heads preferentially attend to the last three tokens. 
 
 		# a is [b,src,dst,heads]
 		af = F.softmax(a, 1) # see l1attn.py -- softmax over src
 		ab = F.softmax(a, 2) # fix feb 2025: softmax over dst
+		
 
 		if False:
 			for h in range(n_head):
@@ -214,11 +226,11 @@ class ResidualAttentionBlock(nn.Module):
 		return b
 
 
-	def forward(self, x:torch.Tensor, use_dp:bool):
+	def forward(self, x:torch.Tensor, use_dp:bool, layer:int):
 		if use_dp:
 			y = self.attentionDP( self.rms_norm(x) )
 		else:
-			y = self.attention( x )
+			y = self.attention( x, layer )
 		y = self.gelu(y)
 		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		return x + y
@@ -246,7 +258,7 @@ class Transformer(nn.Module):
 		# x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
 		for i in range(self.repeat):
 			for j, layer in enumerate(self.resblocks):
-				x = layer(x, use_dp)
+				x = layer(x, use_dp, j)
 		return self.out_proj(x)
 
 	def fixedInit(self):
