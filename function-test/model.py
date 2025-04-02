@@ -47,7 +47,7 @@ class ResidualAttentionBlock(nn.Module):
 			if module.bias is not None:
 				torch.nn.init.zeros_(module.bias)
 
-	def attention(self, x:torch.Tensor, layer:int):
+	def attention(self, x:torch.Tensor, layer:int, doplot:bool):
 		n_head = self.n_head
 		d_head = self.d_model ## no sub-spaces!
 		bs = x.shape[0]
@@ -105,7 +105,6 @@ class ResidualAttentionBlock(nn.Module):
 		# a is [b,src,dst,heads]
 		af = F.softmax(a, 1) # see l1attn.py -- softmax over src
 		ab = F.softmax(a, 2) # fix feb 2025: softmax over dst
-		
 
 		if False:
 			for h in range(n_head):
@@ -125,7 +124,7 @@ class ResidualAttentionBlock(nn.Module):
 				axs[2].set_title('kk')
 				plt.show()
 
-		if False:
+		if doplot :
 			figs,axs = plt.subplots(2,2)
 			wq,wvf,wvb = torch.split(self.wqv.weight, d_head*n_head, 0)
 			im = axs[0,0].imshow(wq.cpu().detach().numpy())
@@ -159,21 +158,21 @@ class ResidualAttentionBlock(nn.Module):
 			fig, axs = plt.subplots(3,n_head)
 			if n_head > 1:
 				for h in range(n_head):
-					a0 = a[20, :, :, h].squeeze().cpu().detach().numpy()
+					a0 = a[20, -3:, -3:, h].squeeze().cpu().detach().numpy()
 					im = axs[0,h].imshow(a0)
 					axs[0,h].set_title(f'attention head {h}')
 					plt.colorbar(im,ax=axs[0,h])
 					axs[0,h].set_xlabel("dest")
 					axs[0,h].set_ylabel("src")
 
-					a0 = af[20, :, :, h].squeeze().cpu().detach().numpy()
+					a0 = af[20, -3:, -3:, h].squeeze().cpu().detach().numpy()
 					im = axs[1,h].imshow(a0)
 					axs[1,h].set_title(f'attention forward head {h}')
 					plt.colorbar(im,ax=axs[1,h])
 					axs[1,h].set_xlabel("dest")
 					axs[1,h].set_ylabel("src")
 
-					a0 = ab[20, :, :, h].squeeze().cpu().detach().numpy()
+					a0 = ab[20, -3:, -3:, h].squeeze().cpu().detach().numpy()
 					im = axs[2,h].imshow(a0)
 					axs[2,h].set_title(f'attention backward head {h}')
 					plt.colorbar(im,ax=axs[2,h])
@@ -200,7 +199,7 @@ class ResidualAttentionBlock(nn.Module):
 		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
 		bb = torch.einsum('bsdh, bdhw -> bshw', ab, vb)
 				# eliminate over dest (the softmax dim)
-		b = bf + bb
+		b = bf # + bb
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (bs, ntok, self.d_model))
 		return b # residual sum later.
@@ -220,17 +219,17 @@ class ResidualAttentionBlock(nn.Module):
 		af = F.softmax(a, 2) # sm over eliminated s dim
 		bf = torch.einsum('btsh, bshw -> bthw', af, vf)
 		ab = F.softmax(a, 1) # sm over eliminated t dim
-		bb = torch.einsum('btsh, bthw -> bshw', af, vb)
+		bb = torch.einsum('btsh, bthw -> bshw', ab, vb)
 		b = bf + bb
 		b = torch.sum(b, dim=2) # sum along the heads
 		return b
 
 
-	def forward(self, x:torch.Tensor, use_dp:bool, layer:int):
+	def forward(self, x:torch.Tensor, layer:int, use_dp:bool, doplot:bool):
 		if use_dp:
 			y = self.attentionDP( self.rms_norm(x) )
 		else:
-			y = self.attention( x, layer )
+			y = self.attention( x, layer, doplot )
 		y = self.gelu(y)
 		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		return x + y
@@ -250,7 +249,7 @@ class Transformer(nn.Module):
 		self.in_proj = nn.Linear(gendata_dim, d_model, bias=False)
 		self.out_proj = nn.Linear(d_model, gendata_dim, bias=True)
 
-	def forward(self, x:torch.Tensor, use_dp:bool):
+	def forward(self, x:torch.Tensor, use_dp:bool, doplot:bool):
 		# x is dtype int to interface with the embedding layer
 		bs,n_tok,inw = x.shape
 		x = self.in_proj(x)
@@ -258,7 +257,7 @@ class Transformer(nn.Module):
 		# x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
 		for i in range(self.repeat):
 			for j, layer in enumerate(self.resblocks):
-				x = layer(x, use_dp, j)
+				x = layer(x, j, use_dp, doplot)
 		return self.out_proj(x)
 
 	def fixedInit(self):
