@@ -92,14 +92,15 @@ class ResidualAttentionBlock(nn.Module):
 		# a = (ad - ac)/10	 # idk...
 		
 		# # add a mask! 
-		am = torch.zeros_like(a)
-		if layer == 0: 
-			am[:,:,:,-2:] = 10 # last two heads
-			am[:,-3:,-3:,-2:] = 0 # focus on the last three tokens
-		else: 
-			am[:,-3:,-3:,:-2] = 10 # first two heads
-			# focus on everything but the last three tokens.
-		a = a - am
+		if False:
+			am = torch.zeros_like(a)
+			if layer == 0:
+				am[:,:,:,-2:] = 10 # last two heads
+				am[:,-3:,-3:,-2:] = 0 # focus on the last three tokens
+			else:
+				am[:,-3:,-3:,:-2] = 10 # first two heads
+				# focus on everything but the last three tokens.
+			a = a - am
 		# # first two heads preferentially attend to the last three tokens. 
 
 		# a is [b,src,dst,heads]
@@ -158,21 +159,21 @@ class ResidualAttentionBlock(nn.Module):
 			fig, axs = plt.subplots(3,n_head)
 			if n_head > 1:
 				for h in range(n_head):
-					a0 = a[20, -3:, -3:, h].squeeze().cpu().detach().numpy()
+					a0 = a[20, :, :, h].squeeze().cpu().detach().numpy()
 					im = axs[0,h].imshow(a0)
 					axs[0,h].set_title(f'attention head {h}')
 					plt.colorbar(im,ax=axs[0,h])
 					axs[0,h].set_xlabel("dest")
 					axs[0,h].set_ylabel("src")
 
-					a0 = af[20, -3:, -3:, h].squeeze().cpu().detach().numpy()
+					a0 = af[20, :, :, h].squeeze().cpu().detach().numpy()
 					im = axs[1,h].imshow(a0)
 					axs[1,h].set_title(f'attention forward head {h}')
 					plt.colorbar(im,ax=axs[1,h])
 					axs[1,h].set_xlabel("dest")
 					axs[1,h].set_ylabel("src")
 
-					a0 = ab[20, -3:, -3:, h].squeeze().cpu().detach().numpy()
+					a0 = ab[20, :, :, h].squeeze().cpu().detach().numpy()
 					im = axs[2,h].imshow(a0)
 					axs[2,h].set_title(f'attention backward head {h}')
 					plt.colorbar(im,ax=axs[2,h])
