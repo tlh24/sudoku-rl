@@ -32,7 +32,7 @@ as opposed to fntest.py, this one is just a pointer op:
 	Position is linearly encoded.
 '''
 gendata_dim = 10
-indicator = 10
+indicator = 2
 
 def genData(bs, span): 
 	# create random data vectors:
@@ -96,7 +96,9 @@ if __name__ == '__main__':
 	parser.add_argument('-u', type=int, default=0, help='CUDA device')
 	parser.add_argument('-n', type=int, default=25000, help='number of gradient steps')
 	parser.add_argument('--doplot', action='store_true', help="plot internal model activations")
+	parser.add_argument('-i', type=int, default=10, help='indicator')
 	cmd_args = parser.parse_args()
+	indicator = cmd_args.i
 	
 	if cmd_args.t: 
 		x, y = genData(256, 6)
