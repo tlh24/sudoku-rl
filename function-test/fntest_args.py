@@ -32,7 +32,7 @@ as opposed to fntest.py, this one is just a pointer op:
 	Position is linearly encoded.
 '''
 gendata_dim = 8
-indicator = 10
+indicator = 3
 
 def genData(bs):
 	x = np.zeros((bs, 4, 8))

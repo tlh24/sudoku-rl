@@ -32,12 +32,12 @@ as opposed to fntest.py, this one is just a pointer op:
 	Position is linearly encoded.
 '''
 gendata_dim = 10
-indicator = 10
+indicator = 30
 
 def genData(bs, span): 
 	# create random data vectors:
 	# need 6 dims for inicators and position encoding
-	x = np.random.randn(bs, 48, gendata_dim)*0 # 32 tokens, 16 dims
+	x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens, 16 dims
 	# add offset noise: forces the points to be in a random loc, 
 	# but equidistant.
 	noiz = np.random.randn(bs, 2)*1.0
@@ -45,13 +45,14 @@ def genData(bs, span):
 	x[:,:,-1] = x[:,:,-1] + np.expand_dims(noiz[:,0], axis=1)
 	x[:,:,-2] = np.arange(48) // 7 
 	x[:,:,-2] = x[:,:,-2] + np.expand_dims(noiz[:,1], axis=1)
-	x[:, :,:4] = 0 # first 6 latent dims are zero
+	x[:, :,:4] = 0 # first 4 latent dims are zero
 	x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer 
 
 	row = np.random.randint(0, span, size=bs)
 	col = np.random.randint(0, span, size=bs)
 	i = row * 7 + col
 	y = x[np.arange(bs),i,:].copy()
+	y[:,2] = indicator # copy output
 	x[:,-3,0] = indicator # arg1
 	x[:,-2,1] = indicator # arg2.
 	x[:,-1,2] = indicator # output only
@@ -111,7 +112,7 @@ if __name__ == '__main__':
 
 	batch_size = cmd_args.b
 	
-	model = Transformer(d_model=32, layers=1, repeat=1, n_head=2, gendata_dim=gendata_dim)
+	model = Transformer(d_model=64, layers=2, repeat=1, n_head=2, gendata_dim=gendata_dim)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
