@@ -90,6 +90,13 @@ class ResidualAttentionBlock(nn.Module):
 		# 	torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
 		# 	# i think this is correct..
 		# a = (ad - ac)/10	 # idk...
+		if True:
+			# huber loss
+			a = -1*a
+			delta = 0.2
+			aq = 0.5* a**2 # d/da = a, so = delta @ a=delta; a = 0.5*delta^2 @ delta
+			aa = delta*(a - 0.5*delta)# d/da = delta; a = 0.5*delta^2 @ delta
+			a = -1*torch.where(a < delta, aq, aa) # huber loss
 		
 		# # add a mask! 
 		if False:

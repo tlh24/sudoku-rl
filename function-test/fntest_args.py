@@ -87,7 +87,7 @@ if __name__ == '__main__':
 
 	batch_size = cmd_args.b
 	
-	model = Transformer(d_model=32, layers=1, repeat=1, n_head=3, gendata_dim=gendata_dim)
+	model = Transformer(d_model=16, layers=1, repeat=1, n_head=3, gendata_dim=gendata_dim)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
@@ -103,7 +103,7 @@ if __name__ == '__main__':
 	model = model.to(f"cuda:{cmd_args.u}")
 
 	if cmd_args.a: 
-		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True, weight_decay=0.01)
+		optimizer = optim.AdamW(model.parameters(), lr=5e-4, amsgrad=False, weight_decay=0.01, betas=(0.9,0.99) )
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
