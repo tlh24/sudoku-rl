@@ -32,7 +32,7 @@ as opposed to fntest.py, this one is just a pointer op:
 	Position is linearly encoded.
 '''
 gendata_dim = 10
-indicator = 30
+indicator = 10
 
 def genData(bs, span): 
 	# create random data vectors:
