@@ -22,6 +22,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.n_head = n_head
 		self.d_model = d_model
 		self.wk = nn.Parameter( torch.ones(n_head, d_model) )
+		self.wascl = nn.Parameter( torch.zeros( n_head ))
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model, bias=True)
 		self.wqkv = nn.Linear(d_model, 4*n_head*d_model) 
@@ -83,8 +84,10 @@ class ResidualAttentionBlock(nn.Module):
 		kk = k
 		a = self.l1a_f(qq, kk) # includes -1 / sqrt(head)
 			# a <= 0 by construction, so that softmax works.
-		# a = a / 2 # more scaling!
 		# # a is [b,src,dst,heads]
+		# more scaling!
+		# a = a * torch.exp(self.wascl) -- does not help.
+
 		# ac = 0.7071 * ( \
 		# 	torch.sum(torch.abs(qq), axis=3).unsqueeze(1).expand(bs,ntok,ntok,n_head) + \
 		# 	torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )

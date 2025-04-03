@@ -57,8 +57,8 @@ def genData(bs, span):
 	x[:,-1,2] = indicator # output only
 	x[:,-2,3] = y[:,-1] # pointer address.
 	x[:,-3,3] = y[:,-2] # pointer address.
-	y[:,:-2] = x[:,-1,:-2] # TEST copy everything but the pointer loc
-	x[:,:,-2:] = 0 # FIXME erase distractors
+	# y[:,:-2] = x[:,-1,:-2] # TEST copy everything but the pointer loc
+	# x[:,:,-2:] = 0 # FIXME erase distractors
 	# x[:,-1,-2:] = y[:,-2:] # TEST copy the pointer, force memory access.
 	# print(y[0,:])
 	# plt.imshow(x[0,:,:])
@@ -127,7 +127,7 @@ if __name__ == '__main__':
 	model = model.to(f"cuda:{cmd_args.u}")
 
 	if cmd_args.a: 
-		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True, weight_decay=0.01)
+		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=False, weight_decay=0.01, betas=(0.9,0.99))
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner=0.01, momentum=0.9,\
