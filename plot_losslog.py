@@ -29,6 +29,7 @@ git_commit_hash = utils.getGitCommitHash()
 parser = argparse.ArgumentParser(description="Plot loss logs from files in a directory that match a pattern.")
 parser.add_argument('-d', '--directory', type=str, default=".", help='Directory to search for log files.')
 parser.add_argument('-p', '--pattern', type=str, default="losslog*.txt", help='Pattern to match for log files (e.g., "losslog*.txt").')
+parser.add_argument('--repl', type=int, default=1, help="how many replicates there are",)
 cmd_args = parser.parse_args()
 
 def slidingWindowR2(x, y, window_size, stride):
@@ -53,7 +54,7 @@ if "DISPLAY" not in os.environ:
 
 # Define colors for plotting, use default if not enough colors are provided
 colors = ['b', 'r', 'k', 'g', 'm', 'c']  # Extendable list of colors
-replicate_colors = 3
+replicate_colors = cmd_args.repl
 color_repeat = [color for color in colors for _ in range(replicate_colors)]
 
 # make a moving-average kernel
