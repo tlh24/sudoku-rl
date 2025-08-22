@@ -86,7 +86,7 @@ while cont:
 
 			# Plot the data in log scale for the second column
 			if len(data.shape) > 1 and data.shape[0] > 1:
-				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.15, label=f"{os.path.basename(fname)} ({color_cycle[i]})")
+				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05, label=f"{os.path.basename(fname)} ({color_cycle[i]})")
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
 				if smoothed.shape[0] == data.shape[0]:
 					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=0.45)
