@@ -32,7 +32,12 @@ def monitorInput():
 	print(colored('Press Enter to stop training and switch to validation','green'))
 	global switch_to_validation
 	while not switch_to_validation:
-		if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-			input()  # Consume the input to reset stdin
-			print("\nKey pressed! Switching to validation...")
-			switch_to_validation = True
+		try:
+			if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+				input()  # Consume the input to reset stdin
+				print("\nKey pressed! Switching to validation...")
+				switch_to_validation = True
+		except Exception as e:
+			# Log other potential errors
+			print(f"Error in monitorInput thread: {e}", flush=True)
+			break

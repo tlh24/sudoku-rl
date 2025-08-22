@@ -1,6 +1,7 @@
 import numpy as np
 import csv
 import pdb
+import argparse
 import matplotlib
 import matplotlib.pyplot as plt
 import time
@@ -11,13 +12,19 @@ import utils
 import glob
 # import sklearn
 
+# parser = argparse.ArgumentParser()
+# parser.add_argument('--dpi', type=int, default=60, help='dpi')
+# cmd_args = parser.parse_args()
+
 plot_rows = 1
 plot_cols = 1
-figsize = (12 ,7)
+figsize = (24, 16)
 plt.ion()
 plt.rcParams['font.size'] = 18
 plt.rcParams['figure.dpi'] = 72
+
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
+ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
 initialized = False
 
 current_directory = os.getcwd()
@@ -53,13 +60,15 @@ if "DISPLAY" not in os.environ:
 	matplotlib.use('Agg')  # Use non-interactive backend
 
 # Define colors for plotting, use default if not enough colors are provided
+
 colors = ['b', 'r', 'k', 'g', 'm', 'c']  # Extendable list of colors
 replicate_colors = cmd_args.repl
 color_repeat = [color for color in colors for _ in range(replicate_colors)]
 
 # make a moving-average kernel
-window_size = 100
-kernel = np.ones(window_size) / window_size
+window_size = 128
+kernel = 1-(np.cos(np.linspace(0, 2*3.1415926, window_size)))
+kernel = kernel / np.sum(kernel)
 
 cont = True
 while cont:

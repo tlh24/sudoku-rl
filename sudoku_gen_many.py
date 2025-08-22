@@ -232,17 +232,18 @@ def genSATNetPuzzlesParallel(N, pct_filled):
 
 if __name__ == "__main__":
 	# generatePuzzles()
-	N = 10000
+	N = 100000
 	#genSATNetPuzzlesParallel(N, 0.85)
 	#vizSatNetFile(f"satnet_both_0.85_filled_{N}.npz")
-	#genSATNetPuzzlesParallel(N, 0.65)
-	#vizSatNetFile(f"satnet_both_0.65_filled_{N}.npz")
+	genSATNetPuzzlesParallel(N, 0.65)
+	vizSatNetFile(f"satnet_both_0.65_filled_{N}.npz")
 	#genSATNetPuzzlesParallel(N, 0.35) # 'hard'
 	#genSATNetPuzzlesParallel(N, 0.44) # satnet average 
 	convertToTorch('satnet_both_0.44_filled_10000.npz')
 
 
 	#vizSatNetFile(f"satnet_both_0.35_filled_{N}.npz")
+
 	# above corresponds to 13, 29, and 47 blanks.
 	# = 84, 64, 41 percent filled.
 
