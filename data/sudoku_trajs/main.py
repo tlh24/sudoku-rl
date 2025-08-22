@@ -18,6 +18,7 @@ from typing import List
 import copy 
 from utils import actionTupleToAction
 import logging
+import time 
 
 class SudokuSolver:
     """
@@ -183,8 +184,6 @@ class SudokuSolver:
                 
         return self.forward_states
 
-
-
     def print_trajectory(self):
         """
         Print the trajectory of board states.
@@ -326,10 +325,29 @@ if __name__ == "__main__":
     #NOTE: For relatives path to work, must execute this in sudoku-rl/data/sudoku_trajs 
     assert 'data/sudoku_trajs' in os.getcwd()
 
-    saver = TrajectorySaver()
-    saver.generate(10000, 0.45)
-    saver.insert_begin_states('forward/state/10000_trajs_0.45_filled_no_head.npy')
-    saver.save_action_trajs_from_state_trajs('forward/state/10000_trajs_0.45_filled_yes_head.npy')
-
+    #saver = TrajectorySaver()
+    #saver.generate(10000, 0.45)
+    #saver.insert_begin_states('forward/state/10000_trajs_0.45_filled_no_head.npy')
+    #saver.save_action_trajs_from_state_trajs('forward/state/10000_trajs_0.45_filled_yes_head.npy')
+    hard_puzzle = [
+        [0, 6, 0, 0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 3, 0, 2, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 3, 0, 0, 0, 0, 2, 4],
+        [8, 0, 0, 0, 0, 0, 0, 3, 0],
+        [0, 0, 0, 0, 1, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0, 0, 7, 5, 0],
+        [2, 0, 0, 9, 0, 0, 0, 0, 0],
+        [0, 0, 0, 4, 0, 0, 6, 0, 0]
+    ]
+    print("Initial puzzle is \n")
+    solver = SudokuSolver(hard_puzzle)
+    solver.print_puzzle()
+    start_time = time.time()
+    result = solver.solve()
+    print("Solution is \n")
+    solver.print_puzzle()
+    end_time = time.time()
+    print(f"Total time taken is {end_time - start_time} sec")
 
 

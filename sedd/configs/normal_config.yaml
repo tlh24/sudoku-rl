@@ -1,13 +1,13 @@
 # General settings
 ngpus: 1
-tokens: 9 #encode trajs as series of numbers [0-8] (note that these are 0-indexed, so correspond to 1-9)
+tokens: 9 #represents the number of tokens. Since we encode trajs as series of numbers [0-8] (note that these are 0-indexed, so correspond to 1-9), we have 9 tokens.
 #tokens: 50257
 
 # Training settings
 training:
-  batch_size: 100
+  batch_size: 32 
   accum: 1
-  n_iters: 1000001
+  n_iters: 100000
   snapshot_freq: 5000 #50000
   log_freq: 50
   eval_freq: 100
@@ -24,9 +24,10 @@ data:
   is_hugging: false 
   #train: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
   #valid: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
-  train: rrn
-  valid: rrn
+  train: satnet 
+  valid: satnet 
   cache_dir: data 
+  num_training_samples: 500 #or null to use all training samples 
 
 # Graph settings
 graph:
@@ -67,12 +68,12 @@ optim:
 model:
   name: small
   type: ddit
-  hidden_size: 1024 #768
+  hidden_size: 768 #1024 
   cond_dim: 128
   length: 81
   #length: 1024
-  n_blocks: 24 #12
-  n_heads: 16 #12
+  n_blocks: 12
+  n_heads: 12
   scale_by_sigma: true
   dropout: 0.1
 

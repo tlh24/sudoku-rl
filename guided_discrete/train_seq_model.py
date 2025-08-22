@@ -10,10 +10,9 @@ import warnings
 from trainer import get_trainer
 from omegaconf import OmegaConf
 import hydra 
-from utils import (flatten_config, convert_to_dict)
+from utils import (flatten_config, convert_to_dict, count_parameters)
 import wandb 
-from data_utils import get_dataloader
-
+from data_utils import get_protein_loaders, get_dataloader 
 
 
 @hydra.main(config_path="./configs", config_name="train_seq_model")
@@ -28,22 +27,28 @@ def main(config):
             config=log_config
         )
     pprint.PrettyPrinter(depth=4).pprint(convert_to_dict(config))
-    
-    #config.model.network.target_channels = len(config.target_cols)
+    if config.target_cols and len(config.target_cols) > 0:
+        raise NotImplementedError()
+        config.model.network.target_channels = len(config.target_cols)
     # this initializes a model (ex: MLMDiffusion model) based on the parameters in config
     model = hydra.utils.instantiate(config.model, _recursive_=False)
+    print(f"Number of params in the model: {count_parameters(model)}")
 
-    train_dl = get_dataloader(config, 'train')
-    valid_dl = get_dataloader(config, 'validation')
+    assert not config.is_eval, "Evaluation is_eval needs to be false in training mode"
+    if config.is_sudoku:
+        train_dl, valid_dl = get_dataloader(config, "train"), get_dataloader(config, "validation")
+    else:
+        train_dl, valid_dl = get_protein_loaders(config)
     
     trainer = get_trainer(config, len(train_dl))
-
-    trainer.fit(
-        model=model, 
-        train_dataloaders=train_dl,
-        val_dataloaders=valid_dl, 
-        ckpt_path=config.resume_ckpt
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        trainer.fit(
+            model=model, 
+            train_dataloaders=train_dl,
+            val_dataloaders=valid_dl, 
+            ckpt_path=config.resume_ckpt
+        )
 
 if __name__ == "__main__":
     main()

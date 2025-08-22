@@ -1,17 +1,19 @@
 # @package _global_
 model:
-  _target_: seq_models.mlm_diffusion.MLMDiffusion
+  _target_: guided_discrete.seq_models.mlm_diffusion.MLMDiffusion
 
   network:
-    _target_: seq_models.mlm_diffusion.MLMDiffusionTransformer
+    _target_: guided_discrete.seq_models.mlm_diffusion.MLMDiffusionTransformer
     vocab_size: ${vocab_size}
-    dropout: 0.0
-    bert_config_name: "prajjwal1/bert-small"
+    dropout: 0.0 #0.0
+    bert_config_name: prajjwal1/bert-small #hugging face bert name 
     discr_stop_grad: True
     target_channels: 0
+    num_hidden_layers: 4 #4 is MLM default for prajjwal1/bert-small  
+    num_attention_heads: null #null to use default, also can manually change 
 
   noise_schedule:
-    _target_: seq_models.noise_schedule.DiscreteCorruptionSchedule
+    _target_: guided_discrete.seq_models.noise_schedule.DiscreteCorruptionSchedule
     vocab_file: ${vocab_file}
     timesteps: 64
     noise_schedule: "cosine"
@@ -19,11 +21,9 @@ model:
 
   optimizer:
     _target_: torch.optim.AdamW
-    lr: 1e-3
-    #5e-4
-
+    lr: 1e-4 #5e-4
   lr_scheduler:
-    _target_: transformers.get_constant_schedule_with_warmup
-    #_target_:  transformers.get_linear_schedule_with_warmup
+    #_target_: transformers.get_constant_schedule_with_warmup
+    _target_:  transformers.get_linear_schedule_with_warmup # linearly increase lr during warmup period 
     num_warmup_steps: 10
-    #num_training_steps: ${max_epochs}
+    num_training_steps: 10000

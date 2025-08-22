@@ -1,0 +1,12 @@
+eval_ckpt: /home/justin/Desktop/Code/sudoku-rl/guided_discrete/logs/mlm_test/2024-10-17_12-20-19/models/best_by_valid_0/epoch=439-step=14080.ckpt #checkpoint file to evaluate
+num_eval_samples: 128 # number of samples to evaluate
+infill_dataset: satnet # dataset of initial puzzles to conditionally generate and evaluate 
+
+is_eval: True   
+return_best: False # determines whether to return the highest value scoring trajectory across all diffusion timesteps
+return_best_logits: False, #determines whether to return the highest value hidden among the guidance steps in guidance optimization loop 
+stability_coef: 0.01 # importance weight of the KL divergence between the initial logits and guided logits 
+add_guidance: False  
+num_guidance_steps: 25
+
+

@@ -16,7 +16,7 @@ def test_solving(
     vocab_file,
     exp_dir, 
     epoch,
-    guidance_kwargs=None
+    config=None
 ):
     '''
     Generate conditional samples and test solution accuracy
@@ -26,13 +26,13 @@ def test_solving(
 
 
     '''
+    model.eval()
     tokenizer = transformers.BertTokenizerFast(
         vocab_file=vocab_file,
         do_lower_case=False 
     )
     device = next(model.parameters()).device 
     puzzles = get_test_puzzles(infill_dataset, num_samples, device) #tensor of shape (num_samples, 81) values 0-8, -1 for incomplete
-
     solutions = []
 
     for i, puzzle in enumerate(puzzles):
@@ -58,7 +58,8 @@ def test_solving(
                 infill_mask = infill_mask, 
                 corrupt_mask = corrupt_mask, 
                 num_solutions_generate = num_solutions_generate,
-                guidance_kwargs = copy.deepcopy(guidance_kwargs)
+                tokenizer = tokenizer,
+                config = copy.deepcopy(config)
             )
             solution = [tokenizer.decode(s) for s in solution_tokens] #solution sequence in vocab chars 
             solution_ints = list(map(lambda x: -1 if x == "[MASK]" else int(x), solution))
@@ -66,8 +67,6 @@ def test_solving(
     
     solutions = np.array(solutions) #(num_samples, 81)
     # evaluate and log how good the samples are 
-    evaluate_samples(exp_dir, solutions, epoch)
+    solve_rate = evaluate_samples(exp_dir, solutions, epoch)
+    return solve_rate
 
-
-
-    

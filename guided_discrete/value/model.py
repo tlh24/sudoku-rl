@@ -15,6 +15,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import os 
+from guided_discrete.value.dataset import get_one_hot_dataset
 
 
 class TrainerConfig:
@@ -117,6 +118,29 @@ class Trainer:
 		print(f"Avg_eval_loss is {avg_eval_loss:.4f}")
 		self.logger.info(f"Avg_eval_loss is {avg_eval_loss:.4f}")
 		return avg_eval_loss
+
+	def evaluate_real(self):
+		'''
+		See whether the value function outputs higher score for boards that have less cells corrupted and lower score for boards with more cells corrupted
+			Returns the correlation between score and number of cells corrupted  
+		'''
+		constraint_dl = get_one_hot_dataset('larger_satnet', is_noisy=False, eps_low=None, eps_high=None, is_value=False, num_samples=1000, mode='test')
+		self.model.eval()
+		
+		num_constraints = [] 
+		value_score = []
+
+		with torch.no_grad():
+			for batch in constraint_dl:
+				x, y = batch
+				x, y = x.to(self.device), y 
+				x = x.unsqueeze(0).float()
+				value_prediction = self.model(x, None)
+				value_score.append(value_prediction.item())
+				num_constraints.append(y)
+		# return pearson correlation 
+		return np.corrcoef(np.array(num_constraints), np.array(value_score))[0,1]
+
 
 class GPTConfig:
 	""" base GPT config, params common to all GPT versions """
@@ -260,7 +284,6 @@ class GPT(nn.Module):
 		# compute losses
 		if targets is not None:
 			loss = nn.MSELoss()(value_hat, targets)
+			return loss 
 		else:
-			raise ValueError()
-
-		return loss
+			return value_hat

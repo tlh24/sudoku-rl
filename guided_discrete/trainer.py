@@ -2,13 +2,15 @@ import os
 import time 
 import torch 
 import wandb
+import numpy as np 
 
 import pytorch_lightning as pl 
 from pytorch_lightning.loggers import WandbLogger 
 from pytorch_lightning.callbacks import Callback 
+from pytorch_lightning.utilities import grad_norm 
 
 from guided_discrete.sample import test_solving 
-
+from collections import defaultdict
 class BaseModel(pl.LightningModule):
     def __init__(self):
         super().__init__()
@@ -60,6 +62,30 @@ class BaseModel(pl.LightningModule):
 
         return config 
 
+    def on_before_optimizer_step(self, optimizer):
+        
+        norms = self.get_gradient_norms()
+        self.log_dict(norms)
+
+    def get_gradient_norms(self):
+        '''
+        Returns a dictionary that contians all the layer norms and also 
+            the average of all the layers for each network (ex: LayerNorm vs cls vs embeddings vs encoder)
+        '''
+        norms = {}
+        network_norms = defaultdict(list)
+        for name, param in self.named_parameters():
+            if param.grad is None:
+                continue 
+            grad_norm_val = param.grad.norm().item()
+
+            network_name = name.split(".")[1]
+            network_norms[network_name].append(grad_norm_val)
+            norms[name] = param.grad.norm().item()
+        
+        for network_name in network_norms:
+            norms[f"{network_name}_avg"] = np.mean(network_norms[network_name])
+        return norms 
 class LossLoggingCallback(Callback):
     '''
     Write down train and val loss to text file 
@@ -121,25 +147,47 @@ class SampleEvaluationCallback(Callback):
 
 
 def get_trainer(config, num_train_batches):
-    os.makedirs(os.path.join(config.exp_dir, "models/best_by_valid"), exist_ok=True)
-    os.makedirs(os.path.join(config.exp_dir, "models/best_by_train"), exist_ok=True)
-    
+    '''
+    Returns a PL trainer for either evaluation or training mode 
+    '''
+            
+    if config.is_eval:
+        return pl.Trainer(
+            default_root_dir=config['exp_dir'],
+            devices=1,
+            enable_progress_bar=True,
+        )
+
+    # finds the save directory that it should save to 
+    sweep_iter = 0
+    while True:
+        save_valid_dir = os.path.join(config.exp_dir, f"models/best_by_valid_{sweep_iter}")
+        save_train_dir = os.path.join(config.exp_dir, f"models/best_by_train_{sweep_iter}")
+        if os.path.exists(save_train_dir):
+            sweep_iter += 1  
+        else:
+            os.makedirs(save_train_dir)
+            os.makedirs(save_valid_dir)
+            break 
+
     callbacks= [pl.callbacks.ModelCheckpoint(
             monitor='val_loss',
-            dirpath=os.path.join(config.exp_dir, "models/best_by_valid"),
+            dirpath=save_valid_dir,
             save_top_k=5,
             mode="min"
         ),
-         pl.callbacks.ModelCheckpoint(
+        pl.callbacks.ModelCheckpoint(
             monitor='train_loss',
-            dirpath=os.path.join(config.exp_dir, "models/best_by_train"),
+            dirpath=save_train_dir,
             save_top_k=5,
             mode="min"
         ),
         pl.callbacks.LearningRateMonitor(logging_interval='epoch'),
         LossLoggingCallback(config.exp_dir),
-        SampleEvaluationCallback(config)
         ]
+    if config.is_sudoku:
+        callbacks.append(SampleEvaluationCallback(config))
+        
 
     if config.use_wandb:
         logger = WandbLogger(project="guided_seq", dir=config['exp_dir'])
@@ -163,7 +211,9 @@ def get_trainer(config, num_train_batches):
         accelerator=accelerator,
         strategy=strategy,
         devices=config['ngpu'],
-        enable_progress_bar=True
+        enable_progress_bar=True,
+        #limit_train_batches=1, #OVERFIT TODO: delete
+        #limit_val_batches=1
     )
     return trainer 
 

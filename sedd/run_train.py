@@ -1,3 +1,4 @@
+'''Main training code with training and validation loop'''
 import datetime
 import os
 import os.path

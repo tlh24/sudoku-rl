@@ -1,9 +1,11 @@
+'''from sedd https://github.com/louaaron/Score-Entropy-Discrete-Diffusion'''
 import abc
 import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda.amp import custom_fwd, custom_bwd
+import pdb
 
 
 from catsample import sample_categorical
@@ -190,78 +192,84 @@ class Uniform(Graph):
 
 
 class Absorbing(Graph):
-    def __init__(self, dim):
-        super().__init__()
-        self._dim = dim
+	def __init__(self, dim):
+		super().__init__()
+		self._dim = dim
 
-    @property
-    def dim(self):
-        return self._dim + 1
-    
-    @property
-    def absorb(self):
-        return True
+	@property
+	def dim(self):
+		return self._dim + 1
+	
+	@property
+	def absorb(self):
+		return True
 
-    def rate(self, i):
-        # edge = - F.one_hot(i, num_classes=self.dim)
-        # edge.scatter_add_(-1, i[..., None], torch.ones_like(edge[..., :1]))
-        return F.one_hot((self.dim - 1) * torch.ones_like(i), num_classes=self.dim) - F.one_hot(i, num_classes=self.dim)        
+	def rate(self, i):
+		# edge = - F.one_hot(i, num_classes=self.dim)
+		# edge.scatter_add_(-1, i[..., None], torch.ones_like(edge[..., :1]))
+		return F.one_hot((self.dim - 1) * torch.ones_like(i), num_classes=self.dim) - F.one_hot(i, num_classes=self.dim)        
 
-    def transp_rate(self, i):
-        edge = -F.one_hot(i, num_classes=self.dim)
-        edge[i == self.dim - 1] += 1
-        return edge
+	def transp_rate(self, i):
+		edge = -F.one_hot(i, num_classes=self.dim)
+		edge[i == self.dim - 1] += 1
+		return edge
 
-    def transition(self, i, sigma):
-        pass
-    
-    def transp_transition(self, i, sigma):
-        sigma = unsqueeze_as(sigma, i[..., None])
-        edge = (-sigma).exp() * F.one_hot(i, num_classes=self.dim)
-        edge += torch.where(
-            i == self.dim - 1,
-            1 - (-sigma).squeeze(-1).exp(),
-            0
-        )[..., None]
-        return edge
+	def transition(self, i, sigma):
+		pass
+	
+	def transp_transition(self, i, sigma):
+		# sigma is [batch_size, 1]
+		# i is [batch_size, world_dim]
+		sigma = unsqueeze_as(sigma, i[..., None])
+		edge = (-sigma).exp() * F.one_hot(i, num_classes=self.dim)
+		# edge is [batch_size, world_dim, self.dim]
+		edge += torch.where(
+			i == self.dim - 1,
+			1 - (-sigma).squeeze(-1).exp(),
+			0 )[..., None]
+		# above replaces terminal entries (i == self.dim - 1) 
+		# with 1 - e^(-sigma) for non-terminal, 1 for terminal transition
+		# it does not change transitions where i is non-terminal; 
+		# those remain e^(-sigma) at i
+		return edge
 
-    def sample_transition(self, i, sigma):
-        move_chance = 1 - (-sigma).exp()
-        move_indices = torch.rand(*i.shape, device=i.device) < move_chance
-        i_pert = torch.where(move_indices, self.dim - 1, i)
-        return i_pert
-    
-    def staggered_score(self, score, dsigma):
-        score = score.clone() # yeah yeah whatever we should probably do this
-        extra_const = (1 - (dsigma).exp()) * score.sum(dim=-1)
-        score *= dsigma.exp()[:, None]
-        score[..., -1] += extra_const
-        return score
+	def sample_transition(self, i, sigma):
+		move_chance = 1 - (-sigma).exp()
+		move_indices = torch.rand(*i.shape, device=i.device) < move_chance
+		i_pert = torch.where(move_indices, self.dim - 1, i)
+		return i_pert
+	
+	def staggered_score(self, score, dsigma):
+		score_ = score.clone()
+		extra_const = (1 - (dsigma).exp()) * score.sum(dim=-1)
+		score_ *= dsigma.exp()[:, None] # scale the score
+		score_[..., -1] += extra_const # make score.sum(dum=-1) == 1
+		return score_
 
-    def sample_limit(self, *batch_dims):
-        return (self.dim - 1) * torch.ones(*batch_dims, dtype=torch.int64)
+	def sample_limit(self, *batch_dims):
+		return (self.dim - 1) * torch.ones(*batch_dims, dtype=torch.int64)
 
-    def score_entropy(self, score, sigma, x, x0):
-        rel_ind = x == self.dim - 1
-        esigm1 = torch.where(
-            sigma < 0.5,
-            torch.expm1(sigma),
-            torch.exp(sigma) - 1
-        )
+	def score_entropy(self, score, sigma, x, x0):
+		rel_ind = x == self.dim - 1
+		esigm1 = torch.where(
+			sigma < 0.5,
+			torch.expm1(sigma),
+			torch.exp(sigma) - 1
+		)
 
-        ratio = 1 / esigm1.expand_as(x)[rel_ind]
-        other_ind = x0[rel_ind]
+		ratio = 1 / esigm1.expand_as(x)[rel_ind]
+		other_ind = x0[rel_ind]
 
-        # negative_term
-        neg_term = ratio * torch.gather(score[rel_ind], -1, other_ind[..., None]).squeeze(-1)
+		# negative_term
+		neg_term = ratio * torch.gather(score[rel_ind], -1, other_ind[..., None]).squeeze(-1)
 
-        #positive term
-        pos_term = score[rel_ind][:, :-1].exp().sum(dim=-1)
+		#positive term
+		pos_term = score[rel_ind][:, :-1].exp().sum(dim=-1)
 
-        # constant term
-        const = ratio * (ratio.log() - 1)
+		# constant term
+		const = ratio * (ratio.log() - 1)
 
-        entropy = torch.zeros(*x.shape, device=x.device)
-        entropy[rel_ind] += pos_term - neg_term + const
-        return entropy
+		entropy = torch.zeros(*x.shape, device=x.device)
+		entropy[rel_ind] += pos_term - neg_term + const
+		return entropy
     

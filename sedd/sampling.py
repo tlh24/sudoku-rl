@@ -1,9 +1,14 @@
+'''from sedd https://github.com/louaaron/Score-Entropy-Discrete-Diffusion'''
+
 import abc
 import torch
 import torch.nn.functional as F
 from catsample import sample_categorical
+import numpy as np
 
 from model import utils as mutils
+import pdb
+from termcolor import colored
 
 _PREDICTORS = {}
 
@@ -83,6 +88,8 @@ class AnalyticPredictor(Predictor):
 
         stag_score = self.graph.staggered_score(score, dsigma)
         probs = stag_score * self.graph.transp_transition(x, dsigma)
+        # probs is not necessarily normalized
+        # but that's ok, sample_categorical is argmax
         return sample_categorical(probs)
 
     
@@ -120,30 +127,53 @@ def get_sampling_fn(config, graph, noise, batch_dims, eps, device):
     
 
 def get_pc_sampler(graph, noise, batch_dims, predictor, steps, denoise=True, eps=1e-5, device=torch.device('cpu'), proj_fun=lambda x: x):
-    predictor = get_predictor(predictor)(graph, noise)
-    projector = proj_fun
-    denoiser = Denoiser(graph, noise)
+	predictor = get_predictor(predictor)(graph, noise)
+	projector = proj_fun
+	denoiser = Denoiser(graph, noise)
 
-    @torch.no_grad()
-    def pc_sampler(model):
-        sampling_score_fn = mutils.get_score_fn(model, train=False, sampling=True)
-        x = graph.sample_limit(*batch_dims).to(device)
-        timesteps = torch.linspace(1, eps, steps + 1, device=device)
-        dt = (1 - eps) / steps
+	@torch.no_grad()
+	def pc_sampler(model):
+		sampling_score_fn = mutils.get_score_fn(model, train=False, sampling=True)
+		x = graph.sample_limit(*batch_dims).to(device)
+		timesteps = torch.linspace(1, eps, steps + 1, device=device)
+		dt = (1 - eps) / steps
+		prev_brd = np.zeros((9,9))
 
-        for i in range(steps):
-            t = timesteps[i] * torch.ones(x.shape[0], 1, device=device)
-            x = projector(x)
-            x = predictor.update_fn(sampling_score_fn, x, t, dt)
-            
+		for i in range(steps):
+			t = timesteps[i] * torch.ones(x.shape[0], 1, device=device)
+			x = projector(x) # in the case of sudoku, this fills in clues
+			x = predictor.update_fn(sampling_score_fn, x, t, dt)
+			
+			brd = x[0,:].detach().cpu().numpy()
+			brd = np.mod(brd+1,10) # 9 -> 0
+			print(f"timestep: {i}")
+			for j in range(81): 
+				print(brd[j], end="")
+			print("")
+			brd = brd.reshape((9,9))
+			for r in range(9): 
+				for c in range(9): 
+					b = (r // 3) * 3 + c // 3
+					if b % 2 == 1: 
+						color = 'red'
+					else:
+						color = 'black'
+					attrs = []
+					if prev_brd[r,c] != brd[r,c]: 
+						attrs.append("reverse")
+					print(colored(f"{brd[r,c]}", color, attrs=attrs), end=" ")
+				print("")
+			print("")
+			prev_brd = brd
+			
 
-        if denoise:
-            # denoising step
-            x = projector(x)
-            t = timesteps[-1] * torch.ones(x.shape[0], 1, device=device)
-            x = denoiser.update_fn(sampling_score_fn, x, t)
-            
-        return x
-    
-    return pc_sampler
+		if denoise:
+			# denoising step
+			x = projector(x)
+			t = timesteps[-1] * torch.ones(x.shape[0], 1, device=device)
+			x = denoiser.update_fn(sampling_score_fn, x, t)
+			
+		return x
+	
+	return pc_sampler
 

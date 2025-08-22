@@ -9,6 +9,7 @@ import os
 import argparse
 import sys
 import utils
+import glob
 # import sklearn
 
 # parser = argparse.ArgumentParser()
@@ -20,7 +21,7 @@ plot_cols = 1
 figsize = (24, 16)
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 90
+plt.rcParams['figure.dpi'] = 72
 
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
@@ -32,10 +33,11 @@ fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
 git_commit_hash = utils.getGitCommitHash()
 
-# parser = argparse.ArgumentParser(description="Plot a txt file of losses")
-# parser.add_argument('-f', type=str, default="./losslog.txt", help='which file to read')
-# parser.add_argument('-f2', type=str, default="", help='comparison file')
-# cmd_args = parser.parse_args()
+parser = argparse.ArgumentParser(description="Plot loss logs from files in a directory that match a pattern.")
+parser.add_argument('-d', '--directory', type=str, default=".", help='Directory to search for log files.')
+parser.add_argument('-p', '--pattern', type=str, default="losslog*.txt", help='Pattern to match for log files (e.g., "losslog*.txt").')
+parser.add_argument('--repl', type=int, default=1, help="how many replicates there are",)
+cmd_args = parser.parse_args()
 
 def slidingWindowR2(x, y, window_size, stride):
 	n = len(x)
@@ -57,15 +59,11 @@ if "DISPLAY" not in os.environ:
 	print("No X11 server detected, switching to non-interactive Agg backend")
 	matplotlib.use('Agg')  # Use non-interactive backend
 
-# Check if there are at least two arguments (besides the script name)
-if len(sys.argv) < 2:
-    file_names = ["losslog.txt"]
-else:
-	file_names = sys.argv[1:]  # Skip the script name
-
 # Define colors for plotting, use default if not enough colors are provided
-colors = ['k','tab:brown','r','tab:orange','y','g','c','b','tab:purple','tab:pink','tab:gray']  # Extendable list of colors
-color_cycle = colors * (len(file_names) // len(colors) + 1)  # Repeat colors 
+
+colors = ['b', 'r', 'k', 'g', 'm', 'c']  # Extendable list of colors
+replicate_colors = cmd_args.repl
+color_repeat = [color for color in colors for _ in range(replicate_colors)]
 
 # make a moving-average kernel
 window_size = 128
@@ -75,6 +73,18 @@ kernel = kernel / np.sum(kernel)
 cont = True
 while cont:
 	ax.cla()
+	# Find all files in the directory that match the specified pattern
+	search_path = os.path.join(cmd_args.directory, cmd_args.pattern)
+	file_names = sorted(glob.glob(search_path))
+	# file_names = sorted(file_names, key=os.path.getmtime)
+
+	if not file_names:
+		print(f"No files found in '{cmd_args.directory}' matching '{cmd_args.pattern}'")
+		time.sleep(2)
+		continue
+
+	# Create a color cycle that is long enough for the number of files found
+	color_cycle = color_repeat * (len(file_names) // len(color_repeat) + 1)
 	# Loop through each file and plot
 	for i, fname in enumerate(file_names):
 		try:
@@ -85,10 +95,10 @@ while cont:
 
 			# Plot the data in log scale for the second column
 			if len(data.shape) > 1 and data.shape[0] > 1:
-				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05)
+				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05, label=f"{os.path.basename(fname)} ({color_cycle[i]})")
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
 				if smoothed.shape[0] == data.shape[0]:
-					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1, label=f"{fname} ({color_cycle[i]})")
+					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=0.45)
 					
 
 		except FileNotFoundError:

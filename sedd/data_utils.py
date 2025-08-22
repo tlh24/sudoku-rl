@@ -1,3 +1,4 @@
+'''dataset and dataloaders'''
 import re 
 import numpy as np
 from pathlib import Path
@@ -14,6 +15,7 @@ import torch
 import pickle 
 import pandas as pd 
 import csv 
+import pdb
 
 
 
@@ -67,15 +69,19 @@ class LargerSatNet:
     Returns solved puzzles as a 1d array. Each element in the array is digit in [0-8], corresponding to
     digits in [1,9]
     '''
-    def __init__(self):
+    def __init__(self, ret_tensor=False):
         with open(os.path.join(home_dir, 'data', 'easy_130k_solved.p'), 'rb') as file:
             self.data = pickle.load(file)
+        self.ret_tensor = ret_tensor 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         item = self.data[idx].flatten() - 1 #subtract 1 so we are zero indexed, i.e elemenets in [0,8] 
         item = item.astype(int)
+        if self.ret_tensor:
+            return torch.from_numpy(item)
+        
         return item
 
 def read_rrn_csv(file_path):
@@ -112,13 +118,56 @@ class TensDataset:
         return self.tensor[idx] 
 
         
-        
+class SatNet_Shell:
+    '''
+    Takes in Sudoku_SATNet dataset and returns either the initial puzzle or the final solution
+    '''
+    def __init__(self, satnet_ds: Sudoku_SATNet, return_initial_puzzle:bool):
+        self.satnet_ds = satnet_ds
+        self.return_initial_puzzle = return_initial_puzzle
 
+    def __len__(self):
+        return len(self.satnet_ds)
+
+    def __getitem__(self, idx):
+        if self.return_initial_puzzle:
+            return self.satnet_ds[idx][0]
+
+        return self.satnet_ds[idx][1]
+
+class LargerSatNetInitial:
+    '''
+    Returns initial puzzles as a 1d array. Each element in the array is -1 if incomplete or digit in [0-8], corresponding to
+    digits in [1,9] 
+    '''
+    def __init__(self, ret_tensor=True):
+        self.ret_tensor = ret_tensor 
+        with open(os.path.join(home_dir, 'data', 'easy_130k_given.p'), 'rb') as file:
+            self.data = pickle.load(file)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx].flatten() - 1 #subtract 1 so we are zero indexed. 
+        item = item.astype(int)
+        if self.ret_tensor:
+            return torch.from_numpy(item)
+        
+        return item
+
+     
     
-def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, cache_dir=None, block_size=1024, num_proc=8):
+    
+def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, num_training_samples=None, cache_dir=None, block_size=1024, num_proc=8):
     '''
     Loads numpy dataset and returns a pytorch dataset
+
     dataset_path: (str) Should be filepath of numpy file that is of shape [num_samples, sample_length]
+    mode: (str) Determine whether to return 'train', 'validation', or 'test' data 
+    with_initial_puzzles: (bool) If true returns initial puzzle dataset, solution dataset. Else returns solution dataset 
+    num_training_samples: (int | None) If given, limits the training set to the first num samples 
+
     '''
     if dataset_path == 'wikitext2':
         dataset = load_dataset("wikitext", name='wikitext-2-raw-v1', cache_dir=cache_dir)
@@ -167,33 +216,68 @@ def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, cache_dir=N
         return chunked_dataset
 
     elif dataset_path == 'satnet':
-            dataset = Sudoku_SATNet()
-            indices = list(range(len(dataset)))
-            test_dataset = torch.utils.data.Subset(dataset, indices[-1000:])
-            val_dataset = torch.utils.data.Subset(dataset, indices[8000:-1000])
-            train_dataset = torch.utils.data.Subset(dataset, indices[:8000])
-            if mode == 'train':
-                return train_dataset
-            elif mode == 'validation':
-                return val_dataset
-            else:
-                return test_dataset
-    elif dataset_path == 'larger_satnet':
-        dataset = LargerSatNet()
-        indices = list(range(len(dataset)))
-        test_dataset = torch.utils.data.Subset(dataset, indices[int(0.9*len(dataset)):])
-        val_dataset = torch.utils.data.Subset(dataset, indices[int(0.8*len(dataset)):int(0.9*len(dataset))])
-        train_dataset = torch.utils.data.Subset(dataset, indices[:int(0.8*len(dataset))])
-     
+        satnet_dataset = Sudoku_SATNet()
+        satnet_inital_puzzles = SatNet_Shell(satnet_dataset, True)
+        satnet_solutions = SatNet_Shell(satnet_dataset, False)
+
+        indices = list(range(len(satnet_dataset)))
         if mode == 'train':
-            return train_dataset
-        elif mode == 'validation':
-            return val_dataset
+            if num_training_samples is not None:
+                end_idx = num_training_samples
+            else:
+                end_idx = 8000
+            assert end_idx <= 8000, "Training samples should be at most 8000"
+
+            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[:end_idx])
+            solutions = torch.utils.data.Subset(satnet_solutions, indices[:end_idx])
+        elif mode == "validation":
+            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[8000:-1000])
+            solutions = torch.utils.data.Subset(satnet_solutions, indices[8000:-1000])
         else:
-            return test_dataset    
+            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[-1000:])
+            solutions = torch.utils.data.Subset(satnet_solutions, indices[-1000:])
+
+        if with_initial_puzzles:
+            return initial_puzzles, solutions
+        return solutions
+        
+    elif dataset_path == 'larger_satnet':
+        if with_initial_puzzles:
+            all_puzzles = LargerSatNetInitial(ret_tensor=True) 
+        
+        all_solutions = LargerSatNet(ret_tensor=True)
+        assert len(all_solutions) == len(all_puzzles)
+        indices = list(range(len(all_solutions)))
+        if mode == "test":
+            solutions = torch.utils.data.Subset(all_solutions, indices[int(0.9*len(all_solutions)):])
+            puzzles = torch.utils.data.Subset(all_puzzles, indices[int(0.9*len(all_puzzles)):])
+        elif mode == "validation":
+            solutions = torch.utils.data.Subset(all_solutions, indices[int(0.8*len(all_solutions)):int(0.9*len(all_solutions))])
+            puzzles = torch.utils.data.Subset(all_puzzles, indices[int(0.8*len(all_puzzles)):int(0.9*len(all_puzzles))])
+        elif mode == "train":   
+            if num_training_samples is not None:
+                end_idx = num_training_samples
+            else:
+                end_idx = int(0.8*len(all_solutions))
+            assert num_training_samples <= int(0.8*len(all_solutions)), "Training samples should be at most 80% of dataset"
+            
+            solutions = torch.utils.data.Subset(all_solutions, indices[:end_idx])
+            puzzles = torch.utils.data.Subset(all_puzzles, indices[:end_idx])
+        else:
+            raise ValueError("Mode should be train, validation, test")
+
+        if with_initial_puzzles:
+            return puzzles, solutions 
+        return solutions         
+  
     elif dataset_path == 'rrn':
         if mode == "train":
             boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'train.csv'))
+            if num_training_samples is not None:
+                assert num_training_samples <= len(boards)
+                boards = boards[:num_training_samples]
+                solutions = boards[:num_training_samples]
+
         elif mode == "validation":
             boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'valid.csv'))
         elif mode == "test":
@@ -231,7 +315,7 @@ def get_dataloaders(config):
     if config['eval']['batch_size'] % (config['ngpus'] * config['training']['accum']) != 0:
         raise ValueError(f"Eval Batch Size for {config['eval']['batch_size']} is not divisible by {config['ngpus']} gpus with accumulation {config['training']['accum']}.")
 
-    train_set = get_dataset(config['data']['train'], "train")
+    train_set = get_dataset(config['data']['train'], "train", num_training_samples=config['data']['num_training_samples'])
     valid_set = get_dataset(config['data']['valid'], "validation")
 
     train_loader = cycle_loader(DataLoader(
