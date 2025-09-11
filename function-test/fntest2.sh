@@ -27,9 +27,9 @@ fi
 # Run the 4 commands in parallel
 echo "Launching 4 parallel runs..."
 python fntest2.py "${other_args[@]}" -u 0 -l "${base_label}-5" &
-python fntest2.py "${other_args[@]}" -u 1 -l "${base_label}-6" &
+python fntest2.py "${other_args[@]}" -u 0 -l "${base_label}-6" &
 python fntest2.py "${other_args[@]}" -u 0 -l "${base_label}-7" &
-python fntest2.py "${other_args[@]}" -u 1 -l "${base_label}-8" &
+python fntest2.py "${other_args[@]}" -u 0 -l "${base_label}-8" &
 
 # Wait for all background jobs launched by this script to finish
 echo "Waiting for runs to complete..."

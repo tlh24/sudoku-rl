@@ -18,7 +18,7 @@ import glob
 
 plot_rows = 1
 plot_cols = 1
-figsize = (24, 16)
+figsize = (12, 8)
 plt.ion()
 plt.rcParams['font.size'] = 18
 plt.rcParams['figure.dpi'] = 72

@@ -210,7 +210,7 @@ class ResidualAttentionBlock(nn.Module):
 		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
 		bb = torch.einsum('bsdh, bdhw -> bshw', ab, vb)
 				# eliminate over dest (the softmax dim)
-		b = bf # + bb
+		b = bf + bb
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (bs, ntok, self.d_model))
 		return b # residual sum later.
