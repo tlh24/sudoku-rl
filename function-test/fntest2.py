@@ -40,7 +40,7 @@ def genData(bs, span):
 	x = np.random.randn(bs, 49+3, gendata_dim)*1
 	# add offset noise: forces the points to be in a random loc, 
 	# but equidistant.
-	noiz = np.random.randn(bs, 2)*1.0
+	noiz = np.random.randn(bs, 2)*(span / 5.0)
 	x[:,:-3,-1] = np.mod(np.arange(49), 7) # position encoding
 	x[:,:-3,-1] = x[:,:-3,-1] + np.expand_dims(noiz[:,0], axis=1)
 	x[:,:-3,-2] = np.arange(49) // 7
