@@ -1,5 +1,19 @@
 #!/bin/bash
 
+python fntest2.py -c -u 0 -l l1-5-7_1_adam -a &
+python fntest2.py -c -u 1 -l l1-5-7_2_adam -a &
+python fntest2.py -c -u 1 -l l1-5-7_3_adam -a &
+python fntest2.py -c -u 0 -l dp-5-7_1_adam -a -d &
+python fntest2.py -c -u 0 -l dp-5-7_2_adam -a -d &
+python fntest2.py -c -u 1 -l dp-5-7_3_adam -a -d &
+
+# Wait for all background jobs launched by this script to finish
+echo "Waiting for runs to complete..."
+wait
+echo "All runs finished."
+
+exit 0
+
 # Find the base label and store other args
 base_label=""
 other_args=()
