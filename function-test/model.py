@@ -25,7 +25,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.wascl = nn.Parameter( torch.zeros( n_head ))
 
 		self.wqv = nn.Linear(d_model, 3*n_head*d_model, bias=True)
-		self.wqkv = nn.Linear(d_model, 4*n_head*d_model) 
+		self.wqkv = nn.Linear(d_model, 4*n_head*d_model, bias=True)
 		# self.initWeights(self.wqv) # use the default init
 		# # add in some identity
 		# with torch.no_grad():
