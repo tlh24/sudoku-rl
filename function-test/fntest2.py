@@ -101,7 +101,7 @@ if __name__ == '__main__':
 	indicator = cmd_args.i
 	
 	if cmd_args.t: 
-		x, y = genData(256, 6)
+		x, y = genData(256, 7)
 		pred = positiveControl(x)
 		print("positive control error:", np.sum( (y - pred)**2 ) )
 		batch_size = 1
