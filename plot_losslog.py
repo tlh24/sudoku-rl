@@ -8,7 +8,7 @@ import time
 import os
 import argparse
 import sys
-import utils
+# import utils
 import glob
 # import sklearn
 
@@ -31,7 +31,8 @@ current_directory = os.getcwd()
 base_dir = os.path.basename(current_directory)
 fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
-git_commit_hash = utils.getGitCommitHash()
+# git_commit_hash = utils.getGitCommitHash()
+git_commit_hash = ""
 
 parser = argparse.ArgumentParser(description="Plot loss logs from files in a directory that match a pattern.")
 parser.add_argument('-d', '--directory', type=str, default=".", help='Directory to search for log files.')

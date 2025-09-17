@@ -94,12 +94,12 @@ class ResidualAttentionBlock(nn.Module):
 		# 	# i think this is correct..
 		# a = (ad - ac)/10	 # idk...
 		if True:
-			# huber loss
+			# huber loss instead of straight L1
 			a = -1*a
 			delta = 0.2
 			aq = 0.5* a**2 # d/da = a, so = delta @ a=delta; a = 0.5*delta^2 @ delta
 			aa = delta*(a - 0.5*delta)# d/da = delta; a = 0.5*delta^2 @ delta
-			a = -1*torch.where(a < delta, aq, aa) # huber loss
+			a = -1*torch.where(a < delta, aq, aa)
 		
 		# # add a mask! 
 		if False:
