@@ -32,20 +32,20 @@ as opposed to fntest.py, this one is just a pointer op:
 	Position is linearly encoded.
 '''
 gendata_dim = 10
-indicator = 2
+indicator = 10
 
 def genData(bs, span): 
 	# create random data vectors:
 	# need 6 dims for inicators and position encoding
-	x = np.random.randn(bs, 48, gendata_dim)*1 # 32 tokens, 16 dims
+	x = np.random.randn(bs, 49+3, gendata_dim)*1
 	# add offset noise: forces the points to be in a random loc, 
 	# but equidistant.
-	noiz = np.random.randn(bs, 2)*1.0
-	x[:,:,-1] = np.mod(np.arange(48), 7) # position encoding
-	x[:,:,-1] = x[:,:,-1] + np.expand_dims(noiz[:,0], axis=1)
-	x[:,:,-2] = np.arange(48) // 7 
-	x[:,:,-2] = x[:,:,-2] + np.expand_dims(noiz[:,1], axis=1)
-	x[:, :,:4] = 0 # first 4 latent dims are zero
+	noiz = np.random.randn(bs, 2)*(span / 5.0)
+	x[:,:-3,-1] = np.mod(np.arange(49), 7) # position encoding
+	x[:,:-3,-1] = x[:,:-3,-1] + np.expand_dims(noiz[:,0], axis=1)
+	x[:,:-3,-2] = np.arange(49) // 7
+	x[:,:-3,-2] = x[:,:-3,-2] + np.expand_dims(noiz[:,1], axis=1)
+	x[:,:,:4] = 0 # first 4 latent dims are zero
 	x[:,-3:,:] = 0 # last 3 tokens zeroed : arg1 arg2 answer 
 
 	row = np.random.randint(0, span, size=bs)
@@ -61,7 +61,7 @@ def genData(bs, span):
 	# y[:,:-2] = x[:,-1,:-2] # TEST copy everything but the pointer loc
 	# x[:,:,-2:] = 0 # FIXME erase distractors
 	# x[:,-1,-2:] = y[:,-2:] # TEST copy the pointer, force memory access.
-	# print(y[0,:])
+	# print(y[0,:], i[0])
 	# plt.imshow(x[0,:,:])
 	# plt.show()
 	return x,y
@@ -189,7 +189,7 @@ if __name__ == '__main__':
 		
 	def test(uu): 
 		test_size = 32*2048
-		x,y = genData(test_size, 6)
+		x,y = genData(test_size, 7)
 		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.to(f"cuda:{cmd_args.u}")
