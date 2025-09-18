@@ -29,17 +29,18 @@ In particular: test the pointer op: access an addressed
 '''
 
 def genData(bs, span): 
-	assert(span < 32)
+	assert(span < 31)
 	indicator = 10
 	x = np.random.randn(bs, 32, 16)*1 # 32 tokens, 16 dims
-	x[:, :,0] = 0 # first latent dim is zero
+	x[:, :,:2] = 0 # first 2 latent dims are zero
 	x[:,-1,:] = 0 # last token zeroed / answer
 	x[:,-1,0] = indicator #  answer token.  model is very sensitive to this: larger works better. (why?)
 	x[:,:,-1] = np.arange(32) # position encoding
 
-	i = np.random.randint(0, span, size=bs)
+	i = np.random.randint(0, span, size=bs) + (32 - span)//2
 	y = x[np.arange(bs),i,:].copy()
-	x[:,-1,-1] = i # pointer address.
+	x[:,-1,1] = i # pointer address.
+	x[:,-1,-1] = 0 # position encoding.
 	return x,y
 	
 	
@@ -50,6 +51,7 @@ if __name__ == '__main__':
 	parser.add_argument('-a', action='store_true', help='use AdamW')
 	parser.add_argument('-v', action='store_true', help='validate only')
 	parser.add_argument('-d', action='store_true', help='dot product attention')
+	parser.add_argument('-l', type=str, default='', help='losslog label')
 	parser.add_argument('-t', action='store_true', help='test genData')
 	cmd_args = parser.parse_args()
 
@@ -66,7 +68,7 @@ if __name__ == '__main__':
 		plt.show()
 		exit()
 
-	model = Transformer(d_model=64, layers=1, repeat=1, n_head=1, gendata_dim=16)
+	model = Transformer(d_model=16, layers=1, repeat=1, n_head=1, gendata_dim=16)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
@@ -82,7 +84,7 @@ if __name__ == '__main__':
 	model = model.cuda()
 
 	if cmd_args.a: 
-		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True)
+		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True, weight_decay=0.0)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner= 0.01, momentum=0.9,\
@@ -90,19 +92,19 @@ if __name__ == '__main__':
 			exact_hessian_vector_product=False, \
 			rank_of_approximation=20, grad_clip_max_norm=5.0)
 	
-	fd_losslog = open('losslog.txt', 'w')
+	fd_losslog = open(f'losslog_{cmd_args.l}.txt', 'w')
 	
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
 	input_thread.start()
 	
 	def train(uu):
-		x,y = genData(16*2048, 12)
+		x,y = genData(16*2048, 16)
 		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
 		y = y.cuda()
 
-		for i in range(24*2000): # num iters
+		for i in range(15*2000): # num iters
 			indx = torch.randperm(x.shape[0])
 			indx = indx[:batch_size]
 			xx = x[indx,:,:]
@@ -110,14 +112,14 @@ if __name__ == '__main__':
 
 			if cmd_args.a: 
 				optimizer.zero_grad()
-				pred = model(xx, cmd_args.d)
+				pred = model(xx, cmd_args.d, doplot=False)
 				loss = torch.sum( (pred[:,-1,:] - target)**2 )
 				torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 				loss.backward()
 				optimizer.step()
 			else: 
 				def closure():
-					pred = model(xx, cmd_args.d)
+					pred = model(xx, cmd_args.d, doplot=False)
 					# only look at the last token
 					loss = torch.sum( (pred[:,-1,:] - target)**2 ) + \
 						sum( \
@@ -132,25 +134,26 @@ if __name__ == '__main__':
 				fd_losslog.flush()
 			uu += 1
 			if uu % 1000 == 0: 
-				torch.save(model.state_dict(), 'fntest.pt')
-				print(colored('saved model', 'blue'))
+				if not cmd_args.c:
+					torch.save(model.state_dict(), 'fntest.pt')
+					print(colored('saved model', 'blue'))
 			if utils.switch_to_validation:
 				break
 			
 		return uu
 		
 	def test(uu): 
-		x,y = genData(2048, 24)
+		x,y = genData(16*2048, 30)
 		x = torch.tensor(x).float()
 		y = torch.tensor(y).float()
 		x = x.cuda()
 		y = y.cuda()
 		
-		for i in range(2048 // batch_size):
+		for i in range(16*2048 // batch_size):
 			indx = torch.arange(i*batch_size, (i+1)*batch_size)
 			xx = x[indx,:,:]
 			target = y[indx]
-			pred = model(xx, cmd_args.d)
+			pred = model(xx, cmd_args.d, doplot=False)
 			loss = torch.sum( (pred[:,-1,:] - target)**2 )
 			lloss = loss.detach().cpu().item()
 			print('v',lloss)

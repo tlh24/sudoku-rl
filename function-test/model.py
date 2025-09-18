@@ -21,16 +21,22 @@ class ResidualAttentionBlock(nn.Module):
 
 		self.n_head = n_head
 		self.d_model = d_model
-		self.wk = nn.Parameter( torch.ones(n_head, d_model) )
+		self.wk = nn.Parameter( torch.ones(n_head, d_model)*10 )
 		self.wascl = nn.Parameter( torch.zeros( n_head ))
 
-		self.wqv = nn.Linear(d_model, 3*n_head*d_model, bias=True)
-		self.wqkv = nn.Linear(d_model, 4*n_head*d_model) 
-		# self.initWeights(self.wqv) # use the default init
-		# # add in some identity
-		# with torch.no_grad():
-		# 	for i in range(3):
-		# 		self.wqv.weight[i*d_model:(i+1)*d_model, :] += torch.eye(self.d_model, device=self.wqv.weight.device) * 0.01
+		self.wqkv = nn.Linear(d_model, 4*n_head*d_model, bias=False)
+		self.initWeights(self.wqkv) # use the default init
+		# add in some identity
+		with torch.no_grad():
+			for i in range(4):
+				self.wqkv.weight[i*d_model:(i+1)*d_model, :] = torch.eye(self.d_model, device=self.wqkv.weight.device)
+			self.wqkv.weight[3*d_model: 4*d_model, :] = 0 # vb = 0
+			# query is non-zero only at the address
+			self.wqkv.weight[0:d_model, :] = 0
+			self.wqkv.weight[15, 1] = 8.0
+			# key is only non-zero at the address
+			self.wqkv.weight[d_model:2*d_model, :] = 0
+			self.wqkv.weight[d_model+15, 15] = 8.0
 
 		self.fanin = nn.Linear(d_model, d_model)
 
@@ -60,13 +66,12 @@ class ResidualAttentionBlock(nn.Module):
 		# with torch.no_grad():
 		# 	self.means = 0.99 * self.means + 0.01 * torch.mean(x, dim=[0,1])
 		# 	x = x - self.means # removing the mean should have no effect.
-		v = self.wqv(x)
-		v = torch.reshape(v, (bs, ntok, 3*self.n_head, d_head))
-		q,vf,vb = torch.split(v, self.n_head, 2)
+		v = self.wqkv(x)
+		v = torch.reshape(v, (bs, ntok, 4*self.n_head, d_head))
+		q,k,vf,vb = torch.split(v, self.n_head, 2)
 
 		# per-axis gate k by wk, uniformly across tokens; different per head.
 		# this should be information-preserving.
-		k = x.unsqueeze(2).expand([-1,-1,self.n_head,-1])
 		wk = self.wk.unsqueeze(0).unsqueeze(0)
 		k = k * wk
 		q = q * wk # TEST test! definite improvement!
@@ -93,7 +98,7 @@ class ResidualAttentionBlock(nn.Module):
 		# 	torch.sum(torch.abs(kk), axis=3).unsqueeze(2).expand(bs,ntok,ntok,n_head) )
 		# 	# i think this is correct..
 		# a = (ad - ac)/10	 # idk...
-		if True:
+		if False:
 			# huber loss
 			a = -1*a
 			delta = 0.2
@@ -136,35 +141,6 @@ class ResidualAttentionBlock(nn.Module):
 				plt.show()
 
 		if doplot :
-			figs,axs = plt.subplots(2,2)
-			wq,wvf,wvb = torch.split(self.wqv.weight, d_head*n_head, 0)
-			im = axs[0,0].imshow(wq.cpu().detach().numpy())
-			plt.colorbar(im,ax=axs[0,0])
-			axs[0,0].set_title('WQ')
-			im = axs[0,1].imshow(wvf.cpu().detach().numpy())
-			plt.colorbar(im,ax=axs[0,1])
-			axs[0,1].set_title('WVF')
-			im = axs[1,0].imshow(wvb.cpu().detach().numpy())
-			plt.colorbar(im,ax=axs[1,0])
-			axs[1,0].set_title('WVB')
-			axs[1,1].plot(self.wk.T.squeeze().cpu().detach().numpy())
-			axs[1,1].set_title('WK')
-			plt.show()
-
-			figs,axs = plt.subplots(2,2)
-			axs[0,0].plot(q[0,-1,0,:].detach().cpu().numpy(), label='Q tok -1')
-			axs[0,0].plot(k[0,-2,0,:].detach().cpu().numpy(), label='K tok -2')
-			axs[0,0].legend()
-			axs[0,1].plot(q[0,-1,0,:].detach().cpu().numpy(), label='Q tok -1')
-			axs[0,1].plot(k[0,-3,0,:].detach().cpu().numpy(), label='K tok -3')
-			axs[0,1].legend()
-			axs[1,0].plot(q[0,-2,0,:].detach().cpu().numpy(), label='Q tok -2')
-			axs[1,0].plot(k[0,-1,0,:].detach().cpu().numpy(), label='K tok -1')
-			axs[1,0].legend()
-			axs[1,1].plot(q[0,-3,0,:].detach().cpu().numpy(), label='Q tok -3')
-			axs[1,1].plot(k[0,-1,0,:].detach().cpu().numpy(), label='K tok -1')
-			axs[1,1].legend()
-			plt.show()
 			# attention in the heads.
 			fig, axs = plt.subplots(3,n_head)
 			if n_head > 1:
@@ -190,10 +166,10 @@ class ResidualAttentionBlock(nn.Module):
 					axs[2,h].set_xlabel("dest")
 					axs[2,h].set_ylabel("src")
 			else:
-				a0 = a[20, :, :, 0].squeeze().cpu().detach().numpy()
-				im = axs.imshow(a0)
-				axs.set_title(f'attention head 0')
-				plt.colorbar(im,ax=axs)
+				a0 = af[20, :, :, 0].squeeze().cpu().detach().numpy()
+				im = axs[0].imshow(a0)
+				axs[0].set_title(f'attention head 0')
+				plt.colorbar(im,ax=axs[0])
 			plt.show()
 		# a = a - 0.5*torch.mean(a, dim=(1,2)).unsqueeze(1).unsqueeze(1) # makes very little difference, surprisingly: might be doing it wrong?
 
@@ -210,7 +186,7 @@ class ResidualAttentionBlock(nn.Module):
 		bf = torch.einsum('bsdh, bshw -> bdhw', af, vf)
 		bb = torch.einsum('bsdh, bdhw -> bshw', ab, vb)
 				# eliminate over dest (the softmax dim)
-		b = bf + bb
+		b = bb + bf
 		b = torch.sum(b, dim=2) # sum along the heads
 		b = torch.reshape(b, (bs, ntok, self.d_model))
 		return b # residual sum later.
@@ -241,9 +217,9 @@ class ResidualAttentionBlock(nn.Module):
 			y = self.attentionDP( self.rms_norm(x) )
 		else:
 			y = self.attention( x, layer, doplot )
-		y = self.gelu(y)
-		y = self.fanin(y) # allow sign inversions & mixing; no dim change
-		return x + y
+		# y = self.gelu(y)
+		# y = self.fanin(y) # allow sign inversions & mixing; no dim change
+		return y # x + y
 
 class Transformer(nn.Module):
 	def __init__(self, d_model:int, layers:int, repeat:int, n_head:int, gendata_dim:int):
@@ -255,7 +231,7 @@ class Transformer(nn.Module):
 		self.resblocks = nn.ModuleList(\
 			[ResidualAttentionBlock(d_model, n_head) \
 				for _ in range(layers)])
-		win = torch.cat( (torch.eye(gendata_dim), torch.zeros(d_model - gendata_dim, gendata_dim) ), dim=0)
+		# win = torch.cat( (torch.eye(gendata_dim), torch.zeros(d_model - gendata_dim, gendata_dim) ), dim=0)
 		# self.in_proj = nn.Parameter( win )
 		self.in_proj = nn.Linear(gendata_dim, d_model, bias=False)
 		self.out_proj = nn.Linear(d_model, gendata_dim, bias=True)
@@ -263,13 +239,14 @@ class Transformer(nn.Module):
 	def forward(self, x:torch.Tensor, use_dp:bool, doplot:bool):
 		# x is dtype int to interface with the embedding layer
 		bs,n_tok,inw = x.shape
-		x = self.in_proj(x)
+		# x = self.in_proj(x)
 		# x = torch.einsum("btg,dg->btd", x, self.in_proj)
-		# x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
+		x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
 		for i in range(self.repeat):
 			for j, layer in enumerate(self.resblocks):
 				x = layer(x, j, use_dp, doplot)
-		return self.out_proj(x)
+		# return self.out_proj(x)
+		return x
 
 	def fixedInit(self):
 		for layer in self.resblocks:
