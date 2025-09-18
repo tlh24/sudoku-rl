@@ -24,6 +24,7 @@ class ResidualAttentionBlock(nn.Module):
 		self.wk = nn.Parameter( torch.ones(n_head, d_model)*10 )
 		self.wascl = nn.Parameter( torch.zeros( n_head ))
 
+<<<<<<< HEAD
 		self.wqkv = nn.Linear(d_model, 4*n_head*d_model, bias=False)
 		self.initWeights(self.wqkv) # use the default init
 		# add in some identity
@@ -37,6 +38,15 @@ class ResidualAttentionBlock(nn.Module):
 			# key is only non-zero at the address
 			self.wqkv.weight[d_model:2*d_model, :] = 0
 			self.wqkv.weight[d_model+15, 15] = 8.0
+=======
+		self.wqv = nn.Linear(d_model, 3*n_head*d_model, bias=False)
+		self.wqkv = nn.Linear(d_model, 4*n_head*d_model, bias=False)
+		# self.initWeights(self.wqv) # use the default init
+		# # add in some identity
+		# with torch.no_grad():
+		# 	for i in range(3):
+		# 		self.wqv.weight[i*d_model:(i+1)*d_model, :] += torch.eye(self.d_model, device=self.wqv.weight.device) * 0.01
+>>>>>>> 7952f7071668afb26bb3eeb44298227890f6e428
 
 		self.fanin = nn.Linear(d_model, d_model)
 
@@ -99,12 +109,12 @@ class ResidualAttentionBlock(nn.Module):
 		# 	# i think this is correct..
 		# a = (ad - ac)/10	 # idk...
 		if False:
-			# huber loss
+			# huber loss instead of straight L1
 			a = -1*a
 			delta = 0.2
 			aq = 0.5* a**2 # d/da = a, so = delta @ a=delta; a = 0.5*delta^2 @ delta
 			aa = delta*(a - 0.5*delta)# d/da = delta; a = 0.5*delta^2 @ delta
-			a = -1*torch.where(a < delta, aq, aa) # huber loss
+			a = -1*torch.where(a < delta, aq, aa)
 		
 		# # add a mask! 
 		if False:

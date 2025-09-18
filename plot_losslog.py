@@ -8,7 +8,7 @@ import time
 import os
 import argparse
 import sys
-import utils
+# import utils
 import glob
 # import sklearn
 
@@ -21,7 +21,7 @@ plot_cols = 1
 figsize = (12, 8)
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 72
+plt.rcParams['figure.dpi'] = 110
 
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
@@ -31,7 +31,8 @@ current_directory = os.getcwd()
 base_dir = os.path.basename(current_directory)
 fig.canvas.manager.set_window_title(f'plot_losslog {base_dir}')
 
-git_commit_hash = utils.getGitCommitHash()
+# git_commit_hash = utils.getGitCommitHash()
+git_commit_hash = ""
 
 parser = argparse.ArgumentParser(description="Plot loss logs from files in a directory that match a pattern.")
 parser.add_argument('-d', '--directory', type=str, default=".", help='Directory to search for log files.')
@@ -60,8 +61,19 @@ if "DISPLAY" not in os.environ:
 	matplotlib.use('Agg')  # Use non-interactive backend
 
 # Define colors for plotting, use default if not enough colors are provided
-
-colors = ['b', 'r', 'k', 'g', 'm', 'c']  # Extendable list of colors
+colors = [
+    '#d62728',  # Brick Red
+    '#ff7f0e',  # Safety Orange
+    '#bcbd22',  # Tumeric Yellow-Green
+    '#2ca02c',  # Cooked Asparagus Green
+    '#17becf',  # Blue-Muted Cyan
+    '#1f77b4',  # Muted Blue
+    '#9467bd',  # Muted Purple
+    '#e377c2',  # Raspberry Pink
+    '#8c564b',  # Chestnut Brown
+    '#7f7f7f'   # Middle Gray
+] # gemini came up with this
+# colors = ['b', 'r', 'k', 'g', 'm', 'c']  # Extendable list of colors
 replicate_colors = cmd_args.repl
 color_repeat = [color for color in colors for _ in range(replicate_colors)]
 
@@ -95,10 +107,10 @@ while cont:
 
 			# Plot the data in log scale for the second column
 			if len(data.shape) > 1 and data.shape[0] > 1:
-				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05, label=f"{os.path.basename(fname)} ({color_cycle[i]})")
+				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05)
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
 				if smoothed.shape[0] == data.shape[0]:
-					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=0.45)
+					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1.0, label=f"{os.path.basename(fname)}", linewidth=2)
 					
 
 		except FileNotFoundError:
@@ -108,7 +120,11 @@ while cont:
 	# Add labels, title, and legend
 	ax.set(xlabel='iteration / batch #', ylabel='log loss')
 	ax.set_title(f'Log Loss Comparison {git_commit_hash}',fontsize=18)
-	ax.legend(fontsize=16)
+	leg = ax.legend(fontsize=16)
+
+	# Set the line width for each of the legend's lines
+	for line in leg.get_lines():
+		line.set_linewidth(8.0)
 
 	fig.tight_layout()
 	if matplotlib.get_backend() == 'Agg':
