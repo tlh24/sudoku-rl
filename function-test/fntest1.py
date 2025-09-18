@@ -68,7 +68,7 @@ if __name__ == '__main__':
 		plt.show()
 		exit()
 
-	model = Transformer(d_model=16, layers=1, repeat=1, n_head=1, gendata_dim=16)
+	model = Transformer(d_model=64, layers=1, repeat=1, n_head=1, gendata_dim=16)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
@@ -84,7 +84,7 @@ if __name__ == '__main__':
 	model = model.cuda()
 
 	if cmd_args.a: 
-		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True, weight_decay=0.0)
+		optimizer = optim.AdamW(model.parameters(), lr=2.5e-4, amsgrad=True, weight_decay=0.01)
 	else: 
 		optimizer = psgd.LRA(model.parameters(),\
 			lr_params=0.01,lr_preconditioner= 0.01, momentum=0.9,\

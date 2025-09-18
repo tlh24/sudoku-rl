@@ -24,29 +24,20 @@ class ResidualAttentionBlock(nn.Module):
 		self.wk = nn.Parameter( torch.ones(n_head, d_model)*10 )
 		self.wascl = nn.Parameter( torch.zeros( n_head ))
 
-<<<<<<< HEAD
 		self.wqkv = nn.Linear(d_model, 4*n_head*d_model, bias=False)
 		self.initWeights(self.wqkv) # use the default init
-		# add in some identity
-		with torch.no_grad():
-			for i in range(4):
-				self.wqkv.weight[i*d_model:(i+1)*d_model, :] = torch.eye(self.d_model, device=self.wqkv.weight.device)
-			self.wqkv.weight[3*d_model: 4*d_model, :] = 0 # vb = 0
-			# query is non-zero only at the address
-			self.wqkv.weight[0:d_model, :] = 0
-			self.wqkv.weight[15, 1] = 8.0
-			# key is only non-zero at the address
-			self.wqkv.weight[d_model:2*d_model, :] = 0
-			self.wqkv.weight[d_model+15, 15] = 8.0
-=======
-		self.wqv = nn.Linear(d_model, 3*n_head*d_model, bias=False)
-		self.wqkv = nn.Linear(d_model, 4*n_head*d_model, bias=False)
-		# self.initWeights(self.wqv) # use the default init
-		# # add in some identity
-		# with torch.no_grad():
-		# 	for i in range(3):
-		# 		self.wqv.weight[i*d_model:(i+1)*d_model, :] += torch.eye(self.d_model, device=self.wqv.weight.device) * 0.01
->>>>>>> 7952f7071668afb26bb3eeb44298227890f6e428
+		# fill in the network to work out of the box
+		if False:
+			with torch.no_grad():
+				for i in range(4):
+					self.wqkv.weight[i*d_model:(i+1)*d_model, :] = torch.eye(self.d_model, device=self.wqkv.weight.device)
+				self.wqkv.weight[3*d_model: 4*d_model, :] = 0 # vb = 0
+				# query is non-zero only at the address
+				self.wqkv.weight[0:d_model, :] = 0
+				self.wqkv.weight[15, 1] = 8.0
+				# key is only non-zero at the address
+				self.wqkv.weight[d_model:2*d_model, :] = 0
+				self.wqkv.weight[d_model+15, 15] = 8.0
 
 		self.fanin = nn.Linear(d_model, d_model)
 
@@ -229,7 +220,7 @@ class ResidualAttentionBlock(nn.Module):
 			y = self.attention( x, layer, doplot )
 		# y = self.gelu(y)
 		# y = self.fanin(y) # allow sign inversions & mixing; no dim change
-		return y # x + y
+		return x + y
 
 class Transformer(nn.Module):
 	def __init__(self, d_model:int, layers:int, repeat:int, n_head:int, gendata_dim:int):
@@ -249,13 +240,13 @@ class Transformer(nn.Module):
 	def forward(self, x:torch.Tensor, use_dp:bool, doplot:bool):
 		# x is dtype int to interface with the embedding layer
 		bs,n_tok,inw = x.shape
-		# x = self.in_proj(x)
+		x = self.in_proj(x)
 		# x = torch.einsum("btg,dg->btd", x, self.in_proj)
-		x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
+		# x = torch.cat((x, torch.zeros(bs, n_tok, self.d_model - inw, device=x.device)), axis=-1)
 		for i in range(self.repeat):
 			for j, layer in enumerate(self.resblocks):
 				x = layer(x, j, use_dp, doplot)
-		# return self.out_proj(x)
+		return self.out_proj(x)
 		return x
 
 	def fixedInit(self):
