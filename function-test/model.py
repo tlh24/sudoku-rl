@@ -215,7 +215,7 @@ class ResidualAttentionBlock(nn.Module):
 
 	def forward(self, x:torch.Tensor, layer:int, use_dp:bool, doplot:bool):
 		if use_dp:
-			y = self.attentionDP( self.rms_norm(x) )
+			y = self.attentionDP( self.rms_norm(x) ) #  FIXME
 		else:
 			y = self.attention( x, layer, doplot )
 		# y = self.gelu(y)
