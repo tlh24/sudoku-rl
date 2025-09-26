@@ -82,7 +82,7 @@ def genDataGraycode(bs, span):
 	x[:,-1,:] = 0 # last token zeroed / answer
 	x[:,-1,0] = indicator #  answer token.  model is very sensitive to this: larger works better. (why?)
 	for b in range(bs):
-		posenc = randomPosEnc(32, nbits, rand_phase=True)
+		posenc = graycodePosEnc(32, nbits, rand_phase=True)
 		x[b,:,-12:] = posenc # position encoding
 
 	i = np.random.randint(0, span, size=bs) + (32 - span)//2
@@ -150,7 +150,7 @@ if __name__ == '__main__':
 	if cmd_args.d:
 		prefix = "dp"
 	if cmd_args.graycode:
-		prefix += "_randPE"
+		prefix += "_gcPE"
 	prefix += f"_h{cmd_args.headslayers}l{cmd_args.headslayers}"
 	fd_losslog = open(f'losslog_{prefix}_{cmd_args.l}.txt', 'w')
 	
