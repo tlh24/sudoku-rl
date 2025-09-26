@@ -21,7 +21,7 @@ plot_cols = 1
 figsize = (12, 8)
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 110
+plt.rcParams['figure.dpi'] = 72
 
 fig, ax = plt.subplots(plot_rows, plot_cols, figsize=figsize)
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
@@ -110,7 +110,13 @@ while cont:
 				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05)
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
 				if smoothed.shape[0] == data.shape[0]:
-					ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1.0, label=f"{os.path.basename(fname)}", linewidth=2)
+					if fname.endswith('_0.txt'):
+						# Generate a label by removing the replicate number
+						label_name = os.path.basename(fname).replace('_0.txt', '')
+						ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1.0, label=label_name, linewidth=2)
+					else:
+						# For subsequent replicates, plot without a label
+						ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1.0, linewidth=2)
 					
 
 		except FileNotFoundError:
