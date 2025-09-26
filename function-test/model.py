@@ -39,7 +39,7 @@ class ResidualAttentionBlock(nn.Module):
 				self.wqkv.weight[d_model:2*d_model, :] = 0
 				self.wqkv.weight[d_model+15, 15] = 8.0
 
-		self.fanin = nn.Linear(d_model, d_model)
+		self.fanin = nn.Linear(d_model, d_model) # default has bias=True
 
 		self.l1a_f = l1attn_cuda.L1Attn()
 
@@ -215,11 +215,11 @@ class ResidualAttentionBlock(nn.Module):
 
 	def forward(self, x:torch.Tensor, layer:int, use_dp:bool, doplot:bool):
 		if use_dp:
-			y = self.attentionDP( self.rms_norm(x) ) #  FIXME
+			y = self.attentionDP( self.layer_norm(x) ) #  FIXME self.rms_norm(x)
 		else:
 			y = self.attention( x, layer, doplot )
-		# y = self.gelu(y)
-		# y = self.fanin(y) # allow sign inversions & mixing; no dim change
+		y = self.gelu(y)
+		y = self.fanin(y) # allow sign inversions & mixing; no dim change
 		return x + y
 
 class Transformer(nn.Module):

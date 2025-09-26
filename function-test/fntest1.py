@@ -43,7 +43,7 @@ def graycodePosEnc(ntok, nbits, rand_phase=False):
 		# [2][3] has a period of sqrt(4*8) = sqrt(32) = 4 sqrt(2)
 		# [4][5] period of 8..
 		# period = 4 * (math.sqrt(2.0))**i
-		#   above is slower - does not help?
+		#   above is slower frequency progression - does not help?
 		period = 4 * 2.0**i
 		if True:
 			# sinusoidal, seems to work better?
@@ -82,7 +82,7 @@ def genDataGraycode(bs, span):
 	x[:,-1,:] = 0 # last token zeroed / answer
 	x[:,-1,0] = indicator #  answer token.  model is very sensitive to this: larger works better. (why?)
 	for b in range(bs):
-		posenc = graycodePosEnc(32, nbits, rand_phase=True) # FIXME
+		posenc = randomPosEnc(32, nbits, rand_phase=True)
 		x[b,:,-12:] = posenc # position encoding
 
 	i = np.random.randint(0, span, size=bs) + (32 - span)//2
@@ -100,6 +100,7 @@ if __name__ == '__main__':
 	parser.add_argument('-l', type=str, default='', help='losslog label')
 	parser.add_argument('-t', action='store_true', help='test genData')
 	parser.add_argument('--graycode', action='store_true', help='use graycode pos enc')
+	parser.add_argument('--headslayers', type=int, default=1, help='number of heads and layers')
 	cmd_args = parser.parse_args()
 
 	batch_size = cmd_args.b
@@ -121,7 +122,7 @@ if __name__ == '__main__':
 	gendata_dim = 16
 	if cmd_args.graycode:
 		gendata_dim += 12
-	model = Transformer(d_model=64, layers=2, repeat=1, n_head=2, gendata_dim=gendata_dim)
+	model = Transformer(d_model=64, layers=cmd_args.headslayers, repeat=1, n_head=cmd_args.headslayers, gendata_dim=gendata_dim)
 	model.printParamCount()
 	if cmd_args.c: 
 		print(colored("not loading any model weights.", "blue"))
@@ -149,7 +150,8 @@ if __name__ == '__main__':
 	if cmd_args.d:
 		prefix = "dp"
 	if cmd_args.graycode:
-		prefix += "_gcPE"
+		prefix += "_randPE"
+	prefix += f"_h{cmd_args.headslayers}l{cmd_args.headslayers}"
 	fd_losslog = open(f'losslog_{prefix}_{cmd_args.l}.txt', 'w')
 	
 	input_thread = threading.Thread(target=utils.monitorInput, daemon=True)
