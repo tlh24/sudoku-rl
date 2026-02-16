@@ -10,6 +10,7 @@ import argparse
 import sys
 # import utils
 import glob
+import re
 # import sklearn
 
 # parser = argparse.ArgumentParser()
@@ -63,11 +64,11 @@ if "DISPLAY" not in os.environ:
 # Define colors for plotting, use default if not enough colors are provided
 colors = [
     '#d62728',  # Brick Red
+    '#1f77b4',  # Muted Blue
     '#ff7f0e',  # Safety Orange
     '#bcbd22',  # Tumeric Yellow-Green
     '#2ca02c',  # Cooked Asparagus Green
     '#17becf',  # Blue-Muted Cyan
-    '#1f77b4',  # Muted Blue
     '#9467bd',  # Muted Purple
     '#e377c2',  # Raspberry Pink
     '#8c564b',  # Chestnut Brown
@@ -82,13 +83,33 @@ window_size = 128
 kernel = 1-(np.cos(np.linspace(0, 2*3.1415926, window_size)))
 kernel = kernel / np.sum(kernel)
 
+try:
+	regex = re.compile(cmd_args.pattern)
+except re.error as e:
+	print(f"Invalid regex: {e}")
+	exit(1)
+
 cont = True
 while cont:
 	ax.cla()
-	# Find all files in the directory that match the specified pattern
-	search_path = os.path.join(cmd_args.directory, cmd_args.pattern)
-	file_names = sorted(glob.glob(search_path))
-	# file_names = sorted(file_names, key=os.path.getmtime)
+	file_names = []
+	try:
+		all_items = os.listdir(cmd_args.directory)
+	except FileNotFoundError:
+		print(f"Directory not found: {cmd_args.directory}")
+		all_items = []
+	matched_files = []
+	for item in all_items:
+		full_path = os.path.join(cmd_args.directory, item)
+		if os.path.isfile(full_path) and regex.search(item):
+			matched_files.append(full_path)
+	file_names = sorted(matched_files)
+
+
+	# # Find all files in the directory that match the specified pattern
+	# search_path = os.path.join(cmd_args.directory, cmd_args.pattern)
+	# file_names = sorted(glob.glob(search_path))
+	# # file_names = sorted(file_names, key=os.path.getmtime)
 
 	if not file_names:
 		print(f"No files found in '{cmd_args.directory}' matching '{cmd_args.pattern}'")
@@ -110,9 +131,9 @@ while cont:
 				ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05)
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
 				if smoothed.shape[0] == data.shape[0]:
-					if fname.endswith('_0.txt'):
+					if fname.endswith('_r1.txt'):
 						# Generate a label by removing the replicate number
-						label_name = os.path.basename(fname).replace('_0.txt', '')
+						label_name = os.path.basename(fname).replace('_r1.txt', '')
 						ax.plot(data[:, 0], np.log(smoothed), color_cycle[i], alpha=1.0, label=label_name, linewidth=2)
 					else:
 						# For subsequent replicates, plot without a label
