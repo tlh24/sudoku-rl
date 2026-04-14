@@ -145,6 +145,23 @@ board_strs.append( "060000100" +\
 		"200900000" +\
 		"000400600" )
 
+board_descs.append('''
+	25-clue puzzle no 1.
+	Requires several higher-order strategies to solve without
+	backtracking (forcing nets)
+	''')
+
+board_strs.append( "005089000" +\
+		"060057080" +\
+		"000600000" +\
+		"380000000" +\
+		"050003001" +\
+		"009800030" +\
+		"000040200" +\
+		"108700004" +\
+		"006500070" )
+
+
 for board_str, board_desc in zip(board_strs, board_descs):
 	board_int = [int(c) for c in board_str]
 	board = np.array(board_int).reshape(9,9)
