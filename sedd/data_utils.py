@@ -315,7 +315,7 @@ def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, num_trainin
 
 	elif dataset_path == 'sudoku-extreme':
 		if mode == "train":
-			boards, solutions = read_extreme_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'train_32k.csv'))
+			boards, solutions = read_extreme_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'train_320k.csv'))
 			if num_training_samples is not None:
 				assert num_training_samples <= len(boards)
 				boards = boards[:num_training_samples]
