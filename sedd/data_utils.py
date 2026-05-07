@@ -22,45 +22,45 @@ import pdb
 from torch.utils.data import DataLoader, Dataset
 
 def wt_detokenizer(string):
-    # contractions
-    string = string.replace("s '", "s'")
-    string = re.sub(r"/' [0-9]/", r"/'[0-9]/", string)
-    # number separators
-    string = string.replace(" @-@ ", "-")
-    string = string.replace(" @,@ ", ",")
-    string = string.replace(" @.@ ", ".")
-    # punctuation
-    string = string.replace(" : ", ": ")
-    string = string.replace(" ; ", "; ")
-    string = string.replace(" . ", ". ")
-    string = string.replace(" ! ", "! ")
-    string = string.replace(" ? ", "? ")
-    string = string.replace(" , ", ", ")
-    # double brackets
-    string = re.sub(r"\(\s*([^\)]*?)\s*\)", r"(\1)", string)
-    string = re.sub(r"\[\s*([^\]]*?)\s*\]", r"[\1]", string)
-    string = re.sub(r"{\s*([^}]*?)\s*}", r"{\1}", string)
-    string = re.sub(r"\"\s*([^\"]*?)\s*\"", r'"\1"', string)
-    string = re.sub(r"'\s*([^']*?)\s*'", r"'\1'", string)
-    # miscellaneous
-    string = string.replace("= = = =", "====")
-    string = string.replace("= = =", "===")
-    string = string.replace("= =", "==")
-    string = string.replace(" " + chr(176) + " ", chr(176))
-    string = string.replace(" \n", "\n")
-    string = string.replace("\n ", "\n")
-    string = string.replace(" N ", " 1 ")
-    string = string.replace(" 's", "'s")
-    return string
+	# contractions
+	string = string.replace("s '", "s'")
+	string = re.sub(r"/' [0-9]/", r"/'[0-9]/", string)
+	# number separators
+	string = string.replace(" @-@ ", "-")
+	string = string.replace(" @,@ ", ",")
+	string = string.replace(" @.@ ", ".")
+	# punctuation
+	string = string.replace(" : ", ": ")
+	string = string.replace(" ; ", "; ")
+	string = string.replace(" . ", ". ")
+	string = string.replace(" ! ", "! ")
+	string = string.replace(" ? ", "? ")
+	string = string.replace(" , ", ", ")
+	# double brackets
+	string = re.sub(r"\(\s*([^\)]*?)\s*\)", r"(\1)", string)
+	string = re.sub(r"\[\s*([^\]]*?)\s*\]", r"[\1]", string)
+	string = re.sub(r"{\s*([^}]*?)\s*}", r"{\1}", string)
+	string = re.sub(r"\"\s*([^\"]*?)\s*\"", r'"\1"', string)
+	string = re.sub(r"'\s*([^']*?)\s*'", r"'\1'", string)
+	# miscellaneous
+	string = string.replace("= = = =", "====")
+	string = string.replace("= = =", "===")
+	string = string.replace("= =", "==")
+	string = string.replace(" " + chr(176) + " ", chr(176))
+	string = string.replace(" \n", "\n")
+	string = string.replace("\n ", "\n")
+	string = string.replace(" N ", " 1 ")
+	string = string.replace(" 's", "'s")
+	return string
 
 
 
 def cycle_loader(dataloader, sampler=None):
-    while 1:
-        if sampler is not None:
-            sampler.set_epoch(np.random.randint(0, 100000))
-        for data in dataloader:
-            yield data
+	while 1:
+		if sampler is not None:
+			sampler.set_epoch(np.random.randint(0, 100000))
+		for data in dataloader:
+			yield data
 
 
 
@@ -85,26 +85,44 @@ class LargerSatNet:
         return item
 
 def read_rrn_csv(file_path):
-    '''
-    Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81) with empty cells and solutions
-    is (num_puzzles, 81) with no empty cells. Each sequence has values in [0,8] for filled digits and empty cells -100
-    '''
-    print("Reading %s..." % file_path)
-    with open(file_path) as f:
-        initial_puzzles, solutions = [], [] 
-        reader = csv.reader(f, delimiter=',')
-        for q,a in reader:
-            # convert to satnet format where empty cells have -100 and values in [0,8]
-            initial_board_digits = list(q)
-            initial_board_digits = [int(digit_char)-1 if digit_char != "0" else -100 for digit_char in initial_board_digits]
-            initial_puzzles.append(initial_board_digits)
-            
-            solution_digits = list(map(int, list(a)))
-            # convert to zero index
-            solution_digits = [digit-1 for digit in solution_digits]
-            solutions.append(solution_digits)
-        
-        return np.stack(initial_puzzles), np.stack(solutions)
+	'''
+	Given rrn file, returns boards, solutions where boards is numpy array (num_puzzles, 81) with empty cells and solutions
+	is (num_puzzles, 81) with no empty cells. Each sequence has values in [0,8] for filled digits and empty cells -100
+	'''
+	print("Reading %s..." % file_path)
+	with open(file_path) as f:
+		initial_puzzles, solutions = [], []
+		reader = csv.reader(f, delimiter=',')
+		for q,a in reader:
+			# convert to satnet format where empty cells have -100 and values in [0,8]
+			initial_board_digits = list(q)
+			initial_board_digits = [int(digit_char)-1 if digit_char != "0" else -100 for digit_char in initial_board_digits]
+			initial_puzzles.append(initial_board_digits)
+
+			solution_digits = list(map(int, list(a)))
+			# convert to zero index
+			solution_digits = [digit-1 for digit in solution_digits]
+			solutions.append(solution_digits)
+
+		return np.stack(initial_puzzles), np.stack(solutions)
+
+def read_extreme_csv(file_path):
+	print("Reading %s..." % file_path)
+	with open(file_path) as f:
+		initial_puzzles, solutions = [], []
+		reader = csv.reader(f, delimiter=',')
+		for _,q,a,_ in reader:
+			# convert to satnet format where empty cells have -100 and values in [0,8]
+			initial_board_digits = list(q)
+			initial_board_digits = [int(digit_char)-1 if digit_char != "." else -100 for digit_char in initial_board_digits]
+			initial_puzzles.append(initial_board_digits)
+
+			solution_digits = list(map(int, list(a)))
+			# convert to zero index
+			solution_digits = [digit-1 for digit in solution_digits]
+			solutions.append(solution_digits)
+
+		return np.stack(initial_puzzles), np.stack(solutions)
 
 class TensDataset:
     def __init__(self, tensor: torch.Tensor):
@@ -160,153 +178,179 @@ class LargerSatNetInitial:
     
     
 def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, num_training_samples=None, cache_dir=None, block_size=1024, num_proc=8):
-    '''
-    Loads numpy dataset and returns a pytorch dataset
+	'''
+	Loads numpy dataset and returns a pytorch dataset
 
-    dataset_path: (str) Should be filepath of numpy file that is of shape [num_samples, sample_length]
-    mode: (str) Determine whether to return 'train', 'validation', or 'test' data 
-    with_initial_puzzles: (bool) If true returns initial puzzle dataset, solution dataset. Else returns solution dataset 
-    num_training_samples: (int | None) If given, limits the training set to the first num samples 
+	dataset_path: (str) Should be filepath of numpy file that is of shape [num_samples, sample_length]
+	mode: (str) Determine whether to return 'train', 'validation', or 'test' data
+	with_initial_puzzles: (bool) If true returns initial puzzle dataset, solution dataset. Else returns solution dataset
+	num_training_samples: (int | None) If given, limits the training set to the first num samples
 
-    '''
-    if dataset_path == 'wikitext2':
-        dataset = load_dataset("wikitext", name='wikitext-2-raw-v1', cache_dir=cache_dir)
-        data = dataset[mode]
-        
-        detokenizer = wt_detokenizer 
+	'''
+	if dataset_path == 'wikitext2':
+		dataset = load_dataset("wikitext", name='wikitext-2-raw-v1', cache_dir=cache_dir)
+		data = dataset[mode]
 
-        def _apply_tokenizer(detokenizer):
-            def detok(text):
-                for i,t in enumerate(text, 0):
-                    text[i] = detokenizer(t)
-                return text 
-            return detok 
-        tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
-        EOS = tokenizer.encode(tokenizer.eos_token)[0]
+		detokenizer = wt_detokenizer
 
-        def preprocess_and_tokenize(example):
-            text = example["text"]
-            if detokenizer is not None:
-                text = _apply_tokenizer(detokenizer)(text)
-            
-            tokens = tokenizer(text, return_attention_mask=False)
-            for token in tokens['input_ids']:
-                token.append(EOS)
-            return tokens 
-        
-        tokenized_dataset = data.map(preprocess_and_tokenize, batched=True, num_proc=num_proc, load_from_cache_file=True)
-        tokenized_dataset = tokenized_dataset.remove_columns("text")
+		def _apply_tokenizer(detokenizer):
+			def detok(text):
+					for i,t in enumerate(text, 0):
+						text[i] = detokenizer(t)
+					return text
+			return detok
+		tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
+		EOS = tokenizer.encode(tokenizer.eos_token)[0]
 
-        def group_texts(examples):
-            # Concatenate all texts.
-            concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
-            total_length = len(concatenated_examples[list(examples.keys())[0]])
-            # We drop the small remainder, and if the total_length < block_size  we exclude this batch and return an empty dict.
-            # We could add padding if the model supported it instead of this drop, you can customize this part to your needs.
-            total_length = (total_length // block_size) * block_size
-            # Split by chunks of max_len.
-            result = {
-                k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
-                for k, t in concatenated_examples.items()
-            }
-            return result
+		def preprocess_and_tokenize(example):
+			text = example["text"]
+			if detokenizer is not None:
+					text = _apply_tokenizer(detokenizer)(text)
 
-        chunked_dataset = tokenized_dataset.map(group_texts, batched=True, num_proc=num_proc, load_from_cache_file=True)
-        chunked_dataset = chunked_dataset.with_format('torch')
-        return chunked_dataset
+			tokens = tokenizer(text, return_attention_mask=False)
+			for token in tokens['input_ids']:
+					token.append(EOS)
+			return tokens
 
-    elif dataset_path == 'satnet':
-        satnet_dataset = Sudoku_SATNet()
-        satnet_inital_puzzles = SatNet_Shell(satnet_dataset, True)
-        satnet_solutions = SatNet_Shell(satnet_dataset, False)
+		tokenized_dataset = data.map(preprocess_and_tokenize, batched=True, num_proc=num_proc, load_from_cache_file=True)
+		tokenized_dataset = tokenized_dataset.remove_columns("text")
 
-        indices = list(range(len(satnet_dataset)))
-        if mode == 'train':
-            if num_training_samples is not None:
-                end_idx = num_training_samples
-            else:
-                end_idx = 8000
-            assert end_idx <= 8000, "Training samples should be at most 8000"
+		def group_texts(examples):
+			# Concatenate all texts.
+			concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
+			total_length = len(concatenated_examples[list(examples.keys())[0]])
+			# We drop the small remainder, and if the total_length < block_size  we exclude this batch and return an empty dict.
+			# We could add padding if the model supported it instead of this drop, you can customize this part to your needs.
+			total_length = (total_length // block_size) * block_size
+			# Split by chunks of max_len.
+			result = {
+					k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
+					for k, t in concatenated_examples.items()
+			}
+			return result
 
-            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[:end_idx])
-            solutions = torch.utils.data.Subset(satnet_solutions, indices[:end_idx])
-        elif mode == "validation":
-            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[8000:-1000])
-            solutions = torch.utils.data.Subset(satnet_solutions, indices[8000:-1000])
-        else:
-            initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[-1000:])
-            solutions = torch.utils.data.Subset(satnet_solutions, indices[-1000:])
+		chunked_dataset = tokenized_dataset.map(group_texts, batched=True, num_proc=num_proc, load_from_cache_file=True)
+		chunked_dataset = chunked_dataset.with_format('torch')
+		return chunked_dataset
 
-        if with_initial_puzzles:
-            return initial_puzzles, solutions
-        return solutions
-        
-    elif dataset_path == 'larger_satnet':
-        if with_initial_puzzles:
-            all_puzzles = LargerSatNetInitial(ret_tensor=True) 
-        
-        all_solutions = LargerSatNet(ret_tensor=True)
-        assert len(all_solutions) == len(all_puzzles)
-        indices = list(range(len(all_solutions)))
-        if mode == "test":
-            solutions = torch.utils.data.Subset(all_solutions, indices[int(0.9*len(all_solutions)):])
-            puzzles = torch.utils.data.Subset(all_puzzles, indices[int(0.9*len(all_puzzles)):])
-        elif mode == "validation":
-            solutions = torch.utils.data.Subset(all_solutions, indices[int(0.8*len(all_solutions)):int(0.9*len(all_solutions))])
-            puzzles = torch.utils.data.Subset(all_puzzles, indices[int(0.8*len(all_puzzles)):int(0.9*len(all_puzzles))])
-        elif mode == "train":   
-            if num_training_samples is not None:
-                end_idx = num_training_samples
-            else:
-                end_idx = int(0.8*len(all_solutions))
-            assert num_training_samples <= int(0.8*len(all_solutions)), "Training samples should be at most 80% of dataset"
-            
-            solutions = torch.utils.data.Subset(all_solutions, indices[:end_idx])
-            puzzles = torch.utils.data.Subset(all_puzzles, indices[:end_idx])
-        else:
-            raise ValueError("Mode should be train, validation, test")
+	elif dataset_path == 'satnet':
+		satnet_dataset = Sudoku_SATNet()
+		satnet_inital_puzzles = SatNet_Shell(satnet_dataset, True)
+		satnet_solutions = SatNet_Shell(satnet_dataset, False)
 
-        if with_initial_puzzles:
-            return puzzles, solutions 
-        return solutions         
-  
-    elif dataset_path == 'rrn':
-        if mode == "train":
-            boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'train.csv'))
-            if num_training_samples is not None:
-                assert num_training_samples <= len(boards)
-                boards = boards[:num_training_samples]
-                solutions = boards[:num_training_samples]
+		indices = list(range(len(satnet_dataset)))
+		if mode == 'train':
+			if num_training_samples is not None:
+					end_idx = num_training_samples
+			else:
+					end_idx = 8000
+			assert end_idx <= 8000, "Training samples should be at most 8000"
 
-        elif mode == "validation":
-            boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'valid.csv'))
-        elif mode == "test":
-            boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'test.csv'))
-        else:
-            raise ValueError()
+			initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[:end_idx])
+			solutions = torch.utils.data.Subset(satnet_solutions, indices[:end_idx])
+		elif mode == "validation":
+			initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[8000:-1000])
+			solutions = torch.utils.data.Subset(satnet_solutions, indices[8000:-1000])
+		else:
+			initial_puzzles = torch.utils.data.Subset(satnet_inital_puzzles, indices[-1000:])
+			solutions = torch.utils.data.Subset(satnet_solutions, indices[-1000:])
 
-        boards_tens = torch.from_numpy(boards)
-        solutions_tens = torch.from_numpy(solutions)
-        if with_initial_puzzles:
-            board_ds = TensDataset(boards_tens)
-            solution_ds = TensDataset(solutions_tens)
-            return board_ds, solution_ds
-        
-        solution_ds = TensDataset(solutions_tens)
-        return solution_ds
-    else:
-        class SequenceDataset(Dataset):
-            def __init__(self, data):
-                self.data = data 
-            
-            def __len__(self):
-                return len(self.data)
-            
-            def __getitem__(self, idx):
-                return self.data[idx]
-        sequences_arr = np.load(dataset_path) #(num_samples, seq_len)
-        dataset = SequenceDataset(sequences_arr)
-        return dataset
+		if with_initial_puzzles:
+			return initial_puzzles, solutions
+		return solutions
+
+	elif dataset_path == 'larger_satnet':
+		if with_initial_puzzles:
+			all_puzzles = LargerSatNetInitial(ret_tensor=True)
+
+		all_solutions = LargerSatNet(ret_tensor=True)
+		assert len(all_solutions) == len(all_puzzles)
+		indices = list(range(len(all_solutions)))
+		if mode == "test":
+			solutions = torch.utils.data.Subset(all_solutions, indices[int(0.9*len(all_solutions)):])
+			puzzles = torch.utils.data.Subset(all_puzzles, indices[int(0.9*len(all_puzzles)):])
+		elif mode == "validation":
+			solutions = torch.utils.data.Subset(all_solutions, indices[int(0.8*len(all_solutions)):int(0.9*len(all_solutions))])
+			puzzles = torch.utils.data.Subset(all_puzzles, indices[int(0.8*len(all_puzzles)):int(0.9*len(all_puzzles))])
+		elif mode == "train":
+			if num_training_samples is not None:
+					end_idx = num_training_samples
+			else:
+					end_idx = int(0.8*len(all_solutions))
+			assert num_training_samples <= int(0.8*len(all_solutions)), "Training samples should be at most 80% of dataset"
+
+			solutions = torch.utils.data.Subset(all_solutions, indices[:end_idx])
+			puzzles = torch.utils.data.Subset(all_puzzles, indices[:end_idx])
+		else:
+			raise ValueError("Mode should be train, validation, test")
+
+		if with_initial_puzzles:
+			return puzzles, solutions
+		return solutions
+
+	elif dataset_path == 'rrn':
+		if mode == "train":
+			boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'train.csv'))
+			if num_training_samples is not None:
+					assert num_training_samples <= len(boards)
+					boards = boards[:num_training_samples]
+					solutions = solutions[:num_training_samples]
+
+		elif mode == "validation":
+			boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'valid.csv'))
+		elif mode == "test":
+			boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-hard', 'test.csv'))
+		else:
+			raise ValueError()
+
+		boards_tens = torch.from_numpy(boards)
+		solutions_tens = torch.from_numpy(solutions)
+		if with_initial_puzzles:
+			board_ds = TensDataset(boards_tens)
+			solution_ds = TensDataset(solutions_tens)
+			return board_ds, solution_ds
+
+		solution_ds = TensDataset(solutions_tens)
+		return solution_ds
+
+	elif dataset_path == 'sudoku-extreme':
+		if mode == "train":
+			boards, solutions = read_extreme_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'train_32k.csv'))
+			if num_training_samples is not None:
+				assert num_training_samples <= len(boards)
+				boards = boards[:num_training_samples]
+				solutions = solutions[:num_training_samples]
+
+		elif mode == "validation":
+			boards, solutions = read_extreme_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'test.csv')) # FIXME
+		elif mode == "test":
+			boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'test.csv'))
+		else:
+			raise ValueError()
+
+		boards_tens = torch.from_numpy(boards)
+		solutions_tens = torch.from_numpy(solutions)
+		if with_initial_puzzles:
+			board_ds = TensDataset(boards_tens)
+			solution_ds = TensDataset(solutions_tens)
+			return board_ds, solution_ds
+
+		solution_ds = TensDataset(solutions_tens)
+		return solution_ds
+
+	else:
+		class SequenceDataset(Dataset):
+			def __init__(self, data):
+					self.data = data
+
+			def __len__(self):
+					return len(self.data)
+
+			def __getitem__(self, idx):
+					return self.data[idx]
+		sequences_arr = np.load(dataset_path) #(num_samples, seq_len)
+		dataset = SequenceDataset(sequences_arr)
+		return dataset
 
 
 def get_dataloaders(config):

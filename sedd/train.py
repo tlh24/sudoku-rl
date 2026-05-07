@@ -10,19 +10,19 @@ import argparse
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 def main(cfg):
-    run_train._run(cfg)
-    
+	run_train._run(cfg)
+
 if __name__ == "__main__":
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, 'configs/normal_config.yaml')
-    with open(config_path, 'r') as file:
-        config = yaml.safe_load(file)
-        now = datetime.now()
+	script_dir = os.path.dirname(os.path.abspath(__file__))
+	config_path = os.path.join(script_dir, 'configs/normal_config.yaml')
+	with open(config_path, 'r') as file:
+		config = yaml.safe_load(file)
+		now = datetime.now()
 
-        # add working directory 
-        #work_dir = 'experiments/09-03-2024-14:45'
-        work_dir = os.path.join('experiments', now.strftime("%m-%d-%Y-%H:%M"))
-        if not os.path.exists(work_dir): os.makedirs(work_dir)
-        config['work_dir'] = work_dir
-        main(config)
+		# add working directory
+		#work_dir = 'experiments/09-03-2024-14:45'
+		work_dir = os.path.join('experiments', now.strftime("%m-%d-%Y-%H:%M"))
+		if not os.path.exists(work_dir): os.makedirs(work_dir)
+		config['work_dir'] = work_dir
+		main(config)

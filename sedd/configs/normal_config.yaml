@@ -24,8 +24,8 @@ data:
   is_hugging: false 
   #train: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
   #valid: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
-  train: satnet 
-  valid: satnet 
+  train: sudoku-extreme
+  valid: sudoku-extreme
   cache_dir: data 
   num_training_samples: 500 #or null to use all training samples 
 
@@ -68,12 +68,12 @@ optim:
 model:
   name: small
   type: ddit
-  hidden_size: 768 #1024 
+  hidden_size: 256 #1024
   cond_dim: 128
   length: 81
   #length: 1024
-  n_blocks: 12
-  n_heads: 12
+  n_blocks: 8
+  n_heads: 8
   scale_by_sigma: true
   dropout: 0.1
 
