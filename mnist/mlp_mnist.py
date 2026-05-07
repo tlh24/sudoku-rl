@@ -391,7 +391,7 @@ def main():
 	# Collect activations after training
 	final_activations, final_accuracy = evaluate(model, test_loader, device)
 	final_activations_permuted, _ = evaluate(model, test_loader, device, permute_pixels=True)
-	print(f"Final Test Accuracy: {final_accuracy:.2f}%")
+	print(f"{args.hidden} Final Test Accuracy: {final_accuracy:.2f}%")
 	plot_overlaid_histograms(
 		initial_activations, initial_activations_permuted,
 		final_activations, final_activations_permuted,
