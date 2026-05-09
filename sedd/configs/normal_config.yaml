@@ -10,7 +10,7 @@ training:
   n_iters: 5000000
   snapshot_freq: 50000 #50000
   log_freq: 50
-  eval_freq: 100
+  eval_freq: 500
   snapshot_freq_for_preemption: 10000
   weight: standard
   snapshot_sampling: true
@@ -24,8 +24,8 @@ data:
   is_hugging: false 
   #train: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy           #TODO: add the location to train
   #valid: ../data/sudoku_trajs/forward/action/10000_trajs_0.45_filled_yes_head.npy
-  train: sudoku-extreme
-  valid: sudoku-extreme
+  train: rrn # rrn, sudoku_extreme
+  valid: rrn
   cache_dir: data 
   num_training_samples: null #or null to use all training samples 
 

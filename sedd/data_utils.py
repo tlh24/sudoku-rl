@@ -324,7 +324,7 @@ def get_dataset(dataset_path: str, mode, with_initial_puzzles=False, num_trainin
 		elif mode == "validation":
 			boards, solutions = read_extreme_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'test.csv')) # FIXME
 		elif mode == "test":
-			boards, solutions = read_rrn_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'test.csv'))
+			boards, solutions = read_extreme_csv(os.path.join(home_dir, 'data', 'sudoku-extreme', 'test.csv'))
 		else:
 			raise ValueError()
 

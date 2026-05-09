@@ -16,25 +16,25 @@ def load_model_hf(dir, device):
 
 
 def load_model_local(root_dir, device, exp_dir='experiments/09-05-2024-13:15', checkpoint_num=None):
-    cfg = utils.load_config_from_run(root_dir)
-    graph = graph_lib.get_graph(cfg, device)
-    noise = noise_lib.get_noise(cfg).to(device)
-    score_model = SEDD(cfg).to(device)
-    ema = ExponentialMovingAverage(score_model.parameters(), decay=cfg.training.ema)
+	cfg = utils.load_config_from_run(root_dir)
+	graph = graph_lib.get_graph(cfg, device)
+	noise = noise_lib.get_noise(cfg).to(device)
+	score_model = SEDD(cfg).to(device)
+	ema = ExponentialMovingAverage(score_model.parameters(), decay=cfg.training.ema)
 
-    if checkpoint_num:
-        ckpt_dir = os.path.join(exp_dir, "checkpoints", f"checkpoint_{checkpoint_num}.pth")
-    else: 
-        ckpt_dir = os.path.join(exp_dir, "checkpoints-meta", "checkpoint.pth")
+	if checkpoint_num:
+		ckpt_dir = os.path.join(exp_dir, "checkpoints", f"checkpoint_{checkpoint_num}.pth")
+	else:
+		ckpt_dir = os.path.join(exp_dir, "checkpoints-meta", "checkpoint.pth")
 
-    loaded_state = torch.load(ckpt_dir, map_location=device)
+	loaded_state = torch.load(ckpt_dir, map_location=device, weights_only=False)
 
-    score_model.load_state_dict(loaded_state['model'])
-    ema.load_state_dict(loaded_state['ema'])
+	score_model.load_state_dict(loaded_state['model'])
+	ema.load_state_dict(loaded_state['ema'])
 
-    ema.store(score_model.parameters())
-    ema.copy_to(score_model.parameters())
-    return score_model, graph, noise
+	ema.store(score_model.parameters())
+	ema.copy_to(score_model.parameters())
+	return score_model, graph, noise
 
 
 def load_model(root_dir, device):

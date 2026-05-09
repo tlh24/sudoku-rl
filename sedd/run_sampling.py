@@ -41,6 +41,11 @@ def main(args):
 		puzzles_indices = np.random.choice(len(board_ds), args.num_to_eval, replace=False).tolist()
 		subset = Subset(board_ds, puzzles_indices) # (num_puzzles, 81)
 		puzzles = torch.stack([subset[i] for i in range(0, len(subset))]).to(device) 
+	elif args.dataset == "sudoku-extreme":
+		board_ds, solutions_ds = data.get_dataset(args.dataset, mode="test", with_initial_puzzles=True)
+		puzzles_indices = np.random.choice(len(board_ds), args.num_to_eval, replace=False).tolist()
+		subset = Subset(board_ds, puzzles_indices) # (num_puzzles, 81)
+		puzzles = torch.stack([subset[i] for i in range(0, len(subset))]).to(device)
 	else:
 		raise NotImplementedError()
 	
@@ -53,7 +58,6 @@ def main(args):
 		'''
 		infilled_x = torch.where(puzzles > -1, puzzles, x)
 		return infilled_x
-
 
 	sampling_fn = sampling.get_pc_sampler(
 		graph, noise, (args.num_to_eval, args.seq_len), 'analytic', args.steps, device=device, proj_fun=proj_fun)
@@ -93,15 +97,29 @@ def main(args):
 		file.write(f"Total boards correct: {num_valid}/{len(samples)}\n")
 
 
+def _latest_experiment():
+	import os, glob
+	dirs = glob.glob('experiments/*/')
+	return max(dirs, key=os.path.getmtime) if dirs else 'experiments/'
+
+def _latest_checkpoint(model_path):
+	import glob, re
+	ckpts = glob.glob(f'{model_path}checkpoints/checkpoint_*.pth')
+	if not ckpts:
+		return None
+	nums = [int(m.group(1)) for f in ckpts if (m := re.search(r'checkpoint_(\d+)\.pth', f))]
+	return max(nums) if nums else None
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", default='experiments/10-22-2024-15:05')
-    parser.add_argument("--checkpoint_num", type=int, required=True)
-    parser.add_argument("--dataset", type=str, default='rrn')
-    parser.add_argument("--num_to_eval", type=int, default=512) #number of puzzles to evaluate
-    parser.add_argument("--steps", type=int, default=1024)
-    parser.add_argument('--seq_len', type=int, default=81)
-    args = parser.parse_args()
-    main(args)
+	_default_path = _latest_experiment()
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--model_path", default=_default_path)
+	parser.add_argument("--checkpoint_num", type=int, default=_latest_checkpoint(_default_path))
+	parser.add_argument("--dataset", type=str, default='sudoku-extreme')
+	parser.add_argument("--num_to_eval", type=int, default=512) #number of puzzles to evaluate
+	parser.add_argument("--steps", type=int, default=1024)
+	parser.add_argument('--seq_len', type=int, default=81)
+	args = parser.parse_args()
+	main(args)
 
 
