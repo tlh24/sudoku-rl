@@ -179,7 +179,7 @@ while cont:
 
 			if len(data.shape) > 1 and data.shape[0] > 1:
 				# Track the raw plotted line
-				line_raw, = ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.05, visible=is_visible)
+				line_raw, = ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.07, visible=is_visible)
 				lines_by_label[label].append(line_raw)
 
 				smoothed = np.convolve(data[:, 1], kernel, mode='same')
