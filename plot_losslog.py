@@ -149,12 +149,14 @@ while cont:
 
 		try:
 			with open(fname) as f:
-				data = np.array(list(csv.reader(f, delimiter="\t")), dtype=float)
+				rows = list(csv.reader(f, delimiter="\t"))
+			if rows:
+				ncols = max(len(r) for r in rows)
+				rows = [r for r in rows if len(r) == ncols]
+			data = np.array(rows, dtype=float)
 
-			if len(data.shape) > 1 and data.shape[0] > 1:
-				# Track the raw plotted line
-				line_raw, = ax.plot(data[:, 0], np.log(data[:, 1]), color_cycle[i], alpha=0.07, visible=is_visible)
-				lines_by_label[label].append(line_raw)
+			if data.ndim < 2 or data.shape[0] < 2:
+				continue
 
 			xs = data[:, 0]
 
