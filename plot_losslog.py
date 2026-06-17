@@ -160,7 +160,7 @@ while cont:
 			ml = metric_visibility['loss']
 			line_raw, = ax.plot(xs, np.log(data[:, 1]), c, alpha=0.05, visible=lv and ml)
 			all_lines.append((line_raw, label, 'loss'))
-			smoothed = np.convolve(data[:, 1], kernel, mode='same')
+			smoothed = np.convolve(data[:, 1], kernel, mode='same')[:len(xs)]
 			kw = dict(color=c, alpha=1.0, linewidth=2, visible=lv and ml)
 			if is_r1:
 				line_sm, = ax.plot(xs, np.log(smoothed), label=label, **kw)
@@ -172,7 +172,7 @@ while cont:
 			mv = metric_visibility['top1']
 			line_top1_raw, = ax.plot(xs, np.log(data[:, 2]).clip(-12), c, alpha=0.05, visible=lv and mv)
 			all_lines.append((line_top1_raw, label, 'top1'))
-			smoothed_top1 = np.convolve(data[:, 2], kernel, mode='same')
+			smoothed_top1 = np.convolve(data[:, 2], kernel, mode='same')[:len(xs)]
 			line_top1_sm, = ax.plot(xs, np.log(smoothed_top1).clip(-12), c, alpha=1.0, linewidth=2, visible=lv and mv)
 			all_lines.append((line_top1_sm, label, 'top1'))
 
@@ -188,6 +188,8 @@ while cont:
 
 		except FileNotFoundError:
 			print(f"File {fname} not found. Skipping...")
+		except (ValueError, IndexError) as e:
+			print(f"Skipping {fname} (likely mid-write): {e}")
 
 	ax.set(xlabel='iteration / batch #', ylabel='log loss')
 	ax.set_title('Log Loss Comparison', fontsize=18)
