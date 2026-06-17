@@ -149,7 +149,11 @@ while cont:
 
 		try:
 			with open(fname) as f:
-				data = np.array(list(csv.reader(f, delimiter="\t")), dtype=float)
+				rows = list(csv.reader(f, delimiter="\t"))
+			if rows:
+				ncols = max(len(r) for r in rows)
+				rows = [r for r in rows if len(r) == ncols]
+			data = np.array(rows, dtype=float)
 
 			if data.ndim < 2 or data.shape[0] < 2:
 				continue
