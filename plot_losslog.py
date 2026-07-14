@@ -197,7 +197,7 @@ while cont:
 
 	ax.set(xlabel='iteration / batch #', ylabel='log loss')
 	ax.set_title('Log Loss Comparison', fontsize=18)
-	leg = ax.legend(fontsize=16)
+	leg = ax.legend(fontsize=16,loc='lower left')
 	for line in leg.get_lines():
 		line.set_linewidth(8.0)
 		line.set_alpha(1.0)
