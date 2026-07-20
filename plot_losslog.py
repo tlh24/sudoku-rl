@@ -13,7 +13,7 @@ csv.field_size_limit(sys.maxsize)
 
 plt.ion()
 plt.rcParams['font.size'] = 18
-plt.rcParams['figure.dpi'] = 72
+plt.rcParams['figure.dpi'] = 144
 
 fig, ax = plt.subplots(1, 1, figsize=(12, 8))
 ax.tick_params(axis='y', left=True, right=True, labelleft=True, labelright=True)
@@ -37,6 +37,8 @@ parser.add_argument('-p', '--pattern',   type=str, default="losslog*.txt")
 parser.add_argument('--repl',            type=int, default=1)
 parser.add_argument('--stats',           action='store_true', default=False,
                     help='plot mean ± 1 std across replicates instead of individual lines')
+parser.add_argument('--filter',          action='store_true', default=False,
+                    help='apply cosine-window smoothing to train loss and top1 error')
 cmd_args = parser.parse_args()
 
 visibility_state  = {}  # label -> bool
@@ -87,6 +89,8 @@ color_repeat = [c for c in colors for _ in range(replicate_colors)]
 window_size = 512
 kernel = 1 - np.cos(np.linspace(0, 2*3.1415926, window_size))
 kernel /= np.sum(kernel)
+
+_LOG_MIN = np.exp(-12)  # floor before log to avoid -inf / NaN gaps in plots
 
 try:
 	regex = re.compile(cmd_args.pattern)
@@ -184,20 +188,28 @@ while cont:
 				                label=label if first_label else None, visible=vis)
 				all_lines.append((line, label, metric_key))
 				fill = ax.fill_between(xs, mean - std, mean + std,
-				                       color=c, alpha=0.2, visible=vis)
+				                       color=c, alpha=0.2, linewidth=0, visible=vis)
 				all_lines.append((fill, label, metric_key))
 
-			_plot_stat(1, 'loss',
-			           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k]),
-			           first_label=True)
-			_plot_stat(2, 'top1',
-			           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k]).clip(-12),
-			           first_label=False)
+			if cmd_args.filter:
+				_plot_stat(1, 'loss',
+				           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k].clip(_LOG_MIN)),
+				           first_label=True)
+				_plot_stat(2, 'top1',
+				           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k].clip(_LOG_MIN)),
+				           first_label=False)
+			else:
+				_plot_stat(1, 'loss',
+				           lambda col: np.log(col.clip(_LOG_MIN)),
+				           first_label=True)
+				_plot_stat(2, 'top1',
+				           lambda col: np.log(col.clip(_LOG_MIN)),
+				           first_label=False)
 			_plot_stat(3, 'val_loss',
-			           lambda col: np.log(col),
+			           lambda col: np.log(col.clip(_LOG_MIN)),
 			           first_label=False)
 			_plot_stat(4, 'val_top1',
-			           lambda col: np.log(col).clip(-12),
+			           lambda col: np.log(col.clip(_LOG_MIN)),
 			           first_label=False)
 
 	else:
@@ -222,34 +234,42 @@ while cont:
 
 				xs = data[:, 0]
 
-				# Col 1: train loss — faint raw + smoothed solid
+				# Col 1: train loss
 				ml = metric_visibility['loss']
-				line_raw, = ax.plot(xs, np.log(data[:, 1]), c, alpha=0.05, visible=lv and ml)
-				all_lines.append((line_raw, label, 'loss'))
-				smoothed = np.convolve(data[:, 1], kernel, mode='same')[:len(xs)]
 				kw = dict(color=c, alpha=1.0, linewidth=2, visible=lv and ml)
-				if is_r1:
-					line_sm, = ax.plot(xs, np.log(smoothed), label=label, **kw)
+				if cmd_args.filter:
+					line_raw, = ax.plot(xs, np.log(data[:, 1].clip(_LOG_MIN)), c, alpha=0.05, visible=lv and ml)
+					all_lines.append((line_raw, label, 'loss'))
+					smoothed = np.convolve(data[:, 1], kernel, mode='same')[:len(xs)]
+					loss_y = np.log(smoothed.clip(_LOG_MIN))
 				else:
-					line_sm, = ax.plot(xs, np.log(smoothed), **kw)
+					loss_y = np.log(data[:, 1].clip(_LOG_MIN))
+				if is_r1:
+					line_sm, = ax.plot(xs, loss_y, label=label, **kw)
+				else:
+					line_sm, = ax.plot(xs, loss_y, **kw)
 				all_lines.append((line_sm, label, 'loss'))
 
-				# Col 2: top1 error — faint raw + smoothed solid (clipped to avoid -inf at 0)
+				# Col 2: top1 error
 				mv = metric_visibility['top1']
-				line_top1_raw, = ax.plot(xs, np.log(data[:, 2]).clip(-12), c, alpha=0.05, visible=lv and mv)
-				all_lines.append((line_top1_raw, label, 'top1'))
-				smoothed_top1 = np.convolve(data[:, 2], kernel, mode='same')[:len(xs)]
-				line_top1_sm, = ax.plot(xs, np.log(smoothed_top1).clip(-12), c, alpha=1.0, linewidth=2, visible=lv and mv)
+				if cmd_args.filter:
+					line_top1_raw, = ax.plot(xs, np.log(data[:, 2].clip(_LOG_MIN)), c, alpha=0.05, visible=lv and mv)
+					all_lines.append((line_top1_raw, label, 'top1'))
+					smoothed_top1 = np.convolve(data[:, 2], kernel, mode='same')[:len(xs)]
+					top1_y = np.log(smoothed_top1.clip(_LOG_MIN))
+				else:
+					top1_y = np.log(data[:, 2].clip(_LOG_MIN))
+				line_top1_sm, = ax.plot(xs, top1_y, c, alpha=1.0, linewidth=2, visible=lv and mv)
 				all_lines.append((line_top1_sm, label, 'top1'))
 
 				# Col 3: val loss — dashed, no smoothing
 				mv = metric_visibility['val_loss']
-				line_vl, = ax.plot(xs, np.log(data[:, 3]), c, alpha=0.7, linewidth=2, visible=lv and mv)
+				line_vl, = ax.plot(xs, np.log(data[:, 3].clip(_LOG_MIN)), c, alpha=0.7, linewidth=2, visible=lv and mv)
 				all_lines.append((line_vl, label, 'val_loss'))
 
 				# Col 4: val top1 error — dashed, no smoothing
 				mv = metric_visibility['val_top1']
-				line_vt, = ax.plot(xs, np.log(data[:, 4]).clip(-12), c, alpha=0.7, linewidth=2, visible=lv and mv)
+				line_vt, = ax.plot(xs, np.log(data[:, 4].clip(_LOG_MIN)), c, alpha=0.7, linewidth=2, visible=lv and mv)
 				all_lines.append((line_vt, label, 'val_top1'))
 
 			except FileNotFoundError:
