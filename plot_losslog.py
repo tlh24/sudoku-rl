@@ -31,26 +31,44 @@ else:
 current_directory = os.getcwd()
 fig.canvas.manager.set_window_title(f'plot_losslog {os.path.basename(current_directory)}')
 
+# Terminate the script when the plot window is closed.
+window_open = True
+def _on_close(event):
+	global window_open
+	window_open = False
+fig.canvas.mpl_connect('close_event', _on_close)
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-d', '--directory', type=str, default=".")
-parser.add_argument('-p', '--pattern',   type=str, default="losslog*.txt")
-parser.add_argument('--repl',            type=int, default=1)
-parser.add_argument('--stats',           action='store_true', default=False,
-                    help='plot mean ± 1 std across replicates instead of individual lines')
-parser.add_argument('--filter',          action='store_true', default=False,
-                    help='apply cosine-window smoothing to train loss and top1 error')
+parser.add_argument('-p', '--pattern', type=str, default="losslog*.txt")
+parser.add_argument('--repl', type=int, default=1)
+parser.add_argument('--stats', action='store_true',
+						default=False,
+						help='plot mean ± 1 std across replicates instead of individual lines')
+parser.add_argument('--smooth', type=int, default=512,
+						help='convolutional smoothing window width (2 or less turns smoothing off)')
+parser.add_argument('--compare', type=str, default=None,
+						help='space-separated config tokens (e.g. "hg_ g_"): files identical '
+						     'except for these tokens are paired in one color, first token '
+						     'solid, the rest dashed')
 cmd_args = parser.parse_args()
 
-visibility_state  = {}  # label -> bool
-metric_visibility = {'loss': True, 'top1': True, 'val_loss': True, 'val_top1': True}
+# Tokens that distinguish otherwise-identical configs (binary/N-ary variate).
+compare_tokens = cmd_args.compare.split() if cmd_args.compare else []
+# Linestyle per compare token: first solid, then dashed, dotted, dash-dot.
+COMPARE_STYLES = ['-', '--', ':', '-.']
 
-METRIC_LABELS = ['Train Loss', 'Top1 Error', 'Val Loss', 'Val Top1 Error']
-METRIC_KEYS   = ['loss',       'top1',       'val_loss', 'val_top1']
+visibility_state  = {}  # label -> bool
+metric_visibility = {'loss': True, 'top1': False}
+
+METRIC_LABELS = ['Loss', 'Top1 Error']
+METRIC_KEYS   = ['loss', 'top1']
 
 known_labels = []
 all_lines    = []   # (line, label, metric_key)
 check_widget = None
 check_metric_widget = None
+check_groups = {}   # checkbox display key -> [labels it controls]
 
 def get_base_label(fname):
 	base  = os.path.basename(fname)
@@ -66,8 +84,13 @@ def update_all_visibility():
 		line.set_visible(visibility_state.get(label, True) and metric_visibility.get(metric, True))
 	fig.canvas.draw_idle()
 
-def toggle_visibility(label):
-	visibility_state[label] = not visibility_state[label]
+def toggle_visibility(display_key):
+	# In compare mode a checkbox controls a whole group (e.g. both hg_ and g_);
+	# otherwise it controls a single label.
+	labels = check_groups.get(display_key, [display_key])
+	new_state = not visibility_state.get(labels[0], True)
+	for l in labels:
+		visibility_state[l] = new_state
 	update_all_visibility()
 
 def toggle_metric(display_label):
@@ -79,16 +102,65 @@ if "DISPLAY" not in os.environ:
 	print("No X11 server detected, switching to non-interactive Agg backend")
 	matplotlib.use('Agg')
 
-colors = [
-	'#d62728', '#1f77b4', '#ff7f0e', '#bcbd22', '#2ca02c',
-	'#17becf', '#9467bd', '#e377c2', '#8c564b', '#7f7f7f'
-]
-replicate_colors = cmd_args.repl
-color_repeat = [c for c in colors for _ in range(replicate_colors)]
+# --- Discrete, baked-in color choices (kept in case we want to revert) ---
+# colors = [
+# 	'#d62728', '#1f77b4', '#ff7f0e', '#bcbd22', '#2ca02c',
+# 	'#17becf', '#9467bd', '#e377c2', '#8c564b', '#7f7f7f'
+# ]
+# replicate_colors = cmd_args.repl
+# color_repeat = [c for c in colors for _ in range(replicate_colors)]
 
-window_size = 512
-kernel = 1 - np.cos(np.linspace(0, 2*3.1415926, window_size))
-kernel /= np.sum(kernel)
+def hamming(a, b):
+	"""Hamming distance between two strings, right-padded to equal length."""
+	n = max(len(a), len(b))
+	a = a.ljust(n); b = b.ljust(n)
+	return sum(c1 != c2 for c1, c2 in zip(a, b))
+
+def order_by_hamming(labels):
+	"""Greedy nearest-neighbour (topological) ordering by Hamming distance,
+	so that similar labels sit adjacent in the legend and colormap."""
+	remaining = sorted(labels)          # deterministic start point
+	if not remaining:
+		return []
+	order = [remaining.pop(0)]
+	while remaining:
+		last = order[-1]
+		nxt = min(remaining, key=lambda l: (hamming(last, l), l))
+		order.append(nxt); remaining.remove(nxt)
+	return order
+
+# Continuous colormap for the lines. JET (kept below in case we want it back)
+# reads poorly on white: its yellow/cyan bands nearly disappear. A truncated,
+# perceptually-uniform map keeps lines legible and colorblind-friendly.
+# Alternatives to try: 'plasma', 'turbo', 'cividis'.
+LINE_CMAP     = 'turbo'
+CMAP_RANGE    = (0.0, 1.0)   # drop the light-yellow top end so lines stay visible on white
+# LINE_CMAP   = 'jet'         # original choice
+# CMAP_RANGE  = (0.0, 1.0)
+
+def split_compare(label):
+	"""Return (base_key, token_index) for the compare token found in `label`,
+	or (label, None) if none match. Longer tokens are tried first so that,
+	e.g., 'hg_' wins over the 'g_' it contains as a substring."""
+	for tok in sorted(compare_tokens, key=len, reverse=True):
+		if tok in label:
+			return label.replace(tok, '', 1), compare_tokens.index(tok)
+	return label, None
+
+def make_label_colors(ordered_labels):
+	"""Continuous colors spread across the (Hamming-ordered) label set."""
+	n    = len(ordered_labels)
+	cmap = plt.get_cmap(LINE_CMAP)
+	lo, hi = CMAP_RANGE
+	return {l: cmap(lo + (hi - lo) * (i / (n - 1) if n > 1 else 0.5))
+	        for i, l in enumerate(ordered_labels)}
+
+window_size = cmd_args.smooth
+if window_size <= 2:
+	kernel = np.array([1.0])  # identity: convolution leaves data unchanged
+else:
+	kernel = 1 - np.cos(np.linspace(0, 2*3.1415926, window_size))
+	kernel /= np.sum(kernel)
 
 _LOG_MIN = np.exp(-12)  # floor before log to avoid -inf / NaN gaps in plots
 
@@ -98,7 +170,7 @@ except re.error as e:
 	print(f"Invalid regex: {e}"); exit(1)
 
 cont = True
-while cont:
+while cont and window_open:
 	try:
 		all_items = os.listdir(cmd_args.directory)
 	except FileNotFoundError:
@@ -113,7 +185,9 @@ while cont:
 	if not file_names:
 		print(f"No files found in '{cmd_args.directory}' matching '{cmd_args.pattern}'")
 		if matplotlib.get_backend() != 'Agg':
-			for _ in range(20): fig.canvas.flush_events(); time.sleep(0.1)
+			for _ in range(20):
+				if not window_open: break
+				fig.canvas.flush_events(); time.sleep(0.1)
 		else:
 			time.sleep(2)
 		continue
@@ -125,12 +199,55 @@ while cont:
 			current_labels.append(label)
 			visibility_state.setdefault(label, True)
 
+	# Order labels by Hamming distance (topological sort) and assign
+	# continuous colors in that order.
+	current_labels = order_by_hamming(current_labels)
+
+	if compare_tokens:
+		# Pair labels that are identical except for the compare token: each
+		# pair shares a color (from the Hamming-ordered base keys) and is
+		# distinguished by linestyle. Labels matching no token fall back to
+		# their own color + solid line (partner may not exist yet — realtime).
+		base_of = {l: split_compare(l) for l in current_labels}   # l -> (base, idx)
+		bases   = []
+		for l in current_labels:
+			b = base_of[l][0]
+			if b not in bases:
+				bases.append(b)
+		bases       = order_by_hamming(bases)
+		base_color  = make_label_colors(bases)
+		label_color = {l: base_color[base_of[l][0]] for l in current_labels}
+		label_style = {l: (COMPARE_STYLES[base_of[l][1] % len(COMPARE_STYLES)]
+		                   if base_of[l][1] is not None else '-')
+		               for l in current_labels}
+		# Reorder so paired variants sit together, following base Hamming order.
+		base_rank = {b: i for i, b in enumerate(bases)}
+		current_labels = sorted(
+			current_labels,
+			key=lambda l: (base_rank[base_of[l][0]],
+			               base_of[l][1] if base_of[l][1] is not None else -1))
+	else:
+		label_color = make_label_colors(current_labels)
+		label_style = {l: '-' for l in current_labels}
+
 	# Rebuild source-file checkboxes when label set changes
 	if ax_check is not None and set(current_labels) != set(known_labels):
 		known_labels = current_labels.copy()
+		# In compare mode, tie all variants of a base key to one checkbox;
+		# otherwise one checkbox per label. current_labels is already grouped
+		# so variants stay adjacent and keys follow the Hamming ordering.
+		check_groups = {}
+		if compare_tokens:
+			for l in current_labels:
+				check_groups.setdefault(split_compare(l)[0], []).append(l)
+		else:
+			for l in current_labels:
+				check_groups[l] = [l]
+		display_keys = list(check_groups.keys())
 		ax_check.clear(); ax_check.set_axis_off()
 		with plt.rc_context({'font.size': 16}):
-			check_widget = CheckButtons(ax_check, known_labels, [visibility_state[l] for l in known_labels])
+			check_widget = CheckButtons(ax_check, display_keys,
+				[visibility_state.get(check_groups[k][0], True) for k in display_keys])
 		check_widget.on_clicked(toggle_visibility)
 		for t in check_widget.labels: t.set_fontsize(16)
 
@@ -154,7 +271,8 @@ while cont:
 		for i, label in enumerate(current_labels):
 			fnames = label_to_files[label]
 			lv = visibility_state.get(label, True)
-			c  = colors[i % len(colors)]
+			c  = label_color[label]
+			ls = label_style[label]
 
 			arrays = []
 			for fname in fnames:
@@ -184,42 +302,33 @@ while cont:
 				vals = np.stack([transform(a[:_min_len, col]) for a in arrays])
 				mean = vals.mean(axis=0)
 				std  = vals.std(axis=0)
-				line, = ax.plot(xs, mean, color=c, linewidth=2, alpha=1.0,
+				line, = ax.plot(xs, mean, color=c, linewidth=2, alpha=1.0, linestyle=ls,
 				                label=label if first_label else None, visible=vis)
 				all_lines.append((line, label, metric_key))
 				fill = ax.fill_between(xs, mean - std, mean + std,
 				                       color=c, alpha=0.2, linewidth=0, visible=vis)
 				all_lines.append((fill, label, metric_key))
 
-			if cmd_args.filter:
-				_plot_stat(1, 'loss',
-				           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k].clip(_LOG_MIN)),
-				           first_label=True)
-				_plot_stat(2, 'top1',
-				           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k].clip(_LOG_MIN)),
-				           first_label=False)
-			else:
-				_plot_stat(1, 'loss',
-				           lambda col: np.log(col.clip(_LOG_MIN)),
-				           first_label=True)
-				_plot_stat(2, 'top1',
-				           lambda col: np.log(col.clip(_LOG_MIN)),
-				           first_label=False)
-			_plot_stat(3, 'val_loss',
-			           lambda col: np.log(col.clip(_LOG_MIN)),
-			           first_label=False)
-			_plot_stat(4, 'val_top1',
-			           lambda col: np.log(col.clip(_LOG_MIN)),
+			# Only the solid variant of a compare group carries a legend entry.
+			_plot_stat(1, 'loss',
+			           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k]),
+			           first_label=(ls == '-'))
+			_plot_stat(2, 'top1',
+			           lambda col, k=min_len: np.log(np.convolve(col, kernel, mode='same')[:k]).clip(-12),
 			           first_label=False)
 
 	else:
-		color_cycle = color_repeat * (len(file_names) // len(color_repeat) + 1)
+		# Plot in Hamming order so the legend follows the sorted label set.
+		label_rank = {l: i for i, l in enumerate(current_labels)}
+		file_names_ordered = sorted(
+			file_names, key=lambda f: (label_rank.get(get_base_label(f), 0), f))
 
-		for i, fname in enumerate(file_names):
+		for fname in file_names_ordered:
 			label  = get_base_label(fname)
 			lv     = visibility_state.get(label, True)
 			is_r1  = fname.endswith('_r1.txt') or not any(fname.endswith(f'_r{r}.txt') for r in range(1, 10))
-			c      = color_cycle[i]
+			c      = label_color[label]
+			ls     = label_style[label]
 
 			try:
 				with open(fname) as f:
@@ -236,41 +345,22 @@ while cont:
 
 				# Col 1: train loss
 				ml = metric_visibility['loss']
-				kw = dict(color=c, alpha=1.0, linewidth=2, visible=lv and ml)
-				if cmd_args.filter:
-					line_raw, = ax.plot(xs, np.log(data[:, 1].clip(_LOG_MIN)), c, alpha=0.05, visible=lv and ml)
-					all_lines.append((line_raw, label, 'loss'))
-					smoothed = np.convolve(data[:, 1], kernel, mode='same')[:len(xs)]
-					loss_y = np.log(smoothed.clip(_LOG_MIN))
-				else:
-					loss_y = np.log(data[:, 1].clip(_LOG_MIN))
-				if is_r1:
-					line_sm, = ax.plot(xs, loss_y, label=label, **kw)
-				else:
-					line_sm, = ax.plot(xs, loss_y, **kw)
+				line_raw, = ax.plot(xs, np.log(data[:, 1]), color=c, alpha=0.05, visible=lv and ml)
+				all_lines.append((line_raw, label, 'loss'))
+				smoothed = np.convolve(data[:, 1], kernel, mode='same')[:len(xs)]
+				kw = dict(color=c, alpha=1.0, linewidth=2, linestyle=ls, visible=lv and ml)
+				# Only the solid variant of a compare group carries a legend entry.
+				leg_label = label if (is_r1 and ls == '-') else None
+				line_sm, = ax.plot(xs, np.log(smoothed), label=leg_label, **kw)
 				all_lines.append((line_sm, label, 'loss'))
 
 				# Col 2: top1 error
 				mv = metric_visibility['top1']
-				if cmd_args.filter:
-					line_top1_raw, = ax.plot(xs, np.log(data[:, 2].clip(_LOG_MIN)), c, alpha=0.05, visible=lv and mv)
-					all_lines.append((line_top1_raw, label, 'top1'))
-					smoothed_top1 = np.convolve(data[:, 2], kernel, mode='same')[:len(xs)]
-					top1_y = np.log(smoothed_top1.clip(_LOG_MIN))
-				else:
-					top1_y = np.log(data[:, 2].clip(_LOG_MIN))
-				line_top1_sm, = ax.plot(xs, top1_y, c, alpha=1.0, linewidth=2, visible=lv and mv)
+				line_top1_raw, = ax.plot(xs, np.log(data[:, 2]).clip(-12), color=c, alpha=0.05, visible=lv and mv)
+				all_lines.append((line_top1_raw, label, 'top1'))
+				smoothed_top1 = np.convolve(data[:, 2], kernel, mode='same')[:len(xs)]
+				line_top1_sm, = ax.plot(xs, np.log(smoothed_top1).clip(-12), color=c, alpha=1.0, linewidth=2, linestyle=ls, visible=lv and mv)
 				all_lines.append((line_top1_sm, label, 'top1'))
-
-				# Col 3: val loss — dashed, no smoothing
-				mv = metric_visibility['val_loss']
-				line_vl, = ax.plot(xs, np.log(data[:, 3].clip(_LOG_MIN)), c, alpha=0.7, linewidth=2, visible=lv and mv)
-				all_lines.append((line_vl, label, 'val_loss'))
-
-				# Col 4: val top1 error — dashed, no smoothing
-				mv = metric_visibility['val_top1']
-				line_vt, = ax.plot(xs, np.log(data[:, 4].clip(_LOG_MIN)), c, alpha=0.7, linewidth=2, visible=lv and mv)
-				all_lines.append((line_vt, label, 'val_top1'))
 
 			except FileNotFoundError:
 				print(f"File {fname} not found. Skipping...")
@@ -279,7 +369,7 @@ while cont:
 
 	ax.set(xlabel='iteration / batch #', ylabel='log loss')
 	ax.set_title('Log Loss Comparison', fontsize=18)
-	leg = ax.legend(fontsize=16)
+	leg = ax.legend(fontsize=16,loc='lower left')
 	for line in leg.get_lines():
 		line.set_linewidth(8.0)
 		line.set_alpha(1.0)
@@ -296,5 +386,8 @@ while cont:
 		cont = False
 	else:
 		fig.canvas.draw()
-		for _ in range(20): fig.canvas.flush_events(); time.sleep(0.1)
-		print("tock")
+		for _ in range(20):
+			if not window_open: break
+			fig.canvas.flush_events(); time.sleep(0.1)
+		if window_open:
+			print("tock")
